@@ -1,0 +1,16 @@
+// backend/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2020", // Mengkompilasi ke versi JavaScript modern
+    "module": "CommonJS", // Sistem modul yang digunakan Node.js
+    "rootDir": "./src", // Folder utama kode sumber TypeScript
+    "outDir": "./dist", // Folder output untuk file JavaScript hasil kompilasi
+    "esModuleInterop": true, // Memungkinkan interoperabilitas modul
+    "forceConsistentCasingInFileNames": true,
+    "strict": true, // Mengaktifkan semua aturan pengecekan tipe yang ketat
+    "skipLibCheck": true, // Melewati pengecekan tipe pada file deklarasi
+    "resolveJsonModule": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*"] // File mana saja yang akan di-compile
+}
