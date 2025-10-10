@@ -29,7 +29,20 @@ app.use(express.json());
 
 // Health Check Route
 app.get("/", (req: Request, res: Response) => {
-  res.status(200).json({ message: "API is running with TypeScript!" });
+  res.status(200).json({
+    message: "API is running with TypeScript!",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development"
+  });
+});
+
+// Readiness check endpoint
+app.get("/health", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
 app.use("/api/devices", authMiddleware, deviceRoutes);
@@ -41,7 +54,35 @@ app.use("/api/navigation", navigationRoutes);
 
 app.listen(PORT, async () => {
   console.log(`Server is listening on port ${PORT}`);
-  await syncDatabase();
-  initializeMqttClient();
-  startHeartbeatJob();
+
+  // Initialize services asynchronously after server starts
+  const initializeServices = async () => {
+    try {
+      console.log("Initializing database...");
+      await Promise.race([
+        syncDatabase(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Database sync timeout")), 30000)
+        )
+      ]);
+      console.log("Database initialized successfully");
+
+      console.log("Initializing MQTT client...");
+      initializeMqttClient();
+      console.log("MQTT client initialization started");
+
+      console.log("Starting heartbeat job...");
+      startHeartbeatJob();
+      console.log("Heartbeat job started");
+
+      console.log("All services initialized successfully!");
+    } catch (error) {
+      console.error("Error during service initialization:", error);
+      // Don't exit the process, just log the error
+      // The server should still be able to handle requests even if some services fail
+    }
+  };
+
+  // Start initialization in the background
+  initializeServices();
 });

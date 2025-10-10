@@ -33,11 +33,19 @@ incident_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as: "d
 // Sinkronisasi database (opsional, bagus untuk development)
 const syncDatabase = async () => {
     try {
-        // await sequelize.sync({ alter: true }); // Jangan gunakan 'force: true' di production
+        // Test database connection first
+        await config_1.sequelize.authenticate();
+        console.log("Database connection established successfully.");
+        // Only sync in development, not in production
+        if (process.env.NODE_ENV !== "production") {
+            // await sequelize.sync({ alter: true }); // Jangan gunakan 'force: true' di production
+            console.log("Database sync skipped in production.");
+        }
         console.log("Database synchronized successfully.");
     }
     catch (error) {
         console.error("Unable to synchronize the database:", error);
+        throw error; // Re-throw to be caught by the caller
     }
 };
 exports.syncDatabase = syncDatabase;

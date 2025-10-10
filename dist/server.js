@@ -29,7 +29,19 @@ app.use((0, cors_1.default)({
 app.use(express_1.default.json());
 // Health Check Route
 app.get("/", (req, res) => {
-    res.status(200).json({ message: "API is running with TypeScript!" });
+    res.status(200).json({
+        message: "API is running with TypeScript!",
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || "development"
+    });
+});
+// Readiness check endpoint
+app.get("/health", (req, res) => {
+    res.status(200).json({
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
 });
 app.use("/api/devices", authMiddleware_1.authMiddleware, deviceRoutes_1.default);
 app.use("/api/warehouses", authMiddleware_1.authMiddleware, warehouseRoutes_1.default);
@@ -39,7 +51,29 @@ app.use("/api/users", userRoutes_1.default);
 app.use("/api/navigation", navigationRoutes_1.default);
 app.listen(PORT, async () => {
     console.log(`Server is listening on port ${PORT}`);
-    await (0, models_1.syncDatabase)();
-    (0, client_1.initializeMqttClient)();
-    (0, heartbeatChecker_1.startHeartbeatJob)();
+    // Initialize services asynchronously after server starts
+    const initializeServices = async () => {
+        try {
+            console.log("Initializing database...");
+            await Promise.race([
+                (0, models_1.syncDatabase)(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Database sync timeout")), 30000))
+            ]);
+            console.log("Database initialized successfully");
+            console.log("Initializing MQTT client...");
+            (0, client_1.initializeMqttClient)();
+            console.log("MQTT client initialization started");
+            console.log("Starting heartbeat job...");
+            (0, heartbeatChecker_1.startHeartbeatJob)();
+            console.log("Heartbeat job started");
+            console.log("All services initialized successfully!");
+        }
+        catch (error) {
+            console.error("Error during service initialization:", error);
+            // Don't exit the process, just log the error
+            // The server should still be able to handle requests even if some services fail
+        }
+    };
+    // Start initialization in the background
+    initializeServices();
 });

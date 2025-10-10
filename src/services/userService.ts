@@ -95,7 +95,8 @@ export const getAllUsers = async (requestingUserId: string) => {
 
   // Filter untuk tidak menampilkan super_admin lain DAN tidak menampilkan diri sendiri
   return usersWithRolesAndProfiles.filter(
-    (user: User & { role: string }) => user.role !== "super_admin" && user.id !== requestingUserId
+    (user: User & { role: string }) =>
+      user.role !== "super_admin" && user.id !== requestingUserId
   );
 };
 
