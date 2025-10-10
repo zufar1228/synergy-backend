@@ -4,6 +4,8 @@ import { sendInviteEmail } from "./notificationService";
 import { Profile } from "../db/models"; // Ganti dengan model yang sesuai jika perlu
 import ApiError from "../utils/apiError";
 import { UserRole } from "../db/models/userRole";
+import { User } from "@supabase/supabase-js";
+import { en } from "zod/v4/locales";
 
 const touchSecurityTimestamp = async (userId: string) => {
   await Profile.update(
@@ -21,7 +23,7 @@ export const inviteUser = async (
       type: "invite",
       email: email,
       options: {
-        redirectTo: "http://localhost:3000/setup-account",
+        redirectTo: process.env.FRONTEND_URL + "/setup-account",
       },
     });
 
@@ -74,7 +76,7 @@ export const getAllUsers = async (requestingUserId: string) => {
 
   // Gabungkan data auth dengan roles dan profile pictures
   const usersWithRolesAndProfiles = await Promise.all(
-    users.map(async (user) => {
+    users.map(async (user: User) => {
       const role = rolesMap.get(user.id) || "user";
 
       // Ambil profile dari database jika ada
@@ -93,7 +95,7 @@ export const getAllUsers = async (requestingUserId: string) => {
 
   // Filter untuk tidak menampilkan super_admin lain DAN tidak menampilkan diri sendiri
   return usersWithRolesAndProfiles.filter(
-    (user) => user.role !== "super_admin" && user.id !== requestingUserId
+    (user: User & { role: string }) => user.role !== "super_admin" && user.id !== requestingUserId
   );
 };
 
