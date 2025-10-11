@@ -32,12 +32,39 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const analyticsController = __importStar(require("../controllers/analyticsController"));
-const router = (0, express_1.Router)();
-router.get("/gangguan/summary-by-type", analyticsController.getIncidentSummaryByType);
-// Kita tidak perlu validasi Zod yang rumit di sini karena semua query bersifat opsional
-router.get("/:system_type", analyticsController.getAnalytics);
-router.get("/gangguan/trend-by-warehouse", analyticsController.getIncidentTrendByWarehouse);
-exports.default = router;
+exports.updateStatus = void 0;
+const incidentService = __importStar(require("../../services/incidentService"));
+const apiError_1 = __importDefault(require("../../utils/apiError"));
+const handleError = (res, error) => {
+    if (error instanceof apiError_1.default) {
+        return res.status(error.statusCode).json({ message: error.message });
+    }
+    // Log error yang tidak terduga untuk debugging
+    console.error("Unhandled Error in IncidentController:", error);
+    return res
+        .status(500)
+        .json({ message: "An unexpected internal server error occurred." });
+};
+const updateStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, notes } = req.body;
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new apiError_1.default(401, "User tidak terautentikasi.");
+        }
+        if (!status) {
+            return res.status(400).json({ message: "Status wajib diisi." });
+        }
+        const updatedIncident = await incidentService.updateIncidentStatus(id, userId, status, notes);
+        res.status(200).json(updatedIncident);
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.updateStatus = updateStatus;

@@ -1,6 +1,7 @@
 // backend/src/services/warehouseService.ts
 
 import { Warehouse, Area, Device } from "../db/models";
+import { sequelize } from "../db/config";
 import { WarehouseAttributes } from "../db/models/warehouse"; // Pastikan Anda mengimpor ini
 import ApiError from "../utils/apiError";
 
@@ -21,10 +22,16 @@ interface WarehouseWithAreas extends WarehouseAttributes {
   areas: AreaWithDevices[];
 }
 
+interface WarehouseWithRelations extends Warehouse {
+  areas: (Area & {
+    devices: Device[];
+  })[];
+}
+
 type WarehouseCreationAttributes = WarehouseAttributes;
 
 export const getWarehouseWithAreaSystems = async (warehouseId: string) => {
-  const warehouse = await Warehouse.findByPk(warehouseId, {
+  const warehouse = (await Warehouse.findByPk(warehouseId, {
     include: [
       {
         model: Area,
@@ -34,57 +41,113 @@ export const getWarehouseWithAreaSystems = async (warehouseId: string) => {
           {
             model: Device,
             as: "devices",
-            attributes: ["system_type"],
+            // === PERUBAHAN DI SINI: Ambil juga statusnya ===
+            attributes: ["system_type", "status"],
           },
         ],
       },
     ],
     order: [[{ model: Area, as: "areas" }, "name", "ASC"]],
-  });
+  })) as WarehouseWithRelations | null;
 
   if (!warehouse) {
     throw new ApiError(404, "Warehouse not found");
   }
 
-  // 2. Gunakan type assertion 'as' untuk memberitahu TypeScript
-  //    bahwa kita tahu struktur data yang benar.
+  // === PERBAIKAN: Ganti query statistik yang kompleks dengan yang lebih sederhana ===
+  const commonWhere = {
+    include: [
+      {
+        model: Area,
+        as: "area",
+        attributes: [],
+        where: { warehouse_id: warehouseId },
+      },
+    ],
+  };
+
+  // 1. Hitung total perangkat di gudang ini
+  const totalDeviceCount = await Device.count(commonWhere);
+
+  // 2. Hitung perangkat yang online di gudang ini
+  const onlineDeviceCount = await Device.count({
+    ...commonWhere,
+    where: { status: "Online" },
+  });
+  // ======================================================================
+
   const warehouseData = warehouse.toJSON() as WarehouseWithAreas;
 
-  // Sekarang TypeScript tahu bahwa warehouseData.areas adalah array AreaWithDevices
-  const transformedAreas = warehouseData.areas.map((area) => {
-    // <-- 'area' sekarang punya tipe yang benar
-    const systemSummary: { [key: string]: number } = {};
+  // === PERUBAHAN DI SINI: Proses data status ===
+  const transformedAreas = warehouseData.areas.map((area: any) => {
+    const systemsMap = new Map<
+      string,
+      { device_count: number; status: string }
+    >();
 
-    // Dan 'device' juga punya tipe yang benar
-    area.devices.forEach((device) => {
-      systemSummary[device.system_type] =
-        (systemSummary[device.system_type] || 0) + 1;
+    area.devices.forEach((device: any) => {
+      // Asumsi 1 tipe sistem per area, statusnya langsung diambil
+      systemsMap.set(device.system_type, {
+        device_count: 1,
+        status: device.status,
+      });
     });
 
-    const activeSystems = Object.keys(systemSummary).map((type) => ({
-      system_type: type,
-      device_count: systemSummary[type],
-    }));
+    const activeSystems = Array.from(systemsMap.entries()).map(
+      ([type, data]) => ({
+        system_type: type,
+        device_count: data.device_count,
+        status: data.status, // <-- Kirim status ke frontend
+      })
+    );
 
-    return {
-      id: area.id,
-      name: area.name,
-      active_systems: activeSystems,
-    };
+    return { id: area.id, name: area.name, active_systems: activeSystems };
   });
 
   const response = {
     id: warehouseData.id,
     name: warehouseData.name,
     location: warehouseData.location,
+    areaCount: warehouseData.areas.length,
+    deviceCount: totalDeviceCount,
+    onlineDeviceCount: onlineDeviceCount,
     areas: transformedAreas,
   };
 
   return response;
 };
 
-export const getAllWarehouses = async () => {
+export const getAllWarehousesWithStats = async () => {
   const warehouses = await Warehouse.findAll({
+    attributes: {
+      include: [
+        // Subquery untuk menghitung jumlah area
+        [
+          sequelize.literal(
+            '(SELECT COUNT(*) FROM areas WHERE areas.warehouse_id = "Warehouse"."id")'
+          ),
+          "areaCount",
+        ],
+        // Subquery untuk menghitung jumlah total perangkat
+        [
+          sequelize.literal(`(
+            SELECT COUNT(*) FROM devices 
+            JOIN areas ON devices.area_id = areas.id 
+            WHERE areas.warehouse_id = "Warehouse"."id"
+          )`),
+          "deviceCount",
+        ],
+        // Subquery untuk menghitung jumlah perangkat yang online
+        [
+          sequelize.literal(`(
+            SELECT COUNT(*) FROM devices 
+            JOIN areas ON devices.area_id = areas.id 
+            WHERE areas.warehouse_id = "Warehouse"."id" AND devices.status = 'Online'
+          )`),
+          "onlineDeviceCount",
+        ],
+      ],
+    },
     order: [["name", "ASC"]],
   });
   return warehouses;

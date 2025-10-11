@@ -33,11 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+// backend/src/api/routes/incidentRoutes.ts
 const express_1 = require("express");
-const analyticsController = __importStar(require("../controllers/analyticsController"));
+const incidentController = __importStar(require("../controllers/incidentController"));
+const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
-router.get("/gangguan/summary-by-type", analyticsController.getIncidentSummaryByType);
-// Kita tidak perlu validasi Zod yang rumit di sini karena semua query bersifat opsional
-router.get("/:system_type", analyticsController.getAnalytics);
-router.get("/gangguan/trend-by-warehouse", analyticsController.getIncidentTrendByWarehouse);
+// Endpoint ini dapat diakses oleh semua user yang login
+router.put("/:id/status", authMiddleware_1.authMiddleware, incidentController.updateStatus);
 exports.default = router;

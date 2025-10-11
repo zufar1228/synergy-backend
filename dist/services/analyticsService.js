@@ -4,11 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getIncidentSummaryByType = exports.getAnalyticsData = void 0;
+exports.getIncidentTrendByWarehouse = exports.getIncidentSummaryByType = exports.getAnalyticsData = void 0;
 const config_1 = require("../db/config");
 const models_1 = require("../db/models"); // <-- Import Incident
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const sequelize_1 = require("sequelize");
+const models_2 = require("../db/models"); // <-- TAMBAHKAN INI
+const date_fns_1 = require("date-fns");
 // Map string system_type ke Sequelize Model
 const logModels = {
     lingkungan: models_1.LingkunganLog,
@@ -153,3 +155,52 @@ const getIncidentSummaryByType = async (filters) => {
     return formattedResults;
 };
 exports.getIncidentSummaryByType = getIncidentSummaryByType;
+const getIncidentTrendByWarehouse = async (filters) => {
+    const { warehouse_id, from, to } = filters;
+    const whereCondition = {};
+    if (from || to) {
+        whereCondition.created_at = {
+            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
+            ...(to && { [sequelize_1.Op.lte]: new Date(to) }),
+        };
+    }
+    const results = await models_1.Incident.findAll({
+        attributes: [
+            // Truncate timestamp ke level 'hari' dan beri nama alias 'date'
+            [
+                config_1.sequelize.fn("DATE_TRUNC", "day", config_1.sequelize.col("Incident.created_at")),
+                "date",
+            ],
+            // Hitung jumlah insiden per hari
+            [config_1.sequelize.fn("COUNT", config_1.sequelize.col("Incident.id")), "total"],
+        ],
+        include: [
+            {
+                model: models_1.Device,
+                as: "device",
+                attributes: [],
+                required: true,
+                include: [
+                    {
+                        model: models_2.Area,
+                        as: "area",
+                        attributes: [],
+                        where: { warehouse_id: warehouse_id },
+                        required: true,
+                    },
+                ],
+            },
+        ],
+        where: whereCondition,
+        group: ["date"], // Kelompokkan hasil berdasarkan hari
+        order: [["date", "ASC"]], // Urutkan dari tanggal terlama
+        raw: true,
+    });
+    // Format hasil agar mudah digunakan oleh library chart
+    const formattedResults = results.map((item) => ({
+        date: (0, date_fns_1.format)(new Date(item.date), "dd MMM"), // Format tanggal (e.g., "11 Okt")
+        total: parseInt(item.total, 10),
+    }));
+    return formattedResults;
+};
+exports.getIncidentTrendByWarehouse = getIncidentTrendByWarehouse;

@@ -12,6 +12,8 @@ import areaRoutes from "./api/routes/areaRoutes";
 import { authMiddleware } from "./api/middlewares/authMiddleware";
 import userRoutes from "./api/routes/userRoutes";
 import navigationRoutes from "./api/routes/navigationRoutes";
+import incidentRoutes from "./api/routes/incidentRoutes";
+import alertRoutes from "./api/routes/alertRoutes";
 
 const app: Express = express();
 const PORT: number = parseInt(process.env.PORT || "5001", 10);
@@ -32,7 +34,7 @@ app.get("/", (req: Request, res: Response) => {
   res.status(200).json({
     message: "API is running with TypeScript!",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || "development"
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -41,7 +43,7 @@ app.get("/health", (req: Request, res: Response) => {
   res.status(200).json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
   });
 });
 
@@ -51,6 +53,8 @@ app.use("/api/analytics", authMiddleware, analyticsRoutes);
 app.use("/api/areas", authMiddleware, areaRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/navigation", navigationRoutes);
+app.use("/api/incidents", incidentRoutes);
+app.use("/api/alerts", alertRoutes);
 
 app.listen(PORT, async () => {
   console.log(`Server is listening on port ${PORT}`);
@@ -63,7 +67,7 @@ app.listen(PORT, async () => {
         syncDatabase(),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Database sync timeout")), 30000)
-        )
+        ),
       ]);
       console.log("Database initialized successfully");
 

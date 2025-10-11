@@ -22,7 +22,8 @@ export const getAreasWithSystems = async (req: Request, res: Response) => {
 
 export const listWarehouses = async (req: Request, res: Response) => {
   try {
-    const data = await warehouseService.getAllWarehouses();
+    // Panggil fungsi baru yang mengembalikan statistik
+    const data = await warehouseService.getAllWarehousesWithStats();
     res.status(200).json(data);
   } catch (error) {
     if (error instanceof ApiError) {

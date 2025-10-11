@@ -17,6 +17,8 @@ const areaRoutes_1 = __importDefault(require("./api/routes/areaRoutes"));
 const authMiddleware_1 = require("./api/middlewares/authMiddleware");
 const userRoutes_1 = __importDefault(require("./api/routes/userRoutes"));
 const navigationRoutes_1 = __importDefault(require("./api/routes/navigationRoutes"));
+const incidentRoutes_1 = __importDefault(require("./api/routes/incidentRoutes"));
+const alertRoutes_1 = __importDefault(require("./api/routes/alertRoutes"));
 const app = (0, express_1.default)();
 const PORT = parseInt(process.env.PORT || "5001", 10);
 // Middlewares
@@ -32,7 +34,7 @@ app.get("/", (req, res) => {
     res.status(200).json({
         message: "API is running with TypeScript!",
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || "development"
+        environment: process.env.NODE_ENV || "development",
     });
 });
 // Readiness check endpoint
@@ -40,7 +42,7 @@ app.get("/health", (req, res) => {
     res.status(200).json({
         status: "healthy",
         timestamp: new Date().toISOString(),
-        uptime: process.uptime()
+        uptime: process.uptime(),
     });
 });
 app.use("/api/devices", authMiddleware_1.authMiddleware, deviceRoutes_1.default);
@@ -49,6 +51,8 @@ app.use("/api/analytics", authMiddleware_1.authMiddleware, analyticsRoutes_1.def
 app.use("/api/areas", authMiddleware_1.authMiddleware, areaRoutes_1.default);
 app.use("/api/users", userRoutes_1.default);
 app.use("/api/navigation", navigationRoutes_1.default);
+app.use("/api/incidents", incidentRoutes_1.default);
+app.use("/api/alerts", alertRoutes_1.default);
 app.listen(PORT, async () => {
     console.log(`Server is listening on port ${PORT}`);
     // Initialize services asynchronously after server starts
@@ -57,7 +61,7 @@ app.listen(PORT, async () => {
             console.log("Initializing database...");
             await Promise.race([
                 (0, models_1.syncDatabase)(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error("Database sync timeout")), 30000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Database sync timeout")), 30000)),
             ]);
             console.log("Database initialized successfully");
             console.log("Initializing MQTT client...");

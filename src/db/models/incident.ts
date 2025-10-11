@@ -2,6 +2,13 @@
 import { Model, DataTypes, UUIDV4, CreationOptional } from "sequelize";
 import { sequelize } from "../config";
 
+// Definisikan tipe untuk status
+export type IncidentStatus =
+  | "unacknowledged"
+  | "acknowledged"
+  | "resolved"
+  | "false_alarm";
+
 export interface IncidentAttributes {
   id: CreationOptional<string>;
   created_at: CreationOptional<Date>;
@@ -9,11 +16,21 @@ export interface IncidentAttributes {
   incident_type: string;
   confidence: number | null;
   raw_features: object | null;
+  // Kolom baru
+  status: CreationOptional<IncidentStatus>;
+  acknowledged_by: string | null;
+  acknowledged_at: Date | null;
+  notes: string | null;
 }
 
 export type IncidentCreationAttributes = Omit<
   IncidentAttributes,
-  "id" | "created_at"
+  | "id"
+  | "created_at"
+  | "status"
+  | "acknowledged_by"
+  | "acknowledged_at"
+  | "notes"
 >;
 
 class Incident
@@ -26,6 +43,10 @@ class Incident
   public incident_type!: string;
   public confidence!: number | null;
   public raw_features!: object | null;
+  public status!: CreationOptional<IncidentStatus>;
+  public acknowledged_by!: string | null;
+  public acknowledged_at!: Date | null;
+  public notes!: string | null;
 }
 
 Incident.init(
@@ -36,11 +57,24 @@ Incident.init(
     incident_type: { type: DataTypes.TEXT, allowNull: false },
     confidence: { type: DataTypes.REAL, allowNull: true },
     raw_features: { type: DataTypes.JSONB, allowNull: true },
+    status: {
+      type: DataTypes.ENUM(
+        "unacknowledged",
+        "acknowledged",
+        "resolved",
+        "false_alarm"
+      ),
+      defaultValue: "unacknowledged",
+      allowNull: false,
+    },
+    acknowledged_by: { type: DataTypes.UUID, allowNull: true },
+    acknowledged_at: { type: DataTypes.DATE, allowNull: true },
+    notes: { type: DataTypes.TEXT, allowNull: true },
   },
   {
     sequelize,
     tableName: "incidents",
-    timestamps: false, // Kita sudah punya 'created_at'
+    timestamps: false,
     underscored: true,
   }
 );

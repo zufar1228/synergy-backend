@@ -12,10 +12,18 @@ Incident.init({
     incident_type: { type: sequelize_1.DataTypes.TEXT, allowNull: false },
     confidence: { type: sequelize_1.DataTypes.REAL, allowNull: true },
     raw_features: { type: sequelize_1.DataTypes.JSONB, allowNull: true },
+    status: {
+        type: sequelize_1.DataTypes.ENUM("unacknowledged", "acknowledged", "resolved", "false_alarm"),
+        defaultValue: "unacknowledged",
+        allowNull: false,
+    },
+    acknowledged_by: { type: sequelize_1.DataTypes.UUID, allowNull: true },
+    acknowledged_at: { type: sequelize_1.DataTypes.DATE, allowNull: true },
+    notes: { type: sequelize_1.DataTypes.TEXT, allowNull: true },
 }, {
     sequelize: config_1.sequelize,
     tableName: "incidents",
-    timestamps: false, // Kita sudah punya 'created_at'
+    timestamps: false,
     underscored: true,
 });
 exports.default = Incident;

@@ -59,7 +59,8 @@ const getAreasWithSystems = async (req, res) => {
 exports.getAreasWithSystems = getAreasWithSystems;
 const listWarehouses = async (req, res) => {
     try {
-        const data = await warehouseService.getAllWarehouses();
+        // Panggil fungsi baru yang mengembalikan statistik
+        const data = await warehouseService.getAllWarehousesWithStats();
         res.status(200).json(data);
     }
     catch (error) {

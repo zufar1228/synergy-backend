@@ -10,4 +10,9 @@ router.get(
 // Kita tidak perlu validasi Zod yang rumit di sini karena semua query bersifat opsional
 router.get("/:system_type", analyticsController.getAnalytics);
 
+router.get(
+  "/gangguan/trend-by-warehouse",
+  analyticsController.getIncidentTrendByWarehouse
+);
+
 export default router;

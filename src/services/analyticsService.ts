@@ -3,7 +3,9 @@
 import { sequelize } from "../db/config";
 import { Device, LingkunganLog, Incident } from "../db/models"; // <-- Import Incident
 import ApiError from "../utils/apiError";
-import { Op, ModelStatic, Model } from "sequelize";
+import { Op, ModelStatic, Model, literal } from "sequelize";
+import { Area } from "../db/models"; // <-- TAMBAHKAN INI
+import { format } from "date-fns";
 
 // Map string system_type ke Sequelize Model
 const logModels: { [key: string]: ModelStatic<Model<any, any>> } = {
@@ -177,6 +179,63 @@ export const getIncidentSummaryByType = async (filters: {
   // Sequelize mengembalikan 'total' sebagai string, jadi kita parse ke integer
   const formattedResults = results.map((item: any) => ({
     name: item.incident_type,
+    total: parseInt(item.total, 10),
+  }));
+
+  return formattedResults;
+};
+
+export const getIncidentTrendByWarehouse = async (filters: {
+  warehouse_id: string;
+  from?: string;
+  to?: string;
+}) => {
+  const { warehouse_id, from, to } = filters;
+
+  const whereCondition: any = {};
+  if (from || to) {
+    whereCondition.created_at = {
+      ...(from && { [Op.gte]: new Date(from) }),
+      ...(to && { [Op.lte]: new Date(to) }),
+    };
+  }
+
+  const results = await Incident.findAll({
+    attributes: [
+      // Truncate timestamp ke level 'hari' dan beri nama alias 'date'
+      [
+        sequelize.fn("DATE_TRUNC", "day", sequelize.col("Incident.created_at")),
+        "date",
+      ],
+      // Hitung jumlah insiden per hari
+      [sequelize.fn("COUNT", sequelize.col("Incident.id")), "total"],
+    ],
+    include: [
+      {
+        model: Device,
+        as: "device",
+        attributes: [],
+        required: true,
+        include: [
+          {
+            model: Area,
+            as: "area",
+            attributes: [],
+            where: { warehouse_id: warehouse_id },
+            required: true,
+          },
+        ],
+      },
+    ],
+    where: whereCondition,
+    group: ["date"], // Kelompokkan hasil berdasarkan hari
+    order: [["date", "ASC"]], // Urutkan dari tanggal terlama
+    raw: true,
+  });
+
+  // Format hasil agar mudah digunakan oleh library chart
+  const formattedResults = results.map((item: any) => ({
+    date: format(new Date(item.date), "dd MMM"), // Format tanggal (e.g., "11 Okt")
     total: parseInt(item.total, 10),
   }));
 

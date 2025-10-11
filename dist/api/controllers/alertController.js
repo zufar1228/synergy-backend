@@ -33,11 +33,23 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const analyticsController = __importStar(require("../controllers/analyticsController"));
-const router = (0, express_1.Router)();
-router.get("/gangguan/summary-by-type", analyticsController.getIncidentSummaryByType);
-// Kita tidak perlu validasi Zod yang rumit di sini karena semua query bersifat opsional
-router.get("/:system_type", analyticsController.getAnalytics);
-router.get("/gangguan/trend-by-warehouse", analyticsController.getIncidentTrendByWarehouse);
-exports.default = router;
+exports.listActiveAlerts = void 0;
+const alertService = __importStar(require("../../services/alertService"));
+const listActiveAlerts = async (req, res) => {
+    try {
+        const { warehouse_id } = req.query;
+        if (!warehouse_id) {
+            return res
+                .status(400)
+                .json({ message: 'Query "warehouse_id" is required.' });
+        }
+        const data = await alertService.getActiveAlerts(warehouse_id);
+        res.status(200).json(data);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error";
+        console.error("Failed to list active alerts:", error);
+        res.status(500).json({ message });
+    }
+};
+exports.listActiveAlerts = listActiveAlerts;
