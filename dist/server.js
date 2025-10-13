@@ -45,6 +45,19 @@ app.get("/health", (req, res) => {
         uptime: process.uptime(),
     });
 });
+// Keep-alive endpoint for cron jobs (prevents Render spin-down)
+app.get("/keep-alive", (req, res) => {
+    res.status(200).json({
+        status: "alive",
+        message: "App is active and responding",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+    });
+});
+// HEAD version of keep-alive for cron services that prefer HEAD requests
+app.head("/keep-alive", (req, res) => {
+    res.status(200).end();
+});
 app.use("/api/devices", authMiddleware_1.authMiddleware, deviceRoutes_1.default);
 app.use("/api/warehouses", authMiddleware_1.authMiddleware, warehouseRoutes_1.default);
 app.use("/api/analytics", authMiddleware_1.authMiddleware, analyticsRoutes_1.default);
