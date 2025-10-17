@@ -50,4 +50,6 @@ router.put("/:id/status", authMiddleware_1.authMiddleware, superAdminOnly, userC
 // Rute /me untuk pengguna biasa tetap ada dan tidak berubah
 router.get("/me", authMiddleware_1.authMiddleware, userController.getMyProfile);
 router.put("/me", authMiddleware_1.authMiddleware, userController.updateMyProfile);
+router.get("/me/preferences", authMiddleware_1.authMiddleware, userController.getMyPreferences);
+router.put("/me/preferences", authMiddleware_1.authMiddleware, userController.updateMyPreferences);
 exports.default = router;

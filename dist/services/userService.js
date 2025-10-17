@@ -3,13 +3,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = void 0;
+exports.updateUserPreferences = exports.getUserPreferences = exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = void 0;
 // backend/src/services/userService.ts
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
 const notificationService_1 = require("./notificationService");
 const models_1 = require("../db/models"); // Ganti dengan model yang sesuai jika perlu
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const userRole_1 = require("../db/models/userRole");
+const models_2 = require("../db/models");
+const config_1 = require("../db/config");
 const touchSecurityTimestamp = async (userId) => {
     await models_1.Profile.update({ security_timestamp: new Date() }, { where: { id: userId } });
 };
@@ -165,3 +167,28 @@ const updateUserProfile = async (userId, data) => {
     return profile;
 };
 exports.updateUserProfile = updateUserProfile;
+const getUserPreferences = async (userId) => {
+    const preferences = await models_2.UserNotificationPreference.findAll({
+        where: { user_id: userId },
+        attributes: ["system_type", "is_enabled"],
+    });
+    return preferences;
+};
+exports.getUserPreferences = getUserPreferences;
+// Fungsi BARU untuk memperbarui preferensi pengguna
+const updateUserPreferences = async (userId, preferences) => {
+    // Gunakan 'upsert' dalam satu transaksi agar atomik
+    const transaction = await config_1.sequelize.transaction();
+    try {
+        for (const pref of preferences) {
+            await models_2.UserNotificationPreference.upsert({ user_id: userId, ...pref }, { transaction });
+        }
+        await transaction.commit();
+        return (0, exports.getUserPreferences)(userId); // Kembalikan data yang sudah diperbarui
+    }
+    catch (error) {
+        await transaction.rollback();
+        throw new apiError_1.default(500, "Gagal menyimpan preferensi.");
+    }
+};
+exports.updateUserPreferences = updateUserPreferences;

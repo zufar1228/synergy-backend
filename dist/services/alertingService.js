@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processSensorDataForAlerts = void 0;
 // backend/src/services/alertingService.ts
@@ -6,6 +9,8 @@ const models_1 = require("../db/models");
 const notificationService_1 = require("./notificationService"); // <-- NAMA FILE DIPERBAIKI
 const date_fns_1 = require("date-fns");
 const locale_1 = require("date-fns/locale");
+const supabaseAdmin_1 = require("../config/supabaseAdmin");
+const apiError_1 = __importDefault(require("../utils/apiError"));
 const thresholds = {
     lingkungan: { temp: { max: 40 }, humidity: { max: 85 } },
 };
@@ -50,7 +55,28 @@ const processSensorDataForAlerts = async (deviceId, systemType, data) => {
         details,
     };
     const subject = `[PERINGATAN Kritis] Terdeteksi ${incidentType} di ${warehouseName} - ${areaName}`;
-    const subscribedUsers = [{ email: "zufarnatsir@apps.ipb.ac.id" }];
+    // === PERBAIKAN: Ganti daftar user hardcoded dengan query dinamis ===
+    // 1. Cari semua preferensi yang aktif untuk tipe sistem ini
+    const activeSubscriptions = await models_1.UserNotificationPreference.findAll({
+        where: {
+            system_type: systemType,
+            is_enabled: true,
+        },
+        attributes: ['user_id'],
+    });
+    if (activeSubscriptions.length === 0) {
+        console.log(`[Alerting] No active subscribers for system type "${systemType}".`);
+        return;
+    }
+    // 2. Ambil semua email dari user ID yang subscribe
+    const userIds = activeSubscriptions.map(sub => sub.user_id);
+    const { data: { users }, error } = await supabaseAdmin_1.supabaseAdmin.auth.admin.listUsers();
+    if (error)
+        throw new apiError_1.default(500, 'Gagal mengambil daftar pengguna untuk notifikasi.');
+    const subscribedUsers = users
+        .filter(user => userIds.includes(user.id))
+        .map(user => ({ email: user.email }));
+    // =====================================================================
     for (const user of subscribedUsers) {
         await (0, notificationService_1.sendAlertEmail)({ to: user.email, subject, emailProps });
     }

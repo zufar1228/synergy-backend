@@ -112,3 +112,33 @@ export const validateSession = (req: Request, res: Response) => {
   // Cukup kirim respons sukses.
   res.status(200).json({ valid: true });
 };
+
+export const getMyPreferences = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const preferences = await userService.getUserPreferences(userId);
+    res.status(200).json(preferences);
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// Handler BARU
+export const updateMyPreferences = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const preferences = req.body; // Harapannya adalah array of objects
+    if (!Array.isArray(preferences)) {
+      return res
+        .status(400)
+        .json({ message: "Request body harus berupa array." });
+    }
+    const updatedPreferences = await userService.updateUserPreferences(
+      userId,
+      preferences
+    );
+    res.status(200).json(updatedPreferences);
+  } catch (error) {
+    handleError(res, error);
+  }
+};

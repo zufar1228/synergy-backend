@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
+exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
 const userService = __importStar(require("../../services/userService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
 const inviteUser = async (req, res) => {
@@ -156,3 +156,32 @@ const validateSession = (req, res) => {
     res.status(200).json({ valid: true });
 };
 exports.validateSession = validateSession;
+const getMyPreferences = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const preferences = await userService.getUserPreferences(userId);
+        res.status(200).json(preferences);
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.getMyPreferences = getMyPreferences;
+// Handler BARU
+const updateMyPreferences = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const preferences = req.body; // Harapannya adalah array of objects
+        if (!Array.isArray(preferences)) {
+            return res
+                .status(400)
+                .json({ message: "Request body harus berupa array." });
+        }
+        const updatedPreferences = await userService.updateUserPreferences(userId, preferences);
+        res.status(200).json(updatedPreferences);
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.updateMyPreferences = updateMyPreferences;

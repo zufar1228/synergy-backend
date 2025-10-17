@@ -40,4 +40,11 @@ router.put(
 router.get("/me", authMiddleware, userController.getMyProfile);
 router.put("/me", authMiddleware, userController.updateMyProfile);
 
+router.get("/me/preferences", authMiddleware, userController.getMyPreferences);
+router.put(
+  "/me/preferences",
+  authMiddleware,
+  userController.updateMyPreferences
+);
+
 export default router;

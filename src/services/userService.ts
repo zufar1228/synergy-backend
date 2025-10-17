@@ -6,6 +6,8 @@ import ApiError from "../utils/apiError";
 import { UserRole } from "../db/models/userRole";
 import { User } from "@supabase/supabase-js";
 import { en } from "zod/v4/locales";
+import { UserNotificationPreference } from "../db/models";
+import { sequelize } from "../db/config";
 
 const touchSecurityTimestamp = async (userId: string) => {
   await Profile.update(
@@ -223,4 +225,34 @@ export const updateUserProfile = async (
     security_timestamp: new Date(),
   });
   return profile;
+};
+
+export const getUserPreferences = async (userId: string) => {
+  const preferences = await UserNotificationPreference.findAll({
+    where: { user_id: userId },
+    attributes: ["system_type", "is_enabled"],
+  });
+  return preferences;
+};
+
+// Fungsi BARU untuk memperbarui preferensi pengguna
+export const updateUserPreferences = async (
+  userId: string,
+  preferences: { system_type: string; is_enabled: boolean }[]
+) => {
+  // Gunakan 'upsert' dalam satu transaksi agar atomik
+  const transaction = await sequelize.transaction();
+  try {
+    for (const pref of preferences) {
+      await UserNotificationPreference.upsert(
+        { user_id: userId, ...pref },
+        { transaction }
+      );
+    }
+    await transaction.commit();
+    return getUserPreferences(userId); // Kembalikan data yang sudah diperbarui
+  } catch (error) {
+    await transaction.rollback();
+    throw new ApiError(500, "Gagal menyimpan preferensi.");
+  }
 };
