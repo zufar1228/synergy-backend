@@ -175,20 +175,38 @@ const getUserPreferences = async (userId) => {
     return preferences;
 };
 exports.getUserPreferences = getUserPreferences;
-// Fungsi BARU untuk memperbarui preferensi pengguna
 const updateUserPreferences = async (userId, preferences) => {
-    // Gunakan 'upsert' dalam satu transaksi agar atomik
     const transaction = await config_1.sequelize.transaction();
     try {
         for (const pref of preferences) {
-            await models_2.UserNotificationPreference.upsert({ user_id: userId, ...pref }, { transaction });
+            // === PERBAIKAN: Ganti 'upsert' dengan 'findOrCreate' + 'update' ===
+            // 1. Coba cari atau buat entri baru
+            const [preference, created] = await models_2.UserNotificationPreference.findOrCreate({
+                where: {
+                    user_id: userId,
+                    system_type: pref.system_type,
+                },
+                defaults: {
+                    user_id: userId,
+                    system_type: pref.system_type,
+                    is_enabled: pref.is_enabled,
+                },
+                transaction: transaction, // Pastikan menggunakan transaksi
+            });
+            // 2. Jika tidak dibuat (artinya sudah ada), maka update nilainya
+            if (!created) {
+                await preference.update({ is_enabled: pref.is_enabled }, { transaction: transaction });
+            }
+            // ==========================================================
         }
         await transaction.commit();
         return (0, exports.getUserPreferences)(userId); // Kembalikan data yang sudah diperbarui
     }
     catch (error) {
+        // Tambahkan log ini untuk melihat error spesifik di terminal backend jika terjadi lagi
+        console.error("!!! DEBUG: Gagal saat update preferensi:", error);
         await transaction.rollback();
-        throw new apiError_1.default(500, "Gagal menyimpan preferensi.");
+        throw new apiError_1.default(500, 'Gagal menyimpan preferensi.');
     }
 };
 exports.updateUserPreferences = updateUserPreferences;

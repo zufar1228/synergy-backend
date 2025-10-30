@@ -10,10 +10,16 @@ export interface UserNotificationPreferenceAttributes {
 }
 
 // Atribut yang dibutuhkan saat membuat preferensi baru
-export type UserNotificationPreferenceCreationAttributes = Omit<UserNotificationPreferenceAttributes, 'id'>;
+export type UserNotificationPreferenceCreationAttributes = Omit<
+  UserNotificationPreferenceAttributes,
+  "id"
+>;
 
 class UserNotificationPreference
-  extends Model<UserNotificationPreferenceAttributes, UserNotificationPreferenceCreationAttributes>
+  extends Model<
+    UserNotificationPreferenceAttributes,
+    UserNotificationPreferenceCreationAttributes
+  >
   implements UserNotificationPreferenceAttributes
 {
   public id!: CreationOptional<string>;
