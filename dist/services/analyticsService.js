@@ -6,15 +6,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getIncidentTrendByWarehouse = exports.getIncidentSummaryByType = exports.getAnalyticsData = void 0;
 const config_1 = require("../db/config");
-const models_1 = require("../db/models"); // <-- Import Incident
+const models_1 = require("../db/models");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const sequelize_1 = require("sequelize");
-const models_2 = require("../db/models"); // <-- TAMBAHKAN INI
-const date_fns_1 = require("date-fns");
+const date_fns_1 = require("date-fns"); // Pastikan 'format' diimpor
 // Map string system_type ke Sequelize Model
 const logModels = {
     lingkungan: models_1.LingkunganLog,
     gangguan: models_1.Incident, // <-- Tambahkan model untuk 'gangguan'
+    keamanan: models_1.KeamananLog, // <-- TAMBAHKAN
 };
 const getAnalyticsData = async (query) => {
     const { system_type, area_id, from, to } = query;
@@ -26,33 +26,70 @@ const getAnalyticsData = async (query) => {
     if (!DataModel) {
         throw new apiError_1.default(400, `Invalid system_type: ${system_type}`);
     }
-    // --- Bangun Kondisi Query (WHERE clause) ---
     const whereCondition = {};
     const deviceWhereCondition = { area_id: area_id };
-    // Tentukan kolom tanggal secara dinamis
-    const dateColumn = system_type === "gangguan" ? "created_at" : "timestamp";
+    const dateColumn = system_type === "gangguan" || system_type === "keamanan"
+        ? "created_at"
+        : "timestamp";
     if (from || to) {
         whereCondition[dateColumn] = {
             ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
             ...(to && { [sequelize_1.Op.lte]: new Date(to) }),
         };
     }
-    // --- Query 1: Ambil Data dengan Paginasi ---
+    // === PERBAIKAN UTAMA: Definisikan kolom yang akan diambil ===
+    let modelAttributes;
+    if (system_type === "lingkungan") {
+        modelAttributes = [
+            "id",
+            "device_id",
+            "timestamp",
+            "payload",
+            "temperature",
+            "humidity",
+        ];
+    }
+    else if (system_type === "gangguan") {
+        modelAttributes = [
+            "id",
+            "device_id",
+            "created_at",
+            "incident_type",
+            "confidence",
+            "status",
+            "notes",
+        ];
+    }
+    else if (system_type === "keamanan") {
+        modelAttributes = [
+            "id",
+            "device_id",
+            "created_at",
+            "image_url",
+            "detected", // <-- 'detected' sekarang ada di sini
+            "box",
+            "confidence",
+            "attributes",
+            "status",
+            "notes",
+        ];
+    }
+    // ========================================================
     const { count, rows: data } = await DataModel.findAndCountAll({
+        attributes: modelAttributes, // <-- Terapkan daftar atribut di sini
         where: whereCondition,
         include: [
             {
                 model: models_1.Device,
                 as: "device",
-                attributes: ["id", "name"], // <-- Ambil juga id dan name device
-                // Terapkan filter area_id hanya jika ada nilainya
+                attributes: ["id", "name"],
                 where: area_id ? deviceWhereCondition : undefined,
                 required: !!area_id,
             },
         ],
         limit: perPage,
         offset: offset,
-        order: [[dateColumn, "DESC"]], // <-- Gunakan kolom tanggal dinamis
+        order: [[dateColumn, "DESC"]],
     });
     // --- Query 2: Hitung Data Ringkasan (Summary) ---
     let summary = {};
@@ -100,6 +137,37 @@ const getAnalyticsData = async (query) => {
         // Cukup gunakan hasil 'count' dari query utama, lebih efisien!
         summary = {
             total_incidents: count,
+        };
+    }
+    else if (system_type === "keamanan") {
+        // --- Logika Summary BARU untuk Keamanan ---
+        const totalDetections = await models_1.KeamananLog.count({
+            where: whereCondition,
+            include: [
+                {
+                    model: models_1.Device,
+                    as: "device",
+                    attributes: [],
+                    where: area_id ? deviceWhereCondition : undefined,
+                    required: !!area_id,
+                },
+            ],
+        });
+        const unacknowledged = await models_1.KeamananLog.count({
+            where: { ...whereCondition, status: "unacknowledged" },
+            include: [
+                {
+                    model: models_1.Device,
+                    as: "device",
+                    attributes: [],
+                    where: area_id ? deviceWhereCondition : undefined,
+                    required: !!area_id,
+                },
+            ],
+        });
+        summary = {
+            total_detections: totalDetections,
+            unacknowledged_alerts: unacknowledged,
         };
     }
     // --- Gabungkan Hasil ---
@@ -182,7 +250,7 @@ const getIncidentTrendByWarehouse = async (filters) => {
                 required: true,
                 include: [
                     {
-                        model: models_2.Area,
+                        model: models_1.Area,
                         as: "area",
                         attributes: [],
                         where: { warehouse_id: warehouse_id },

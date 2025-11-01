@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
+exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
 const config_1 = require("../config");
 Object.defineProperty(exports, "sequelize", { enumerable: true, get: function () { return config_1.sequelize; } });
 const warehouse_1 = __importDefault(require("./warehouse"));
@@ -20,6 +20,8 @@ const profile_1 = __importDefault(require("./profile"));
 exports.Profile = profile_1.default;
 const userNotificationPreference_1 = __importDefault(require("./userNotificationPreference"));
 exports.UserNotificationPreference = userNotificationPreference_1.default;
+const keamananLog_1 = __importDefault(require("./keamananLog")); // <-- IMPORT
+exports.KeamananLog = keamananLog_1.default;
 // Definisikan Asosiasi
 warehouse_1.default.hasMany(area_1.default, { foreignKey: "warehouse_id", as: "areas" });
 area_1.default.belongsTo(warehouse_1.default, { foreignKey: "warehouse_id", as: "warehouse" });
@@ -32,6 +34,8 @@ device_1.default.hasMany(lingkunganLog_1.default, {
 lingkunganLog_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as: "device" });
 device_1.default.hasMany(incident_1.default, { foreignKey: "device_id", as: "incidents" });
 incident_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as: "device" });
+device_1.default.hasMany(keamananLog_1.default, { foreignKey: "device_id", as: "keamananLogs" });
+keamananLog_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as: "device" });
 profile_1.default.hasMany(userNotificationPreference_1.default, {
     foreignKey: "user_id",
     as: "notificationPreferences",

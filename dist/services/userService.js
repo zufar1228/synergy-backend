@@ -206,7 +206,7 @@ const updateUserPreferences = async (userId, preferences) => {
         // Tambahkan log ini untuk melihat error spesifik di terminal backend jika terjadi lagi
         console.error("!!! DEBUG: Gagal saat update preferensi:", error);
         await transaction.rollback();
-        throw new apiError_1.default(500, 'Gagal menyimpan preferensi.');
+        throw new apiError_1.default(500, "Gagal menyimpan preferensi.");
     }
 };
 exports.updateUserPreferences = updateUserPreferences;

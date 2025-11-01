@@ -38,20 +38,27 @@ export const createDevice = async (deviceData: DeviceCreationAttributes) => {
   const transaction = await sequelize.transaction();
   try {
     const newDevice = await Device.create(deviceData, { transaction });
+    let mqttCredentials = null; // Default kredensial adalah null
 
-    const deviceWithRelations = (await Device.findByPk(newDevice.id, {
-      include: [{ model: Area, as: "area" }],
-      transaction,
-    })) as DeviceWithArea | null;
-    if (!deviceWithRelations)
-      throw new Error("Gagal mengambil relasi untuk perangkat baru");
+    // === PERUBAHAN DI SINI: Provisioning Bersyarat ===
+    // Hanya jalankan provisioning MQTT jika BUKAN tipe keamanan
+    if (deviceData.system_type !== "keamanan") {
+      const deviceWithRelations = (await Device.findByPk(newDevice.id, {
+        include: [{ model: Area, as: "area" }],
+        transaction,
+      })) as DeviceWithArea | null;
+      if (!deviceWithRelations)
+        throw new Error("Gagal mengambil relasi untuk perangkat baru");
 
-    // Panggil service EMQX
-    const mqttCredentials = await emqxService.provisionDeviceInEMQX(
-      deviceWithRelations
-    );
+      // Panggil service EMQX
+      mqttCredentials = await emqxService.provisionDeviceInEMQX(
+        deviceWithRelations
+      );
+    }
+    // ===============================================
 
     await transaction.commit();
+    // Kembalikan kredensial (bisa jadi null jika tipe 'keamanan')
     return { device: newDevice, mqttCredentials };
   } catch (error: any) {
     await transaction.rollback();
@@ -83,6 +90,14 @@ export const updateDevice = async (
   const device = await Device.findByPk(id);
   if (!device) throw new ApiError(404, "Perangkat tidak ditemukan");
 
+  // Mencegah perubahan system_type setelah dibuat
+  if (data.system_type && data.system_type !== device.system_type) {
+    throw new ApiError(
+      400,
+      "Tipe sistem (system_type) tidak dapat diubah setelah perangkat dibuat."
+    );
+  }
+
   try {
     await device.update(data);
     return device;
@@ -103,8 +118,12 @@ export const deleteDevice = async (id: string) => {
   const device = await Device.findByPk(id);
   if (!device) throw new ApiError(404, "Perangkat tidak ditemukan");
 
-  // 1. Hapus user & ACL di HiveMQ terlebih dahulu
-  await emqxService.deprovisionDeviceInEMQX(id);
+  // === PERUBAHAN DI SINI: De-provisioning Bersyarat ===
+  // Hanya hapus user EMQX jika BUKAN tipe keamanan
+  if (device.system_type !== "keamanan") {
+    await emqxService.deprovisionDeviceInEMQX(id);
+  }
+  // =================================================
 
   // 2. Jika berhasil, baru hapus dari database kita
   await device.destroy();

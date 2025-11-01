@@ -6,6 +6,7 @@ import LingkunganLog from "./lingkunganLog";
 import Incident from "./incident";
 import Profile from "./profile";
 import UserNotificationPreference from "./userNotificationPreference";
+import KeamananLog from "./keamananLog"; // <-- IMPORT
 
 // Definisikan Asosiasi
 Warehouse.hasMany(Area, { foreignKey: "warehouse_id", as: "areas" });
@@ -22,6 +23,9 @@ LingkunganLog.belongsTo(Device, { foreignKey: "device_id", as: "device" });
 
 Device.hasMany(Incident, { foreignKey: "device_id", as: "incidents" });
 Incident.belongsTo(Device, { foreignKey: "device_id", as: "device" });
+
+Device.hasMany(KeamananLog, { foreignKey: "device_id", as: "keamananLogs" });
+KeamananLog.belongsTo(Device, { foreignKey: "device_id", as: "device" });
 
 Profile.hasMany(UserNotificationPreference, {
   foreignKey: "user_id",
@@ -62,4 +66,5 @@ export {
   Profile,
   Incident,
   UserNotificationPreference,
+  KeamananLog, // <-- EXPORT
 };

@@ -13,12 +13,14 @@ const warehouseRoutes_1 = __importDefault(require("./api/routes/warehouseRoutes"
 const analyticsRoutes_1 = __importDefault(require("./api/routes/analyticsRoutes"));
 const client_1 = require("./mqtt/client");
 const heartbeatChecker_1 = require("./jobs/heartbeatChecker");
+const repeatDetectionJob_1 = require("./jobs/repeatDetectionJob"); // <-- 1. IMPORT JOB BARU
 const areaRoutes_1 = __importDefault(require("./api/routes/areaRoutes"));
 const authMiddleware_1 = require("./api/middlewares/authMiddleware");
 const userRoutes_1 = __importDefault(require("./api/routes/userRoutes"));
 const navigationRoutes_1 = __importDefault(require("./api/routes/navigationRoutes"));
 const incidentRoutes_1 = __importDefault(require("./api/routes/incidentRoutes"));
 const alertRoutes_1 = __importDefault(require("./api/routes/alertRoutes"));
+const keamananRoutes_1 = __importDefault(require("./api/routes/keamananRoutes"));
 const app = (0, express_1.default)();
 const PORT = parseInt(process.env.PORT || "5001", 10);
 // Middlewares
@@ -66,6 +68,7 @@ app.use("/api/users", userRoutes_1.default);
 app.use("/api/navigation", navigationRoutes_1.default);
 app.use("/api/incidents", incidentRoutes_1.default);
 app.use("/api/alerts", alertRoutes_1.default);
+app.use("/api/security-logs", authMiddleware_1.authMiddleware, keamananRoutes_1.default);
 app.listen(PORT, async () => {
     console.log(`Server is listening on port ${PORT}`);
     // Initialize services asynchronously after server starts
@@ -83,7 +86,9 @@ app.listen(PORT, async () => {
             console.log("Starting heartbeat job...");
             (0, heartbeatChecker_1.startHeartbeatJob)();
             console.log("Heartbeat job started");
-            console.log("All services initialized successfully!");
+            console.log("Starting repeat detection job...");
+            (0, repeatDetectionJob_1.startRepeatDetectionJob)(); // <-- 2. PANGGIL FUNGSI JOB BARU
+            console.log("Repeat detection job started");
         }
         catch (error) {
             console.error("Error during service initialization:", error);

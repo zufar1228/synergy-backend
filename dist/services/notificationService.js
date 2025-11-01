@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendInviteEmail = exports.sendAlertEmail = void 0;
+exports.sendRepeatAlertEmail = exports.sendInviteEmail = exports.sendAlertEmail = void 0;
 const jsx_runtime_1 = require("react/jsx-runtime");
 // backend/src/services/notificationService.ts
 const resend_1 = require("resend");
 const AlertEmail_1 = require("../emails/AlertEmail");
 const render_1 = require("@react-email/render");
 const InviteEmail_1 = require("../emails/InviteEmail");
+const RepeatAlertEmail_1 = require("../emails/RepeatAlertEmail");
 const resend = new resend_1.Resend(process.env.RESEND_API_KEY);
 const sendAlertEmail = async ({ to, subject, emailProps, }) => {
     // Gunakan 'await' karena render bersifat async
@@ -49,3 +50,23 @@ const sendInviteEmail = async ({ to, inviteLink, }) => {
     }
 };
 exports.sendInviteEmail = sendInviteEmail;
+// TAMBAHKAN FUNGSI BARU INI
+const sendRepeatAlertEmail = async ({ to, subject, emailProps, }) => {
+    const emailHtml = await (0, render_1.render)((0, jsx_runtime_1.jsx)(RepeatAlertEmail_1.RepeatAlertEmail, { ...emailProps }));
+    try {
+        const { data, error } = await resend.emails.send({
+            from: "Sistem Keamanan <onboarding@resend.dev>", // Ganti dengan domain terverifikasi Anda
+            to: [to],
+            subject: subject,
+            html: emailHtml,
+        });
+        if (error)
+            throw error;
+        console.log(`[Notification] Repeat alert email sent to ${to}`, data.id);
+    }
+    catch (error) {
+        console.error(`[Notification] Failed to send repeat alert email to ${to}:`, error);
+        throw new Error("Gagal mengirim email peringatan berulang.");
+    }
+};
+exports.sendRepeatAlertEmail = sendRepeatAlertEmail;

@@ -7,20 +7,25 @@ import { z } from "zod";
 
 const router = Router();
 
-// Skema Zod untuk validasi
+// Daftar tipe sistem yang kita izinkan
+const systemTypes = z.enum(["lingkungan", "gangguan", "keamanan", "medis_air"]);
+
 const createDeviceSchema = z.object({
   body: z.object({
     name: z.string().min(1, { message: "Nama wajib diisi." }),
     area_id: z
       .string()
       .uuid({ message: "Area ID harus berupa UUID yang valid." }),
-    system_type: z.string().min(1, { message: "Tipe sistem wajib diisi." }),
+    system_type: systemTypes, // <-- PERUBAHAN DI SINI
   }),
 });
 
-// Skema untuk update, semua field bersifat opsional
 const updateDeviceSchema = z.object({
-  body: createDeviceSchema.shape.body.partial(),
+  body: z.object({
+    name: z.string().min(1).optional(),
+    area_id: z.string().uuid().optional(),
+    // Tipe sistem tidak boleh diubah saat update, jadi kita hapus dari skema update
+  }),
 });
 
 // Daftarkan semua endpoint

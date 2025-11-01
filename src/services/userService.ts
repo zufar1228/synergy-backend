@@ -242,38 +242,40 @@ export const updateUserPreferences = async (
   const transaction = await sequelize.transaction();
   try {
     for (const pref of preferences) {
-
       // === PERBAIKAN: Ganti 'upsert' dengan 'findOrCreate' + 'update' ===
 
       // 1. Coba cari atau buat entri baru
-      const [preference, created] = await UserNotificationPreference.findOrCreate({
-        where: {
-          user_id: userId,
-          system_type: pref.system_type,
-        },
-        defaults: {
-          user_id: userId,
-          system_type: pref.system_type,
-          is_enabled: pref.is_enabled,
-        },
-        transaction: transaction, // Pastikan menggunakan transaksi
-      });
+      const [preference, created] =
+        await UserNotificationPreference.findOrCreate({
+          where: {
+            user_id: userId,
+            system_type: pref.system_type,
+          },
+          defaults: {
+            user_id: userId,
+            system_type: pref.system_type,
+            is_enabled: pref.is_enabled,
+          },
+          transaction: transaction, // Pastikan menggunakan transaksi
+        });
 
       // 2. Jika tidak dibuat (artinya sudah ada), maka update nilainya
       if (!created) {
-        await preference.update({ is_enabled: pref.is_enabled }, { transaction: transaction });
+        await preference.update(
+          { is_enabled: pref.is_enabled },
+          { transaction: transaction }
+        );
       }
       // ==========================================================
     }
 
     await transaction.commit();
     return getUserPreferences(userId); // Kembalikan data yang sudah diperbarui
-
   } catch (error) {
     // Tambahkan log ini untuk melihat error spesifik di terminal backend jika terjadi lagi
     console.error("!!! DEBUG: Gagal saat update preferensi:", error);
 
     await transaction.rollback();
-    throw new ApiError(500, 'Gagal menyimpan preferensi.');
+    throw new ApiError(500, "Gagal menyimpan preferensi.");
   }
 };

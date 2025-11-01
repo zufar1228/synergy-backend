@@ -1,16 +1,22 @@
 // backend/src/services/analyticsService.ts
 
 import { sequelize } from "../db/config";
-import { Device, LingkunganLog, Incident } from "../db/models"; // <-- Import Incident
+import {
+  Device,
+  LingkunganLog,
+  Incident,
+  KeamananLog,
+  Area,
+} from "../db/models";
 import ApiError from "../utils/apiError";
-import { Op, ModelStatic, Model, literal } from "sequelize";
-import { Area } from "../db/models"; // <-- TAMBAHKAN INI
-import { format } from "date-fns";
+import { Op, ModelStatic, Model } from "sequelize";
+import { format } from "date-fns"; // Pastikan 'format' diimpor
 
 // Map string system_type ke Sequelize Model
 const logModels: { [key: string]: ModelStatic<Model<any, any>> } = {
   lingkungan: LingkunganLog,
   gangguan: Incident, // <-- Tambahkan model untuk 'gangguan'
+  keamanan: KeamananLog, // <-- TAMBAHKAN
 };
 
 interface AnalyticsQuery {
@@ -41,12 +47,12 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
     throw new ApiError(400, `Invalid system_type: ${system_type}`);
   }
 
-  // --- Bangun Kondisi Query (WHERE clause) ---
   const whereCondition: any = {};
   const deviceWhereCondition: any = { area_id: area_id };
-
-  // Tentukan kolom tanggal secara dinamis
-  const dateColumn = system_type === "gangguan" ? "created_at" : "timestamp";
+  const dateColumn =
+    system_type === "gangguan" || system_type === "keamanan"
+      ? "created_at"
+      : "timestamp";
 
   if (from || to) {
     whereCondition[dateColumn] = {
@@ -55,22 +61,58 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
     };
   }
 
-  // --- Query 1: Ambil Data dengan Paginasi ---
+  // === PERBAIKAN UTAMA: Definisikan kolom yang akan diambil ===
+  let modelAttributes;
+  if (system_type === "lingkungan") {
+    modelAttributes = [
+      "id",
+      "device_id",
+      "timestamp",
+      "payload",
+      "temperature",
+      "humidity",
+    ];
+  } else if (system_type === "gangguan") {
+    modelAttributes = [
+      "id",
+      "device_id",
+      "created_at",
+      "incident_type",
+      "confidence",
+      "status",
+      "notes",
+    ];
+  } else if (system_type === "keamanan") {
+    modelAttributes = [
+      "id",
+      "device_id",
+      "created_at",
+      "image_url",
+      "detected", // <-- 'detected' sekarang ada di sini
+      "box",
+      "confidence",
+      "attributes",
+      "status",
+      "notes",
+    ];
+  }
+  // ========================================================
+
   const { count, rows: data } = await DataModel.findAndCountAll({
+    attributes: modelAttributes, // <-- Terapkan daftar atribut di sini
     where: whereCondition,
     include: [
       {
         model: Device,
         as: "device",
-        attributes: ["id", "name"], // <-- Ambil juga id dan name device
-        // Terapkan filter area_id hanya jika ada nilainya
+        attributes: ["id", "name"],
         where: area_id ? deviceWhereCondition : undefined,
         required: !!area_id,
       },
     ],
     limit: perPage,
     offset: offset,
-    order: [[dateColumn, "DESC"]], // <-- Gunakan kolom tanggal dinamis
+    order: [[dateColumn, "DESC"]],
   });
 
   // --- Query 2: Hitung Data Ringkasan (Summary) ---
@@ -121,6 +163,38 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
     // Cukup gunakan hasil 'count' dari query utama, lebih efisien!
     summary = {
       total_incidents: count,
+    };
+  } else if (system_type === "keamanan") {
+    // --- Logika Summary BARU untuk Keamanan ---
+    const totalDetections = await KeamananLog.count({
+      where: whereCondition,
+      include: [
+        {
+          model: Device,
+          as: "device",
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id,
+        },
+      ],
+    });
+
+    const unacknowledged = await KeamananLog.count({
+      where: { ...whereCondition, status: "unacknowledged" },
+      include: [
+        {
+          model: Device,
+          as: "device",
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id,
+        },
+      ],
+    });
+
+    summary = {
+      total_detections: totalDetections,
+      unacknowledged_alerts: unacknowledged,
     };
   }
 

@@ -1,5 +1,4 @@
 "use strict";
-// backend/src/api/routes/deviceRoutes.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -34,33 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+// backend/src/api/routes/keamananRoutes.ts
 const express_1 = require("express");
-const deviceController = __importStar(require("../controllers/deviceController"));
-const validateRequest_1 = require("../middlewares/validateRequest");
-const zod_1 = require("zod");
+const keamananController = __importStar(require("../controllers/keamananController"));
+const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
-// Daftar tipe sistem yang kita izinkan
-const systemTypes = zod_1.z.enum(["lingkungan", "gangguan", "keamanan", "medis_air"]);
-const createDeviceSchema = zod_1.z.object({
-    body: zod_1.z.object({
-        name: zod_1.z.string().min(1, { message: "Nama wajib diisi." }),
-        area_id: zod_1.z
-            .string()
-            .uuid({ message: "Area ID harus berupa UUID yang valid." }),
-        system_type: systemTypes, // <-- PERUBAHAN DI SINI
-    }),
-});
-const updateDeviceSchema = zod_1.z.object({
-    body: zod_1.z.object({
-        name: zod_1.z.string().min(1).optional(),
-        area_id: zod_1.z.string().uuid().optional(),
-        // Tipe sistem tidak boleh diubah saat update, jadi kita hapus dari skema update
-    }),
-});
-// Daftarkan semua endpoint
-router.get("/", deviceController.listDevices);
-router.post("/", (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
-router.get("/:id", deviceController.getDeviceById);
-router.put("/:id", (0, validateRequest_1.validate)(updateDeviceSchema), deviceController.updateDevice);
-router.delete("/:id", deviceController.deleteDevice);
+router.put("/:id/status", authMiddleware_1.authMiddleware, keamananController.updateStatus);
 exports.default = router;

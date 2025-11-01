@@ -4,6 +4,7 @@ import { AlertEmail } from "../emails/AlertEmail";
 import * as React from "react";
 import { render } from "@react-email/render";
 import { InviteEmail } from "../emails/InviteEmail";
+import { RepeatAlertEmail } from "../emails/RepeatAlertEmail";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -71,5 +72,35 @@ export const sendInviteEmail = async ({
       error
     );
     throw new Error("Gagal mengirim email undangan.");
+  }
+};
+
+// TAMBAHKAN FUNGSI BARU INI
+export const sendRepeatAlertEmail = async ({
+  to,
+  subject,
+  emailProps,
+}: {
+  to: string;
+  subject: string;
+  emailProps: React.ComponentProps<typeof RepeatAlertEmail>;
+}) => {
+  const emailHtml = await render(<RepeatAlertEmail {...emailProps} />);
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: "Sistem Keamanan <onboarding@resend.dev>", // Ganti dengan domain terverifikasi Anda
+      to: [to],
+      subject: subject,
+      html: emailHtml,
+    });
+    if (error) throw error;
+    console.log(`[Notification] Repeat alert email sent to ${to}`, data.id);
+  } catch (error) {
+    console.error(
+      `[Notification] Failed to send repeat alert email to ${to}:`,
+      error
+    );
+    throw new Error("Gagal mengirim email peringatan berulang.");
   }
 };

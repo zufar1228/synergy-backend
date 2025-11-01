@@ -8,12 +8,14 @@ import warehouseRoutes from "./api/routes/warehouseRoutes";
 import analyticsRoutes from "./api/routes/analyticsRoutes";
 import { initializeMqttClient } from "./mqtt/client";
 import { startHeartbeatJob } from "./jobs/heartbeatChecker";
+import { startRepeatDetectionJob } from "./jobs/repeatDetectionJob"; // <-- 1. IMPORT JOB BARU
 import areaRoutes from "./api/routes/areaRoutes";
 import { authMiddleware } from "./api/middlewares/authMiddleware";
 import userRoutes from "./api/routes/userRoutes";
 import navigationRoutes from "./api/routes/navigationRoutes";
 import incidentRoutes from "./api/routes/incidentRoutes";
 import alertRoutes from "./api/routes/alertRoutes";
+import keamananRoutes from "./api/routes/keamananRoutes";
 
 const app: Express = express();
 const PORT: number = parseInt(process.env.PORT || "5001", 10);
@@ -70,6 +72,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/navigation", navigationRoutes);
 app.use("/api/incidents", incidentRoutes);
 app.use("/api/alerts", alertRoutes);
+app.use("/api/security-logs", authMiddleware, keamananRoutes);
 
 app.listen(PORT, async () => {
   console.log(`Server is listening on port ${PORT}`);
@@ -94,7 +97,9 @@ app.listen(PORT, async () => {
       startHeartbeatJob();
       console.log("Heartbeat job started");
 
-      console.log("All services initialized successfully!");
+      console.log("Starting repeat detection job...");
+      startRepeatDetectionJob(); // <-- 2. PANGGIL FUNGSI JOB BARU
+      console.log("Repeat detection job started");
     } catch (error) {
       console.error("Error during service initialization:", error);
       // Don't exit the process, just log the error
