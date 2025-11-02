@@ -20,7 +20,7 @@ import keamananRoutes from "./api/routes/keamananRoutes";
 const app: Express = express();
 const PORT: number = parseInt(process.env.PORT || "5001", 10);
 
-// Middlewares
+// Middlewaresss
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || "http://localhost:3000",
