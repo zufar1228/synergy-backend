@@ -1,0 +1,42 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to DigitalOcean
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /var/www/myapp/warehouse-monitoring-backend
+
+            # Kill existing PM2 process
+            pm2 delete backend || true
+
+            # Pull latest code from GitHub
+            git pull origin main || git pull origin master
+
+            # Install dependencies
+            npm install
+
+            # Build TypeScript
+            npm run build
+
+            # Start application with PM2
+            pm2 start dist/server.js --name "backend"
+            pm2 save
+
+            echo "✅ Deployment successful!"
