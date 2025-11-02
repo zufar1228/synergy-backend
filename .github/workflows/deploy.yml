@@ -27,13 +27,13 @@ jobs:
             pm2 delete backend || true
 
             # Pull latest code from GitHub
-            git pull origin main || git pull origin master
+            git pull origin main 
 
             # Install dependencies
-            npm install
+            pnpm install
 
             # Build TypeScript
-            npm run build
+            pnpm run build
 
             # Start application with PM2
             pm2 start dist/server.js --name "backend"
