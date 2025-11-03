@@ -36,30 +36,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeMqttClient = void 0;
+exports.initializeMqttClient = exports.client = void 0;
 // backend/src/mqtt/client.ts
 const mqtt_1 = __importDefault(require("mqtt"));
 const logService = __importStar(require("../services/logService"));
 const deviceService_1 = require("../services/deviceService");
 const alertingService = __importStar(require("../services/alertingService"));
-// Gunakan broker publik HiveMQ untuk development.
-// PENTING: Jangan gunakan ini untuk produksi karena tidak aman.
+// Ambil kredensial dari environment variables
 const MQTT_BROKER_URL = `mqtts://${process.env.MQTT_HOST}:8883`;
 const options = {
     username: process.env.MQTT_USERNAME,
     password: process.env.MQTT_PASSWORD,
 };
+// --- PERBAIKAN UTAMA ---
+// 1. Buat client di scope atas
+const client = mqtt_1.default.connect(MQTT_BROKER_URL, options);
+exports.client = client;
+// -----------------------
 const initializeMqttClient = () => {
-    const client = mqtt_1.default.connect(MQTT_BROKER_URL, options);
     client.on("connect", () => {
-        console.log("[MQTT] Connected to broker.");
-        // Subscribe ke semua topik sensor di semua perangkat
+        console.log("[MQTT] Terhubung ke broker.");
         const sensorTopic = "warehouses/+/areas/+/devices/+/sensors/+";
         const statusTopic = "warehouses/+/areas/+/devices/+/status";
         client.subscribe([sensorTopic, statusTopic], (err) => {
-            // <-- SUBSCRIBE KEDUA TOPIK
             if (!err) {
-                console.log(`[MQTT] Subscribed to sensor and status topics.`);
+                console.log(`[MQTT] Berlangganan ke topik sensor dan status.`);
             }
         });
     });
@@ -87,6 +88,7 @@ const initializeMqttClient = () => {
                         payload: data,
                         temperature: data.temp,
                         humidity: data.humidity,
+                        co2_ppm: data.co2_ppm, // <-- TAMBAHKAN INI
                     });
                     // Panggil service alerting setelah data disimpan
                     await alertingService.processSensorDataForAlerts(deviceId, systemType, data); // <-- PANGGIL
@@ -99,7 +101,7 @@ const initializeMqttClient = () => {
         }
     });
     client.on("error", (error) => {
-        console.error("[MQTT] Connection error:", error);
+        console.error("[MQTT] Error koneksi:", error);
     });
 };
 exports.initializeMqttClient = initializeMqttClient;

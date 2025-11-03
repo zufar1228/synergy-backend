@@ -14,6 +14,7 @@ LingkunganLog.init({
     payload: { type: sequelize_1.DataTypes.JSONB, allowNull: false },
     temperature: { type: sequelize_1.DataTypes.DECIMAL, allowNull: true },
     humidity: { type: sequelize_1.DataTypes.INTEGER, allowNull: true },
+    co2_ppm: { type: sequelize_1.DataTypes.INTEGER, allowNull: true }, // <-- TAMBAHKAN INI
 }, {
     sequelize: config_1.sequelize,
     tableName: "lingkungan_logs",

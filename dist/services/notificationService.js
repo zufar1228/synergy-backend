@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendRepeatAlertEmail = exports.sendInviteEmail = exports.sendAlertEmail = void 0;
+exports.sendAllClearEmail = exports.sendRepeatAlertEmail = exports.sendInviteEmail = exports.sendAlertEmail = void 0;
 const jsx_runtime_1 = require("react/jsx-runtime");
 // backend/src/services/notificationService.ts
 const resend_1 = require("resend");
 const AlertEmail_1 = require("../emails/AlertEmail");
 const RepeatAlertEmail_1 = require("../emails/RepeatAlertEmail");
 const InviteEmail_1 = require("../emails/InviteEmail");
+const AllClearEmail_1 = require("../emails/AllClearEmail"); // <-- IMPORT BARU
 const render_1 = require("@react-email/render");
 const resend = new resend_1.Resend(process.env.RESEND_API_KEY);
 // Ganti "domain-anda-terverifikasi.com" dengan domain yang Anda verifikasi di Resend
@@ -75,3 +76,21 @@ const sendRepeatAlertEmail = async ({ to, subject, emailProps, }) => {
     }
 };
 exports.sendRepeatAlertEmail = sendRepeatAlertEmail;
+// TAMBAHKAN FUNGSI BARU INI
+const sendAllClearEmail = async ({ to, subject, emailProps, }) => {
+    const emailHtml = await (0, render_1.render)((0, jsx_runtime_1.jsx)(AllClearEmail_1.AllClearEmail, { ...emailProps }));
+    try {
+        const { data, error } = await resend.emails.send({
+            from: `Sistem Monitoring <no-reply@${SENDER_DOMAIN}>`,
+            to: [to],
+            subject: subject,
+            html: emailHtml,
+        });
+        if (error)
+            throw error;
+    }
+    catch (error) {
+        console.error(`[Notification] Failed to send 'all clear' email to ${to}:`, error);
+    }
+};
+exports.sendAllClearEmail = sendAllClearEmail;

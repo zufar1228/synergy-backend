@@ -32,6 +32,12 @@ Device.init({
         type: sequelize_1.DataTypes.DATE,
         allowNull: true,
     },
+    fan_status: {
+        // <-- TAMBAHKAN BLOK INI
+        type: sequelize_1.DataTypes.ENUM("On", "Off"),
+        allowNull: false,
+        defaultValue: "Off",
+    },
 }, {
     sequelize: config_1.sequelize,
     tableName: "devices",
