@@ -33,6 +33,7 @@ interface LingkunganSummary {
   avg_temp: string | null;
   max_humidity: string | null;
   min_temp: string | null;
+  avg_co2: string | null;
 }
 
 export const getAnalyticsData = async (query: AnalyticsQuery) => {
@@ -71,6 +72,7 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
       "payload",
       "temperature",
       "humidity",
+      "co2_ppm", // <-- 1. TAMBAHKAN 'co2_ppm'
     ];
   } else if (system_type === "gangguan") {
     modelAttributes = [
@@ -125,6 +127,7 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
         [sequelize.fn("AVG", sequelize.col("temperature")), "avg_temp"],
         [sequelize.fn("MAX", sequelize.col("humidity")), "max_humidity"],
         [sequelize.fn("MIN", sequelize.col("temperature")), "min_temp"],
+        [sequelize.fn("AVG", sequelize.col("co2_ppm")), "avg_co2"], // <-- 2. TAMBAHKAN AVG CO2
       ],
       where: whereCondition,
       include: [
@@ -150,12 +153,14 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
           aggResult.min_temp !== null
             ? parseFloat(aggResult.min_temp).toFixed(2)
             : "N/A",
+        avg_co2: parseInt((aggResult as any).avg_co2, 10), // <-- 3. TAMBAHKAN KE SUMMARY
       };
     } else {
       summary = {
         avg_temp: "N/A",
         max_humidity: "N/A",
         min_temp: "N/A",
+        avg_co2: "N/A", // <-- TAMBAHKAN KE DEFAULT
       };
     }
   } else if (system_type === "gangguan") {
