@@ -30,38 +30,46 @@ async function createMqttUser(deviceId: string) {
   return { username, password };
 }
 
-// Fungsi untuk membuat aturan ACL di EMQX
-async function createAclRule(username: string, topic: string) {
-  // === PERBAIKAN DI SINI ===
-  // Bungkus aturan di dalam array 'rules'
+// === PERBAIKAN UTAMA ADA DI FUNGSI INI ===
+async function createAclRules(username: string, deviceTopic: string, commandTopic: string) {
+  // Kita sekarang mengirim DUA aturan:
+  // 1. Izin untuk PUBLISH ke topik sensor
+  // 2. Izin untuk SUBSCRIBE ke topik perintah
   const payload = [
     {
       username: username,
       rules: [
         {
-          action: "publish",
-          permission: "allow",
-          topic: topic,
+          action: 'publish',
+          permission: 'allow',
+          topic: deviceTopic,
         },
+        {
+          action: 'subscribe',
+          permission: 'allow',
+          topic: commandTopic,
+        }
       ],
     },
   ];
 
   await axios.post(
     `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`,
-    payload, // Gunakan payload yang sudah diperbaiki
+    payload,
     { auth: AUTH }
   );
 }
 
-// Fungsi utama yang akan dipanggil (tidak berubah)
-export const provisionDeviceInEMQX = async (device: {
-  id: string;
-  area: { warehouse_id: string; id: string };
-}) => {
+// Fungsi utama yang dipanggil (sedikit dimodifikasi)
+export const provisionDeviceInEMQX = async (device: {id: string, area: { warehouse_id: string, id: string }}) => {
   const { username, password } = await createMqttUser(device.id);
-  const topic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
-  await createAclRule(username, topic);
+  
+  // Definisikan kedua topik
+  const deviceTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
+  const commandTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
+  
+  // Panggil fungsi ACL yang baru
+  await createAclRules(username, deviceTopic, commandTopic);
 
   return { username, password };
 };
