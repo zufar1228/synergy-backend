@@ -63,15 +63,18 @@ export const deleteDevice = async (req: Request, res: Response) => {
 export const getDeviceDetailsByArea = async (req: Request, res: Response) => {
   try {
     const { area_id, system_type } = req.query;
-    if (!area_id || !system_type) {
+
+    // Validasi yang lebih strict
+    if (typeof area_id !== "string" || typeof system_type !== "string") {
       throw new ApiError(
         400,
-        "Query parameter area_id dan system_type wajib diisi."
+        "Query parameter area_id dan system_type wajib berupa string."
       );
     }
+
     const data = await deviceService.getDeviceByAreaAndSystem(
-      area_id as string,
-      system_type as string
+      area_id,
+      system_type
     );
     res.status(200).json(data);
   } catch (error) {
@@ -82,19 +85,21 @@ export const getDeviceDetailsByArea = async (req: Request, res: Response) => {
 // --- TAMBAHKAN FUNGSI BARU INI ---
 export const sendManualCommand = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params; // ID Perangkat
-    const { action } = req.body; // Ekspektasi: { "action": "On" } atau { "action": "Off" }
+    const { id } = req.params;
+    const { action } = req.body; // Sudah divalidasi oleh Zod
 
-    if (!action || !["On", "Off"].includes(action)) {
-      throw new ApiError(400, 'Aksi tidak valid. Kirim "On" atau "Off".');
-    }
+    // ❌ Hapus validasi manual ini (sudah ditangani Zod)
+    // if (!action || !['On', 'Off'].includes(action)) {
+    //   throw new ApiError(400, 'Aksi tidak valid. Kirim "On" atau "Off".');
+    // }
 
-    // Panggil actuationService untuk mengirim perintah
     await actuationService.controlFanRelay(id, action as FanStatus);
 
-    res
-      .status(200)
-      .json({ message: `Perintah manual '${action}' berhasil dikirim.` });
+    res.status(200).json({
+      message: `Perintah manual '${action}' berhasil dikirim.`,
+      device_id: id,
+      action: action,
+    });
   } catch (error) {
     handleError(res, error);
   }
