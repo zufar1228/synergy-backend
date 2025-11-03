@@ -27,30 +27,34 @@ async function createMqttUser(deviceId) {
     { auth: AUTH });
     return { username, password };
 }
-// Fungsi untuk membuat aturan ACL di EMQX
-async function createAclRule(username, topic) {
-    // === PERBAIKAN DI SINI ===
-    // Bungkus aturan di dalam array 'rules'
+// === PERBAIKAN UTAMA ADA DI FUNGSI INI ===
+// Kita ubah menjadi 'addAclRule' (singular) dan hanya menangani satu aturan
+async function addAclRule(username, action, topic) {
     const payload = [
         {
             username: username,
             rules: [
                 {
-                    action: "publish",
-                    permission: "allow",
+                    action: action,
+                    permission: 'allow',
                     topic: topic,
                 },
             ],
         },
     ];
-    await axios_1.default.post(`${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`, payload, // Gunakan payload yang sudah diperbaiki
-    { auth: AUTH });
+    await axios_1.default.post(`${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`, payload, { auth: AUTH });
 }
-// Fungsi utama yang akan dipanggil (tidak berubah)
+// Fungsi utama yang dipanggil (diperbarui untuk memanggil ACL dua kali)
 const provisionDeviceInEMQX = async (device) => {
     const { username, password } = await createMqttUser(device.id);
-    const topic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
-    await createAclRule(username, topic);
+    // Definisikan kedua topik
+    const deviceTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
+    const commandTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
+    // Panggil fungsi 'addAclRule' DUA KALI
+    // 1. Tambahkan izin PUBLISH
+    await addAclRule(username, 'publish', deviceTopic);
+    // 2. Tambahkan izin SUBSCRIBE
+    await addAclRule(username, 'subscribe', commandTopic);
     return { username, password };
 };
 exports.provisionDeviceInEMQX = provisionDeviceInEMQX;

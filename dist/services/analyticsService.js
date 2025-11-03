@@ -47,6 +47,7 @@ const getAnalyticsData = async (query) => {
             "payload",
             "temperature",
             "humidity",
+            "co2_ppm", // <-- 1. TAMBAHKAN 'co2_ppm'
         ];
     }
     else if (system_type === "gangguan") {
@@ -100,6 +101,7 @@ const getAnalyticsData = async (query) => {
                 [config_1.sequelize.fn("AVG", config_1.sequelize.col("temperature")), "avg_temp"],
                 [config_1.sequelize.fn("MAX", config_1.sequelize.col("humidity")), "max_humidity"],
                 [config_1.sequelize.fn("MIN", config_1.sequelize.col("temperature")), "min_temp"],
+                [config_1.sequelize.fn("AVG", config_1.sequelize.col("co2_ppm")), "avg_co2"], // <-- 2. TAMBAHKAN AVG CO2
             ],
             where: whereCondition,
             include: [
@@ -122,6 +124,7 @@ const getAnalyticsData = async (query) => {
                 min_temp: aggResult.min_temp !== null
                     ? parseFloat(aggResult.min_temp).toFixed(2)
                     : "N/A",
+                avg_co2: parseInt(aggResult.avg_co2, 10), // <-- 3. TAMBAHKAN KE SUMMARY
             };
         }
         else {
@@ -129,6 +132,7 @@ const getAnalyticsData = async (query) => {
                 avg_temp: "N/A",
                 max_humidity: "N/A",
                 min_temp: "N/A",
+                avg_co2: "N/A", // <-- TAMBAHKAN KE DEFAULT
             };
         }
     }
