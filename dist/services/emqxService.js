@@ -12,49 +12,49 @@ const AUTH = {
     username: process.env.EMQX_APP_ID,
     password: process.env.EMQX_APP_SECRET,
 };
-// Fungsi untuk membuat user MQTT baru di EMQX
+// Fungsi ini sudah benar (menggunakan user_id)
 async function createMqttUser(deviceId) {
     const password = `pwd-${deviceId}-${Date.now()}`;
     const username = `device-${deviceId}`;
-    // === PERBAIKAN DI SINI ===
-    // Ganti payload dari { username, password } menjadi { user_id, password, is_superuser }
     const payload = {
-        user_id: username, // API EMQX mengharapkan 'user_id'
+        user_id: username,
         password: password,
-        is_superuser: false, // Set ke false sesuai praktik keamanan
+        is_superuser: false,
     };
-    await axios_1.default.post(`${API_BASE_URL}/api/v5/authentication/password_based%3Abuilt_in_database/users`, payload, // Gunakan payload yang sudah diperbaiki
-    { auth: AUTH });
+    await axios_1.default.post(`${API_BASE_URL}/api/v5/authentication/password_based%3Abuilt_in_database/users`, payload, { auth: AUTH });
     return { username, password };
 }
-// === PERBAIKAN UTAMA ADA DI FUNGSI INI ===
-// Kita ubah menjadi 'addAclRule' (singular) dan hanya menangani satu aturan
-async function addAclRule(username, action, topic) {
+// === PERBAIKAN UTAMA: Menggabungkan ACL dalam SATU PANGGILAN ===
+async function setAclRules(userId, publishTopic, subscribeTopic) {
+    // Buat payload yang berisi SEMUA aturan untuk pengguna ini
     const payload = [
         {
-            username: username,
+            user_id: userId,
             rules: [
                 {
-                    action: action,
+                    action: 'publish',
                     permission: 'allow',
-                    topic: topic,
+                    topic: publishTopic,
                 },
+                {
+                    action: 'subscribe',
+                    permission: 'allow',
+                    topic: subscribeTopic,
+                }
             ],
         },
     ];
-    await axios_1.default.post(`${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`, payload, { auth: AUTH });
+    await axios_1.default.post(
+    // Endpoint ini akan MENETAPKAN (mengganti) semua aturan untuk user_id ini
+    `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`, payload, { auth: AUTH });
 }
-// Fungsi utama yang dipanggil (diperbarui untuk memanggil ACL dua kali)
+// Fungsi utama yang memanggil logika baru
 const provisionDeviceInEMQX = async (device) => {
     const { username, password } = await createMqttUser(device.id);
-    // Definisikan kedua topik
     const deviceTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
     const commandTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
-    // Panggil fungsi 'addAclRule' DUA KALI
-    // 1. Tambahkan izin PUBLISH
-    await addAclRule(username, 'publish', deviceTopic);
-    // 2. Tambahkan izin SUBSCRIBE
-    await addAclRule(username, 'subscribe', commandTopic);
+    // Panggil fungsi setAclRules SATU KALI dengan kedua topik
+    await setAclRules(username, deviceTopic, commandTopic);
     return { username, password };
 };
 exports.provisionDeviceInEMQX = provisionDeviceInEMQX;

@@ -56,11 +56,14 @@ exports.client = client;
 const initializeMqttClient = () => {
     client.on("connect", () => {
         console.log("[MQTT] Terhubung ke broker.");
-        const sensorTopic = "warehouses/+/areas/+/devices/+/sensors/+";
+        // === PERBAIKAN DI SINI ===
+        // Ubah '+' di akhir menjadi '#' untuk mencocokkan .../sensors/lingkungan, .../sensors/keamanan, dll.
+        const sensorTopic = "warehouses/+/areas/+/devices/+/sensors/#";
         const statusTopic = "warehouses/+/areas/+/devices/+/status";
+        // =========================
         client.subscribe([sensorTopic, statusTopic], (err) => {
             if (!err) {
-                console.log(`[MQTT] Berlangganan ke topik sensor dan status.`);
+                console.log(`[MQTT] Berlangganan ke topik: ${sensorTopic} dan ${statusTopic}`);
             }
         });
     });
