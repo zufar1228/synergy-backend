@@ -4,26 +4,30 @@ import * as logService from "../services/logService";
 import { updateDeviceHeartbeat } from "../services/deviceService";
 import * as alertingService from "../services/alertingService";
 
-// Gunakan broker publik HiveMQ untuk development.
-// PENTING: Jangan gunakan ini untuk produksi karena tidak aman.
+// Ambil kredensial dari environment variables
 const MQTT_BROKER_URL = `mqtts://${process.env.MQTT_HOST}:8883`;
 const options: mqtt.IClientOptions = {
   username: process.env.MQTT_USERNAME,
   password: process.env.MQTT_PASSWORD,
 };
 
-export const initializeMqttClient = () => {
-  const client = mqtt.connect(MQTT_BROKER_URL, options);
+// --- PERBAIKAN UTAMA ---
+// 1. Buat client di scope atas
+const client = mqtt.connect(MQTT_BROKER_URL, options);
 
+// 2. Ekspor client agar bisa digunakan oleh service lain (seperti ActuationService)
+export { client };
+// -----------------------
+
+export const initializeMqttClient = () => {
   client.on("connect", () => {
-    console.log("[MQTT] Connected to broker.");
-    // Subscribe ke semua topik sensor di semua perangkat
+    console.log("[MQTT] Terhubung ke broker.");
     const sensorTopic = "warehouses/+/areas/+/devices/+/sensors/+";
     const statusTopic = "warehouses/+/areas/+/devices/+/status";
+
     client.subscribe([sensorTopic, statusTopic], (err) => {
-      // <-- SUBSCRIBE KEDUA TOPIK
       if (!err) {
-        console.log(`[MQTT] Subscribed to sensor and status topics.`);
+        console.log(`[MQTT] Berlangganan ke topik sensor dan status.`);
       }
     });
   });
@@ -56,6 +60,7 @@ export const initializeMqttClient = () => {
             payload: data,
             temperature: data.temp,
             humidity: data.humidity,
+            co2_ppm: data.co2_ppm, // <-- TAMBAHKAN INI
           });
           // Panggil service alerting setelah data disimpan
           await alertingService.processSensorDataForAlerts(
@@ -72,6 +77,6 @@ export const initializeMqttClient = () => {
   });
 
   client.on("error", (error) => {
-    console.error("[MQTT] Connection error:", error);
+    console.error("[MQTT] Error koneksi:", error);
   });
 };

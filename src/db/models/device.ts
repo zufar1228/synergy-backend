@@ -4,6 +4,7 @@ import { Model, DataTypes, UUIDV4, CreationOptional } from "sequelize"; // <-- I
 import { sequelize } from "../config";
 
 export type DeviceStatus = "Online" | "Offline";
+export type FanStatus = "On" | "Off"; // <-- TAMBAHKAN TIPE INI
 
 // Interface ini sekarang secara akurat merefleksikan model kita
 export interface DeviceAttributes {
@@ -13,6 +14,7 @@ export interface DeviceAttributes {
   system_type: string;
   status: CreationOptional<DeviceStatus>; // <-- Tandai sebagai CreationOptional
   last_heartbeat?: Date | null; // Bisa null atau undefined
+  fan_status: CreationOptional<FanStatus>; // <-- TAMBAHKAN INI
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -34,6 +36,7 @@ class Device
   public system_type!: string;
   public status!: CreationOptional<DeviceStatus>;
   public last_heartbeat!: Date | null;
+  public fan_status!: CreationOptional<FanStatus>; // <-- TAMBAHKAN INI
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -67,6 +70,12 @@ Device.init(
     last_heartbeat: {
       type: DataTypes.DATE,
       allowNull: true,
+    },
+    fan_status: {
+      // <-- TAMBAHKAN BLOK INI
+      type: DataTypes.ENUM("On", "Off"),
+      allowNull: false,
+      defaultValue: "Off",
     },
   },
   {

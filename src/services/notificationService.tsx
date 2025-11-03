@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { AlertEmail } from "../emails/AlertEmail";
 import { RepeatAlertEmail } from "../emails/RepeatAlertEmail";
 import { InviteEmail } from "../emails/InviteEmail";
+import { AllClearEmail } from "../emails/AllClearEmail"; // <-- IMPORT BARU
 import { render } from "@react-email/render";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -107,5 +108,32 @@ export const sendRepeatAlertEmail = async ({
       error
     );
     throw new Error("Gagal mengirim email peringatan berulang.");
+  }
+};
+
+// TAMBAHKAN FUNGSI BARU INI
+export const sendAllClearEmail = async ({
+  to,
+  subject,
+  emailProps,
+}: {
+  to: string;
+  subject: string;
+  emailProps: React.ComponentProps<typeof AllClearEmail>;
+}) => {
+  const emailHtml = await render(<AllClearEmail {...emailProps} />);
+  try {
+    const { data, error } = await resend.emails.send({
+      from: `Sistem Monitoring <no-reply@${SENDER_DOMAIN}>`,
+      to: [to],
+      subject: subject,
+      html: emailHtml,
+    });
+    if (error) throw error;
+  } catch (error) {
+    console.error(
+      `[Notification] Failed to send 'all clear' email to ${to}:`,
+      error
+    );
   }
 };

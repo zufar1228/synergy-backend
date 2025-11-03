@@ -7,6 +7,7 @@ export const ingestLingkunganLog = async (logData: {
   payload: object;
   temperature?: number;
   humidity?: number;
+  co2_ppm?: number;
 }) => {
   await LingkunganLog.create({
     ...logData,

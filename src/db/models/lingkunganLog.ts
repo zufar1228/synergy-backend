@@ -10,6 +10,7 @@ export interface LingkunganLogAttributes {
   payload: object;
   temperature?: number | null;
   humidity?: number | null;
+  co2_ppm?: number | null; // <-- TAMBAHKAN INI
 }
 
 // === TAMBAHKAN TIPE INI ===
@@ -30,6 +31,7 @@ class LingkunganLog
   public payload!: object;
   public temperature!: number | null;
   public humidity!: number | null;
+  public co2_ppm!: number | null; // <-- TAMBAHKAN INI
 }
 
 LingkunganLog.init(
@@ -40,6 +42,7 @@ LingkunganLog.init(
     payload: { type: DataTypes.JSONB, allowNull: false },
     temperature: { type: DataTypes.DECIMAL, allowNull: true },
     humidity: { type: DataTypes.INTEGER, allowNull: true },
+    co2_ppm: { type: DataTypes.INTEGER, allowNull: true }, // <-- TAMBAHKAN INI
   },
   {
     sequelize,

@@ -1,18 +1,11 @@
 // backend/src/services/alertingService.ts
-import {
-  Device,
-  Area,
-  Warehouse,
-  UserNotificationPreference,
-} from "../db/models";
-import { sendAlertEmail } from "./notificationService"; // <-- NAMA FILE DIPERBAIKI
-import { format } from "date-fns";
-import { id } from "date-fns/locale";
-import { DeviceAttributes } from "../db/models/device";
-import { AreaAttributes } from "../db/models/area";
-import { WarehouseAttributes } from "../db/models/warehouse";
-import { supabaseAdmin } from "../config/supabaseAdmin";
-import ApiError from "../utils/apiError";
+import { Device, Area, Warehouse, UserNotificationPreference, Profile } from '../db/models';
+import { supabaseAdmin } from '../config/supabaseAdmin';
+import { sendAlertEmail, sendAllClearEmail } from './notificationService'; // <-- IMPORT BARU
+import * as actuationService from './actuationService'; // <-- IMPORT BARU
+import { format } from 'date-fns';
+import { id as localeID } from 'date-fns/locale';
+import ApiError from '../utils/apiError';
 
 // Definisikan tipe untuk hasil query eager-loading
 interface DeviceWithRelations extends Device {
@@ -20,96 +13,106 @@ interface DeviceWithRelations extends Device {
     warehouse: Warehouse;
   };
 }
-
-const thresholds = {
-  lingkungan: { temp: { max: 40 }, humidity: { max: 85 } },
+const THRESHOLDS = {
+  lingkungan: {
+    temp: { max: 40 }, // Suhu maks 40°C
+    co2: { max: 1500 }  // CO2 maks 1500 ppm
+  }
 };
 
-export const processSensorDataForAlerts = async (
-  deviceId: string,
-  systemType: string,
-  data: any
-) => {
-  if (systemType !== "lingkungan") return;
-  const { temp } = data;
-  let incidentType = "";
-  const details = [];
+/**
+ * Mengirim notifikasi (email) ke semua pengguna yang berlangganan
+ */
+const notifySubscribers = async (systemType: string, subject: string, emailProps: any, emailFunction: (params: any) => Promise<void>) => {
+  const userIds = (await UserNotificationPreference.findAll({
+    where: { system_type: systemType, is_enabled: true },
+    attributes: ['user_id'],
+  })).map(sub => sub.user_id);
 
-  if (temp > thresholds.lingkungan.temp.max) {
-    incidentType = "Suhu Terlalu Tinggi";
-    details.push({ key: "Suhu Terdeteksi", value: `${temp}°C` });
-    details.push({
-      key: "Ambang Batas",
-      value: `> ${thresholds.lingkungan.temp.max}°C`,
-    });
+  if (userIds.length === 0) return; // Tidak ada yang subscribe
+
+  const { data: { users } } = await supabaseAdmin.auth.admin.listUsers();
+  const subscribedUsers = users.filter(user => userIds.includes(user.id)).map(user => ({ email: user.email! }));
+
+  for (const user of subscribedUsers) {
+    await emailFunction({ to: user.email, subject, emailProps });
   }
+};
 
-  if (!incidentType) return;
+/**
+ * Memproses data sensor, membandingkan dengan ambang batas, dan mengontrol aktuator
+ */
+export const processSensorDataForAlerts = async (deviceId: string, systemType: string, data: any) => {
+  if (systemType !== 'lingkungan') return;
 
+  const { temp, co2_ppm } = data;
+  if (temp === undefined && co2_ppm === undefined) return; // Tidak ada data untuk diproses
+
+  // 1. Dapatkan status perangkat saat ini (termasuk status kipas)
   const device = (await Device.findByPk(deviceId, {
-    include: [
-      {
-        model: Area,
-        as: "area",
-        include: [{ model: Warehouse, as: "warehouse" }],
-      },
-    ],
-  })) as DeviceWithRelations | null; // <-- GUNAKAN TYPE ASSERTION
+    include: [{ model: Area, as: 'area', include: [{ model: Warehouse, as: 'warehouse' }] }]
+  })) as DeviceWithRelations | null;
 
   if (!device || !device.area || !device.area.warehouse) return;
 
-  const { name: deviceName, area } = device;
-  const { name: areaName, warehouse } = area;
-  const { name: warehouseName } = warehouse;
+  const { area, fan_status } = device;
+  const { warehouse } = area;
+  
+  // 2. Tentukan kondisi
+  const tempLimit = THRESHOLDS.lingkungan.temp.max;
+  const co2Limit = THRESHOLDS.lingkungan.co2.max;
+  
+  const isAlertTriggered = (temp > tempLimit) || (co2_ppm > co2Limit);
+  const currentFanStatus = fan_status;
 
-  const emailProps = {
-    incidentType,
-    warehouseName,
-    areaName,
-    deviceName,
-    timestamp: format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-      locale: id,
-    }),
-    details,
-  };
+  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", { locale: localeID });
 
-  const subject = `[PERINGATAN Kritis] Terdeteksi ${incidentType} di ${warehouseName} - ${areaName}`;
+  // 3. Terapkan Logika Kontrol
+  if (isAlertTriggered && currentFanStatus === 'Off') {
+    // --- KONDISI: BARU SAJA PANAS, KIPAS MATI ---
+    console.log(`[Alerting] Peringatan terpicu untuk ${device.name}. Menyalakan kipas...`);
 
-  // === PERBAIKAN: Ganti daftar user hardcoded dengan query dinamis ===
-  // 1. Cari semua preferensi yang aktif untuk tipe sistem ini
-  const activeSubscriptions = await UserNotificationPreference.findAll({
-    where: {
-      system_type: systemType,
-      is_enabled: true,
-    },
-    attributes: ["user_id"],
-  });
+    // Tentukan detail peringatan
+    let incidentType = temp > tempLimit ? 'Suhu Terlalu Tinggi' : 'Kadar CO2 Tinggi';
+    let details = temp > tempLimit 
+      ? [{ key: 'Suhu', value: `${temp}°C` }, { key: 'Batas', value: `${tempLimit}°C` }]
+      : [{ key: 'CO2', value: `${co2_ppm} ppm` }, { key: 'Batas', value: `${co2Limit} ppm` }];
 
-  if (activeSubscriptions.length === 0) {
-    console.log(
-      `[Alerting] No active subscribers for system type "${systemType}".`
-    );
-    return;
-  }
+    // a. Kirim Perintah 'On'
+    await actuationService.controlFanRelay(deviceId, 'On');
 
-  // 2. Ambil semua email dari user ID yang subscribe
-  const userIds = activeSubscriptions.map((sub) => sub.user_id);
-  const {
-    data: { users },
-    error,
-  } = await supabaseAdmin.auth.admin.listUsers();
-  if (error)
-    throw new ApiError(
-      500,
-      "Gagal mengambil daftar pengguna untuk notifikasi."
-    );
+    // b. Kirim Notifikasi Peringatan
+    const emailProps = {
+      incidentType,
+      warehouseName: warehouse.name,
+      areaName: area.name,
+      deviceName: device.name,
+      timestamp,
+      details,
+    };
+    const subject = `[PERINGATAN Kritis] Terdeteksi ${incidentType} di ${warehouse.name}`;
+    await notifySubscribers('lingkungan', subject, emailProps, sendAlertEmail);
+    
+  } else if (!isAlertTriggered && currentFanStatus === 'On') {
+    // --- KONDISI: SUDAH DINGIN, KIPAS MASIH NYALA ---
+    console.log(`[Alerting] Kondisi normal kembali untuk ${device.name}. Mematikan kipas...`);
 
-  const subscribedUsers = users
-    .filter((user) => userIds.includes(user.id))
-    .map((user) => ({ email: user.email! }));
-  // =====================================================================
+    // a. Kirim Perintah 'Off'
+    await actuationService.controlFanRelay(deviceId, 'Off');
 
-  for (const user of subscribedUsers) {
-    await sendAlertEmail({ to: user.email, subject, emailProps });
+    // b. Kirim Notifikasi "Kembali Normal"
+    const emailProps = {
+      warehouseName: warehouse.name,
+      areaName: area.name,
+      deviceName: device.name,
+      timestamp,
+    };
+    const subject = `[Info] Sistem Lingkungan di ${warehouse.name} Kembali Normal`;
+    await notifySubscribers('lingkungan', subject, emailProps, sendAllClearEmail);
+
+  } else {
+    // --- KONDISI STABIL ---
+    // (Misal: Panas & kipas sudah nyala, ATAU Normal & kipas sudah mati)
+    // Tidak melakukan apa-apa
   }
 };
