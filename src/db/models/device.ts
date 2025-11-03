@@ -19,7 +19,7 @@ export interface DeviceAttributes {
   updatedAt?: Date;
 }
 
-// Definisikan tipe untuk pembuatan, yang digunakan oleh method .create()
+// Definisikan tipe untuk pembuaatan, yang digunakan oleh method .create()
 export type DeviceCreationAttributes = Omit<
   DeviceAttributes,
   "id" | "status" | "createdAt" | "updatedAt"
