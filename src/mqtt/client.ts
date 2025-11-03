@@ -64,11 +64,6 @@ export const initializeMqttClient = () => {
   console.log("=".repeat(80));
 
   try {
-    // Event: Connecting
-    client.on("connecting", () => {
-      console.log("⏳ [MQTT] Attempting to connect to broker...");
-    });
-
     // Event: Connect
     client.on("connect", (connack) => {
       console.log("\n" + "=".repeat(80));
