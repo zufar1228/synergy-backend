@@ -27,7 +27,6 @@ export type DeviceCreationAttributes = Omit<
 
 class Device
   extends Model<DeviceAttributes, DeviceCreationAttributes>
-  // <-- Berikan kedua tipe ke Model
   implements DeviceAttributes
 {
   public id!: CreationOptional<string>;

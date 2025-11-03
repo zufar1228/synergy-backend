@@ -20,7 +20,6 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
           script: |
             set -e
 
@@ -31,7 +30,7 @@ jobs:
             # Stop backend
             pm2 delete backend 2>/dev/null || true
 
-            # Clean working directory (remove dist changes)
+            # Clean working directory
             echo "Cleaning working directory..."
             git clean -fd
 
@@ -39,7 +38,7 @@ jobs:
             echo "Fetching latest from GitHub..."
             git fetch origin main
 
-            # Force reset to remote (discard any local changes)
+            # Reset to remote
             echo "Resetting to origin/main..."
             git reset --hard origin/main
 
@@ -48,7 +47,7 @@ jobs:
             git log --oneline -3
             git status
 
-            # Install pnpm globally
+            # Install pnpm
             npm install -g pnpm
 
             # Install dependencies
@@ -67,6 +66,5 @@ jobs:
             # Check status
             echo "=== Deployment Status ==="
             pm2 status
-            pm2 logs backend --lines 10
 
             echo "✅ Deployment successful!"
