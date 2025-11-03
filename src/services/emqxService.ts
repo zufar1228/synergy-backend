@@ -31,24 +31,17 @@ async function createMqttUser(deviceId: string) {
 }
 
 // === PERBAIKAN UTAMA ADA DI FUNGSI INI ===
-async function createAclRules(username: string, deviceTopic: string, commandTopic: string) {
-  // Kita sekarang mengirim DUA aturan:
-  // 1. Izin untuk PUBLISH ke topik sensor
-  // 2. Izin untuk SUBSCRIBE ke topik perintah
+// Kita ubah menjadi 'addAclRule' (singular) dan hanya menangani satu aturan
+async function addAclRule(username: string, action: 'publish' | 'subscribe', topic: string) {
   const payload = [
     {
       username: username,
       rules: [
         {
-          action: 'publish',
+          action: action,
           permission: 'allow',
-          topic: deviceTopic,
+          topic: topic,
         },
-        {
-          action: 'subscribe',
-          permission: 'allow',
-          topic: commandTopic,
-        }
       ],
     },
   ];
@@ -60,7 +53,7 @@ async function createAclRules(username: string, deviceTopic: string, commandTopi
   );
 }
 
-// Fungsi utama yang dipanggil (sedikit dimodifikasi)
+// Fungsi utama yang dipanggil (diperbarui untuk memanggil ACL dua kali)
 export const provisionDeviceInEMQX = async (device: {id: string, area: { warehouse_id: string, id: string }}) => {
   const { username, password } = await createMqttUser(device.id);
   
@@ -68,8 +61,12 @@ export const provisionDeviceInEMQX = async (device: {id: string, area: { warehou
   const deviceTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
   const commandTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
   
-  // Panggil fungsi ACL yang baru
-  await createAclRules(username, deviceTopic, commandTopic);
+  // Panggil fungsi 'addAclRule' DUA KALI
+  // 1. Tambahkan izin PUBLISH
+  await addAclRule(username, 'publish', deviceTopic);
+  
+  // 2. Tambahkan izin SUBSCRIBE
+  await addAclRule(username, 'subscribe', commandTopic);
 
   return { username, password };
 };
