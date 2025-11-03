@@ -23,13 +23,6 @@ if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD) {
   console.error(
     "\n❌ FATAL ERROR: Missing required MQTT environment variables!"
   );
-  console.error(
-    "   Please check your .env file and ensure these variables are set:"
-  );
-  console.error("   - MQTT_HOST");
-  console.error("   - MQTT_USERNAME");
-  console.error("   - MQTT_PASSWORD");
-  console.log("=".repeat(80) + "\n");
   throw new Error("Missing MQTT configuration");
 }
 
@@ -41,29 +34,33 @@ console.log("   Username:", MQTT_USERNAME);
 console.log("   Password:", MQTT_PASSWORD.substring(0, 20) + "...");
 console.log("=".repeat(80) + "\n");
 
-const options: mqtt.IClientOptions = {
-  username: MQTT_USERNAME,
-  password: MQTT_PASSWORD,
-  clean: true,
-  reconnectPeriod: 5000,
-  connectTimeout: 30000,
-  keepalive: 60,
-};
-
-// Buat client di scope atas
-console.log("🔄 Creating MQTT client instance...");
-const client = mqtt.connect(MQTT_BROKER_URL, options);
-console.log("✅ MQTT client instance created\n");
-
-// Ekspor client agar bisa digunakan oleh service lain
-export { client };
+// Deklarasi client di scope module tapi BELUM dibuat
+let client: mqtt.MqttClient;
 
 export const initializeMqttClient = () => {
   console.log("=".repeat(80));
-  console.log("🚀 INITIALIZING MQTT CLIENT EVENT HANDLERS");
+  console.log("🚀 INITIALIZING MQTT CLIENT");
   console.log("=".repeat(80));
 
   try {
+    // Buat MQTT client options
+    const options: mqtt.IClientOptions = {
+      username: MQTT_USERNAME,
+      password: MQTT_PASSWORD,
+      clean: true,
+      reconnectPeriod: 5000,
+      connectTimeout: 30000,
+      keepalive: 60,
+    };
+
+    console.log("🔄 Creating MQTT client and connecting to broker...");
+    console.log("   Broker:", MQTT_BROKER_URL);
+
+    // BUAT CLIENT DI SINI (di dalam fungsi init)
+    client = mqtt.connect(MQTT_BROKER_URL, options);
+
+    console.log("✅ MQTT client created, registering event handlers...\n");
+
     // Event: Connect
     client.on("connect", (connack) => {
       console.log("\n" + "=".repeat(80));
@@ -202,7 +199,7 @@ export const initializeMqttClient = () => {
       if ((error as any).code) {
         console.error("   Error code:", (error as any).code);
       }
-      console.error("   Full error object:", JSON.stringify(error, null, 2));
+      console.error("   Full error:", error);
       console.error("=".repeat(80) + "\n");
     });
 
@@ -222,7 +219,7 @@ export const initializeMqttClient = () => {
     });
 
     console.log("✅ Event handlers registered successfully");
-    console.log("⏳ Waiting for connection to establish...");
+    console.log("⏳ Connection attempt should start automatically...");
     console.log("=".repeat(80) + "\n");
   } catch (error) {
     console.error("\n" + "=".repeat(80));
@@ -233,3 +230,6 @@ export const initializeMqttClient = () => {
     throw error;
   }
 };
+
+// Ekspor client untuk digunakan service lain (untuk publish commands)
+export { client };

@@ -10,18 +10,15 @@ export interface LingkunganLogAttributes {
   payload: object;
   temperature?: number | null;
   humidity?: number | null;
-  co2_ppm?: number | null; // <-- TAMBAHKAN INI
+  co2_ppm?: number | null;
 }
 
-// === TAMBAHKAN TIPE INI ===
-// Mendefinisikan atribut yang dibutuhkan saat .create() dipanggil
 export type LingkunganLogCreationAttributes = Omit<
   LingkunganLogAttributes,
   "id"
 >;
 
 class LingkunganLog
-  // === PERBAIKI BARIS INI ===
   extends Model<LingkunganLogAttributes, LingkunganLogCreationAttributes>
   implements LingkunganLogAttributes
 {
@@ -31,7 +28,7 @@ class LingkunganLog
   public payload!: object;
   public temperature!: number | null;
   public humidity!: number | null;
-  public co2_ppm!: number | null; // <-- TAMBAHKAN INI
+  public co2_ppm!: number | null;
 }
 
 LingkunganLog.init(
@@ -41,8 +38,8 @@ LingkunganLog.init(
     timestamp: { type: DataTypes.DATE, allowNull: false },
     payload: { type: DataTypes.JSONB, allowNull: false },
     temperature: { type: DataTypes.DECIMAL, allowNull: true },
-    humidity: { type: DataTypes.INTEGER, allowNull: true },
-    co2_ppm: { type: DataTypes.INTEGER, allowNull: true }, // <-- TAMBAHKAN INI
+    humidity: { type: DataTypes.DECIMAL, allowNull: true }, // ✅ UBAH DARI INTEGER KE DECIMAL
+    co2_ppm: { type: DataTypes.INTEGER, allowNull: true },
   },
   {
     sequelize,
