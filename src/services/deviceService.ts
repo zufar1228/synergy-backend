@@ -138,6 +138,29 @@ export const getDeviceById = async (id: string) => {
   return device;
 };
 
+// --- TAMBAHKAN FUNGSI BARU INI ---
+export const getDeviceByAreaAndSystem = async (
+  areaId: string,
+  systemType: string
+) => {
+  const device = await Device.findOne({
+    where: {
+      area_id: areaId,
+      system_type: systemType,
+    },
+    // Kita hanya perlu mengirim status penting
+    attributes: ["id", "name", "status", "fan_status"],
+  });
+
+  if (!device) {
+    throw new ApiError(
+      404,
+      "Perangkat tidak ditemukan untuk area dan tipe sistem ini."
+    );
+  }
+  return device;
+};
+
 // Fungsi updateHeartbeat tetap ada
 export const updateDeviceHeartbeat = async (
   deviceId: string

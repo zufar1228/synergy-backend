@@ -29,6 +29,16 @@ const updateDeviceSchema = z.object({
 });
 
 // Daftarkan semua endpoint
+
+// --- TAMBAHKAN RUTE BARU INI ---
+// Rute ini harus di atas rute '/:id' agar 'details' tidak dianggap sebagai ID
+router.get('/details', deviceController.getDeviceDetailsByArea);
+
+// Rute BARU untuk perintah manual
+router.post('/:id/command', deviceController.sendManualCommand);
+// ---------------------------------
+
+// Rute yang sudah ada
 router.get("/", deviceController.listDevices);
 router.post("/", validate(createDeviceSchema), deviceController.createDevice);
 router.get("/:id", deviceController.getDeviceById);

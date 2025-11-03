@@ -2,6 +2,8 @@
 
 import { Request, Response } from "express";
 import * as deviceService from "../../services/deviceService";
+import * as actuationService from "../../services/actuationService"; // <-- IMPORT ACTUATION SERVICE
+import { FanStatus } from "../../db/models/device"; // <-- IMPORT TIPE FANSTATUS
 import ApiError from "../../utils/apiError";
 
 const handleError = (res: Response, error: unknown) => {
@@ -52,6 +54,47 @@ export const deleteDevice = async (req: Request, res: Response) => {
   try {
     await deviceService.deleteDevice(req.params.id);
     res.status(204).send();
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// --- TAMBAHKAN FUNGSI BARU INI ---
+export const getDeviceDetailsByArea = async (req: Request, res: Response) => {
+  try {
+    const { area_id, system_type } = req.query;
+    if (!area_id || !system_type) {
+      throw new ApiError(
+        400,
+        "Query parameter area_id dan system_type wajib diisi."
+      );
+    }
+    const data = await deviceService.getDeviceByAreaAndSystem(
+      area_id as string,
+      system_type as string
+    );
+    res.status(200).json(data);
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// --- TAMBAHKAN FUNGSI BARU INI ---
+export const sendManualCommand = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params; // ID Perangkat
+    const { action } = req.body; // Ekspektasi: { "action": "On" } atau { "action": "Off" }
+
+    if (!action || !["On", "Off"].includes(action)) {
+      throw new ApiError(400, 'Aksi tidak valid. Kirim "On" atau "Off".');
+    }
+
+    // Panggil actuationService untuk mengirim perintah
+    await actuationService.controlFanRelay(id, action as FanStatus);
+
+    res
+      .status(200)
+      .json({ message: `Perintah manual '${action}' berhasil dikirim.` });
   } catch (error) {
     handleError(res, error);
   }
