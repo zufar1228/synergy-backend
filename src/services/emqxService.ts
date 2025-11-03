@@ -4,8 +4,8 @@ import "dotenv/config";
 
 const API_BASE_URL = process.env.EMQX_API_URL;
 const AUTH = {
-  username: process.env.EMQX_APP_ID || "",
-  password: process.env.EMQX_APP_SECRET || "",
+  username: process.env.EMQX_APP_ID!,
+  password: process.env.EMQX_APP_SECRET!,
 };
 
 // Fungsi ini sudah benar (menggunakan user_id)
@@ -28,46 +28,44 @@ async function createMqttUser(deviceId: string) {
   return { username, password };
 }
 
-// === PERBAIKAN DI SINI: Gunakan 'user_id' bukan 'username' ===
-async function addAclRule(
-  userId: string,
-  action: "publish" | "subscribe",
-  topic: string
-) {
+// === PERBAIKAN UTAMA: Menggabungkan ACL dalam SATU PANGGILAN ===
+async function setAclRules(userId: string, publishTopic: string, subscribeTopic: string) {
+  // Buat payload yang berisi SEMUA aturan untuk pengguna ini
   const payload = [
     {
-      // Kunci di sini harus 'user_id' agar cocok dengan 'createMqttUser'
       user_id: userId,
       rules: [
         {
-          action: action,
-          permission: "allow",
-          topic: topic,
+          action: 'publish',
+          permission: 'allow',
+          topic: publishTopic,
         },
+        {
+          action: 'subscribe',
+          permission: 'allow',
+          topic: subscribeTopic,
+        }
       ],
     },
   ];
 
   await axios.post(
+    // Endpoint ini akan MENETAPKAN (mengganti) semua aturan untuk user_id ini
     `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`,
     payload,
     { auth: AUTH }
   );
 }
 
-// Fungsi utama (memanggil addAclRule 2x)
-export const provisionDeviceInEMQX = async (device: {
-  id: string;
-  area: { warehouse_id: string; id: string };
-}) => {
+// Fungsi utama yang memanggil logika baru
+export const provisionDeviceInEMQX = async (device: {id: string, area: { warehouse_id: string, id: string }}) => {
   const { username, password } = await createMqttUser(device.id);
-
+  
   const deviceTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
   const commandTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
-
-  // Kirim 'username' (yang merupakan 'user_id') ke fungsi ACL
-  await addAclRule(username, "publish", deviceTopic);
-  await addAclRule(username, "subscribe", commandTopic);
+  
+  // Panggil fungsi setAclRules SATU KALI dengan kedua topik
+  await setAclRules(username, deviceTopic, commandTopic);
 
   return { username, password };
 };
