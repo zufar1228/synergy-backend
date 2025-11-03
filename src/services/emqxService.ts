@@ -3,15 +3,22 @@ import axios from "axios";
 import "dotenv/config";
 
 const API_BASE_URL = process.env.EMQX_API_URL;
+
+if (!process.env.EMQX_APP_ID || !process.env.EMQX_APP_SECRET) {
+  throw new Error(
+    "EMQX_APP_ID and EMQX_APP_SECRET must be defined in environment variables"
+  );
+}
+
 const AUTH = {
-  username: process.env.EMQX_APP_ID || "",
-  password: process.env.EMQX_APP_SECRET || "",
+  username: process.env.EMQX_APP_ID,
+  password: process.env.EMQX_APP_SECRET,
 };
 
-// Fungsi ini sudah benar
+// --- FUNGSI CREATE USER (Sudah benar) ---
 async function createMqttUser(deviceId: string) {
   const password = `pwd-${deviceId}-${Date.now()}`;
-  const username = `device-${deviceId}`;
+  const username = `device-${deviceId}`; // Ini adalah 'user_id'
 
   const payload = {
     user_id: username,
@@ -19,16 +26,28 @@ async function createMqttUser(deviceId: string) {
     is_superuser: false,
   };
 
-  await axios.post(
-    `${API_BASE_URL}/api/v5/authentication/password_based%3Abuilt_in_database/users`,
-    payload,
-    { auth: AUTH }
-  );
+  try {
+    await axios.post(
+      `${API_BASE_URL}/api/v5/authentication/password_based%3Abuilt_in_database/users`,
+      payload,
+      { auth: AUTH }
+    );
+    console.log(`[EMQX Service] User baru dibuat: ${username}`);
+  } catch (error: any) {
+    if (error.response && error.response.status === 409) {
+      // 409 Conflict: User sudah ada. Ini seharusnya tidak terjadi setelah pembersihan,
+      // tapi ini adalah pengaman jika terjadi.
+      console.warn(`[EMQX Service] User ${username} sudah ada. Melanjutkan...`);
+    } else {
+      console.error("[EMQX Service] Gagal create user:", error.response?.data);
+      throw error;
+    }
+  }
 
   return { username, password };
 }
 
-// === PERBAIKAN TOTAL PADA FUNGSI PROVISIONING ===
+// --- FUNGSI PROVISIONING DENGAN PAYLOAD FLAT ARRAY YANG BENAR ---
 export const provisionDeviceInEMQX = async (device: {
   id: string;
   area: { warehouse_id: string; id: string };
@@ -38,7 +57,7 @@ export const provisionDeviceInEMQX = async (device: {
   const deviceTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/#`;
   const commandTopic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
 
-  // Buat array payload yang berisi KEDUA aturan
+  // Payload adalah array dari objek aturan, BUKAN objek yang di-nesting
   const aclPayload = [
     {
       user_id: username,
@@ -54,44 +73,63 @@ export const provisionDeviceInEMQX = async (device: {
     },
   ];
 
-  // Kirim KEDUA aturan dalam SATU PANGGILAN API
-  await axios.post(
-    `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`,
-    aclPayload,
-    { auth: AUTH }
-  );
+  try {
+    // Kirim KEDUA aturan dalam SATU PANGGILAN API
+    await axios.post(
+      `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`,
+      aclPayload,
+      { auth: AUTH }
+    );
+    console.log(`[EMQX Service] ACL berhasil di-set untuk ${username}`);
+  } catch (error: any) {
+    console.error("[EMQX Service] Gagal set ACL:", error.response?.data);
+    throw error;
+  }
 
   return { username, password };
 };
 
-// Fungsi deprovisioning tidak berubah, tetapi kita akan membuatnya lebih tangguh
+// --- FUNGSI DEPROVISIONING YANG DIPERBAIKI (INI YANG GAGAL SEBELUMNYA) ---
 export const deprovisionDeviceInEMQX = async (deviceId: string) => {
-  const username = `device-${deviceId}`;
+  const username = `device-${deviceId}`; // Ini adalah 'user_id'
 
+  // 1. Hapus aturan ACL
   try {
-    // 1. Hapus aturan ACL
-    // Mengirim array kosong untuk user_id ini akan menghapus semua aturannya
-    await axios.post(
-      `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users`,
-      [{ user_id: username, rules: [] }],
+    // API ini menghapus SEMUA aturan untuk user_id tertentu
+    await axios.delete(
+      `${API_BASE_URL}/api/v5/authorization/sources/built_in_database/rules/users/${username}`,
       { auth: AUTH }
     );
+    console.log(`[EMQX Service] ACL berhasil dihapus untuk ${username}`);
   } catch (error: any) {
-    console.warn(
-      `[EMQX Service] Gagal membersihkan ACL untuk ${username}: ${error.message}`
-    );
+    if (error.response && error.response.status === 404) {
+      console.warn(
+        `[EMQX Service] Tidak ada ACL untuk ${username}. Melanjutkan...`
+      );
+    } else {
+      console.error(
+        `[EMQX Service] Gagal menghapus ACL:`,
+        error.response?.data
+      );
+      // Jangan lemparkan error, lanjutkan ke penghapusan user
+    }
   }
 
+  // 2. Hapus pengguna
   try {
-    // 2. Hapus pengguna
     const deleteUrl = `${API_BASE_URL}/api/v5/authentication/password_based%3Abuilt_in_database/users/${username}`;
     await axios.delete(deleteUrl, { auth: AUTH });
+    console.log(`[EMQX Service] User ${username} berhasil dihapus.`);
   } catch (error: any) {
     if (error.response && error.response.status === 404) {
       console.warn(
         `[EMQX Service] MQTT user ${username} not found for deletion. Skipping.`
       );
     } else {
+      console.error(
+        `[EMQX Service] Gagal menghapus user:`,
+        error.response?.data
+      );
       throw error;
     }
   }
