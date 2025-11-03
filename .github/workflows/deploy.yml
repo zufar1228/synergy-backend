@@ -20,26 +20,53 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
           script: |
+            set -e
+
+            echo "=== Starting Deployment ==="
+
             cd /var/www/myapp/warehouse-monitoring-backend
 
-            # Kill existing PM2 process (suppress error)
+            # Stop backend
             pm2 delete backend 2>/dev/null || true
 
-            # Pull latest code from GitHub
-            git pull origin main 2>/dev/null || git pull origin master
+            # Clean working directory (remove dist changes)
+            echo "Cleaning working directory..."
+            git clean -fd
 
-            # Install dependencies dengan pnpm (lebih cepat & hemat memory)
+            # Fetch latest
+            echo "Fetching latest from GitHub..."
+            git fetch origin main
+
+            # Force reset to remote (discard any local changes)
+            echo "Resetting to origin/main..."
+            git reset --hard origin/main
+
+            # Verify update
+            echo "Git status:"
+            git log --oneline -3
+            git status
+
+            # Install pnpm globally
+            npm install -g pnpm
+
+            # Install dependencies
+            echo "Installing dependencies..."
             pnpm install --frozen-lockfile
 
-            # Build TypeScript
+            # Build
+            echo "Building..."
             pnpm run build
 
-            # Start application with PM2
+            # Start backend
+            echo "Starting backend..."
             pm2 start dist/server.js --name "backend" --max-memory-restart 256M
             pm2 save
 
-            # Show status
+            # Check status
+            echo "=== Deployment Status ==="
             pm2 status
+            pm2 logs backend --lines 10
 
             echo "✅ Deployment successful!"
