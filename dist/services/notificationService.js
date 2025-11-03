@@ -5,16 +5,19 @@ const jsx_runtime_1 = require("react/jsx-runtime");
 // backend/src/services/notificationService.ts
 const resend_1 = require("resend");
 const AlertEmail_1 = require("../emails/AlertEmail");
-const render_1 = require("@react-email/render");
-const InviteEmail_1 = require("../emails/InviteEmail");
 const RepeatAlertEmail_1 = require("../emails/RepeatAlertEmail");
+const InviteEmail_1 = require("../emails/InviteEmail");
+const render_1 = require("@react-email/render");
 const resend = new resend_1.Resend(process.env.RESEND_API_KEY);
+// Ganti "domain-anda-terverifikasi.com" dengan domain yang Anda verifikasi di Resend
+const SENDER_DOMAIN = "synergyiot.tech";
 const sendAlertEmail = async ({ to, subject, emailProps, }) => {
     // Gunakan 'await' karena render bersifat async
     const emailHtml = await (0, render_1.render)((0, jsx_runtime_1.jsx)(AlertEmail_1.AlertEmail, { ...emailProps }));
     try {
         const { data, error } = await resend.emails.send({
-            from: "Monitoring System <onboarding@resend.dev>",
+            // === UBAH INI ===
+            from: `Peringatan <no-reply@${SENDER_DOMAIN}>`,
             to: [to],
             subject: subject,
             html: emailHtml,
@@ -35,7 +38,8 @@ const sendInviteEmail = async ({ to, inviteLink, }) => {
     const emailHtml = await (0, render_1.render)((0, jsx_runtime_1.jsx)(InviteEmail_1.InviteEmail, { inviteLink: inviteLink }));
     try {
         const { data, error } = await resend.emails.send({
-            from: "Sistem Undangan <onboarding@resend.dev>",
+            // === UBAH INI ===
+            from: `Sistem Undangan <invites@${SENDER_DOMAIN}>`,
             to: [to],
             subject: "Undangan untuk Bergabung dengan Platform Monitoring IoT",
             html: emailHtml,
@@ -55,7 +59,8 @@ const sendRepeatAlertEmail = async ({ to, subject, emailProps, }) => {
     const emailHtml = await (0, render_1.render)((0, jsx_runtime_1.jsx)(RepeatAlertEmail_1.RepeatAlertEmail, { ...emailProps }));
     try {
         const { data, error } = await resend.emails.send({
-            from: "Sistem Keamanan <onboarding@resend.dev>", // Ganti dengan domain terverifikasi Anda
+            // === UBAH INI ===
+            from: `Peringatan Keamanan <security@${SENDER_DOMAIN}>`,
             to: [to],
             subject: subject,
             html: emailHtml,

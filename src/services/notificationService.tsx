@@ -1,12 +1,14 @@
 // backend/src/services/notificationService.ts
 import { Resend } from "resend";
 import { AlertEmail } from "../emails/AlertEmail";
-import * as React from "react";
-import { render } from "@react-email/render";
-import { InviteEmail } from "../emails/InviteEmail";
 import { RepeatAlertEmail } from "../emails/RepeatAlertEmail";
+import { InviteEmail } from "../emails/InviteEmail";
+import { render } from "@react-email/render";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Ganti "domain-anda-terverifikasi.com" dengan domain yang Anda verifikasi di Resend
+const SENDER_DOMAIN = "synergyiot.tech";
 
 // Gunakan 'typeof' untuk mendapatkan tipe props dari komponen
 type AlertEmailProps = React.ComponentProps<typeof AlertEmail>;
@@ -27,7 +29,8 @@ export const sendAlertEmail = async ({
 
   try {
     const { data, error } = await resend.emails.send({
-      from: "Monitoring System <onboarding@resend.dev>",
+      // === UBAH INI ===
+      from: `Peringatan <no-reply@${SENDER_DOMAIN}>`,
       to: [to],
       subject: subject,
       html: emailHtml,
@@ -56,7 +59,8 @@ export const sendInviteEmail = async ({
 
   try {
     const { data, error } = await resend.emails.send({
-      from: "Sistem Undangan <onboarding@resend.dev>",
+      // === UBAH INI ===
+      from: `Sistem Undangan <invites@${SENDER_DOMAIN}>`,
       to: [to],
       subject: "Undangan untuk Bergabung dengan Platform Monitoring IoT",
       html: emailHtml,
@@ -89,7 +93,8 @@ export const sendRepeatAlertEmail = async ({
 
   try {
     const { data, error } = await resend.emails.send({
-      from: "Sistem Keamanan <onboarding@resend.dev>", // Ganti dengan domain terverifikasi Anda
+      // === UBAH INI ===
+      from: `Peringatan Keamanan <security@${SENDER_DOMAIN}>`,
       to: [to],
       subject: subject,
       html: emailHtml,
