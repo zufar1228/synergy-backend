@@ -14,6 +14,8 @@ const apiError_1 = __importDefault(require("../utils/apiError"));
  * @param state Status baru ('On' atau 'Off')
  */
 const controlFanRelay = async (deviceId, state) => {
+    console.log(`[Actuation] 🎯 controlFanRelay CALLED: deviceId=${deviceId}, state=${state}`);
+    console.log(`[Actuation] 🎯 Stack trace:`, new Error().stack);
     // 1. Ambil detail perangkat (termasuk relasinya) untuk membangun topik
     const device = (await models_1.Device.findByPk(deviceId, {
         include: [{ model: models_1.Area, as: "area", attributes: ["id", "warehouse_id"] }],
@@ -24,9 +26,10 @@ const controlFanRelay = async (deviceId, state) => {
     if (device.system_type !== "lingkungan") {
         throw new apiError_1.default(400, "Perintah ini hanya untuk perangkat lingkungan.");
     }
+    console.log(`[Actuation] 🎯 Current DB fan_status: ${device.fan_status}`);
     // 2. Cegah pengiriman perintah yang tidak perlu
     if (device.fan_status === state) {
-        console.log(`[Actuation] Kipas untuk ${deviceId} sudah dalam status '${state}'. Perintah diabaikan.`);
+        console.log(`[Actuation] ⏭️ Kipas untuk ${deviceId} sudah dalam status '${state}'. Perintah diabaikan.`);
         return;
     }
     // 3. Bangun topik dan payload

@@ -7,6 +7,8 @@ import Incident from "./incident";
 import Profile from "./profile";
 import UserNotificationPreference from "./userNotificationPreference";
 import KeamananLog from "./keamananLog"; // <-- IMPORT
+import PushSubscription from "./pushSubscription";
+import UserRole from "./userRole";
 
 // Definisikan Asosiasi
 Warehouse.hasMany(Area, { foreignKey: "warehouse_id", as: "areas" });
@@ -35,6 +37,18 @@ UserNotificationPreference.belongsTo(Profile, {
   foreignKey: "user_id",
   as: "profile",
 });
+
+Profile.hasMany(PushSubscription, {
+  foreignKey: "user_id",
+  as: "pushSubscriptions",
+});
+PushSubscription.belongsTo(Profile, {
+  foreignKey: "user_id",
+  as: "profile",
+});
+
+Profile.hasOne(UserRole, { foreignKey: 'user_id', as: 'userRole' });
+UserRole.belongsTo(Profile, { foreignKey: 'user_id', as: 'profile' });
 
 // Sinkronisasi database (opsional, bagus untuk development)
 const syncDatabase = async () => {
@@ -66,5 +80,7 @@ export {
   Profile,
   Incident,
   UserNotificationPreference,
-  KeamananLog, // <-- EXPORT
+  KeamananLog,
+  PushSubscription,
+  UserRole,
 };

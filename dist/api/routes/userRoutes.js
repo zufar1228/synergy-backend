@@ -52,4 +52,8 @@ router.get("/me", authMiddleware_1.authMiddleware, userController.getMyProfile);
 router.put("/me", authMiddleware_1.authMiddleware, userController.updateMyProfile);
 router.get("/me/preferences", authMiddleware_1.authMiddleware, userController.getMyPreferences);
 router.put("/me/preferences", authMiddleware_1.authMiddleware, userController.updateMyPreferences);
+// Push Notification routes
+router.get("/push/vapid-key", authMiddleware_1.authMiddleware, userController.getVapidPublicKey);
+router.post("/push/subscribe", authMiddleware_1.authMiddleware, userController.subscribeToPush);
+router.post("/push/test", authMiddleware_1.authMiddleware, userController.testPushNotification);
 exports.default = router;

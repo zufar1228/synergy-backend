@@ -4,6 +4,7 @@ declare namespace Express {
     user?: {
       id: string; // Diambil dari 'sub' di JWT
       role: string; // Diambil dari 'role' di JWT
+      email?: string;
     };
   }
 }

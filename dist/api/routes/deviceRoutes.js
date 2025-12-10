@@ -57,7 +57,23 @@ const updateDeviceSchema = zod_1.z.object({
         // Tipe sistem tidak boleh diubah saat update, jadi kita hapus dari skema update
     }),
 });
+// Tambahkan schema untuk manual command
+const manualCommandSchema = zod_1.z.object({
+    body: zod_1.z.object({
+        action: zod_1.z.enum(["On", "Off"], {
+            message: 'Aksi harus "On" atau "Off"',
+        }),
+    }),
+});
 // Daftarkan semua endpoint
+// --- TAMBAHKAN RUTE BARU INI ---
+// Rute ini harus di atas rute '/:id' agar 'details' tidak dianggap sebagai ID
+router.get("/details", deviceController.getDeviceDetailsByArea);
+// Rute BARU untuk perintah manual
+router.post("/:id/command", (0, validateRequest_1.validate)(manualCommandSchema), // ✅ Tambahkan ini
+deviceController.sendManualCommand);
+// ---------------------------------
+// Rute yang sudah ada
 router.get("/", deviceController.listDevices);
 router.post("/", (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
 router.get("/:id", deviceController.getDeviceById);

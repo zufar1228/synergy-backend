@@ -7,10 +7,8 @@ exports.updateUserPreferences = exports.getUserPreferences = exports.updateUserP
 // backend/src/services/userService.ts
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
 const notificationService_1 = require("./notificationService");
-const models_1 = require("../db/models"); // Ganti dengan model yang sesuai jika perlu
+const models_1 = require("../db/models");
 const apiError_1 = __importDefault(require("../utils/apiError"));
-const userRole_1 = require("../db/models/userRole");
-const models_2 = require("../db/models");
 const config_1 = require("../db/config");
 const touchSecurityTimestamp = async (userId) => {
     await models_1.Profile.update({ security_timestamp: new Date() }, { where: { id: userId } });
@@ -33,14 +31,19 @@ const inviteUser = async (email, role) => {
     const inviteLink = data.properties.action_link;
     try {
         // === PERBAIKAN: Ganti 'upsert' dengan logika 'find-then-update-or-create' ===
-        const [userRole, created] = await userRole_1.UserRole.findOrCreate({
+        const [userRole, created] = await models_1.UserRole.findOrCreate({
             where: { user_id: invitedUser.id },
-            defaults: { role: role },
+            defaults: { user_id: invitedUser.id, role: role },
         });
         // Jika tidak dibuat (artinya sudah ada), maka update
         if (!created) {
             await userRole.update({ role: role });
         }
+        // === SYNC ROLE KE SUPABASE APP_METADATA ===
+        // Ini akan membuat JWT mengandung role yang benar
+        await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(invitedUser.id, {
+            app_metadata: { role: role }
+        });
         // ===================================================================
     }
     catch (dbError) {
@@ -59,7 +62,7 @@ const getAllUsers = async (requestingUserId) => {
     const { data: { users }, error, } = await supabaseAdmin_1.supabaseAdmin.auth.admin.listUsers();
     if (error)
         throw new apiError_1.default(500, "Gagal mengambil daftar pengguna.");
-    const roles = await userRole_1.UserRole.findAll();
+    const roles = await models_1.UserRole.findAll();
     const rolesMap = new Map(roles.map((r) => [r.user_id, r.role]));
     // Gabungkan data auth dengan roles dan profile pictures
     const usersWithRolesAndProfiles = await Promise.all(users.map(async (user) => {
@@ -106,10 +109,13 @@ const getUserProfile = async (userId) => {
     if (authError) {
         console.error("Error fetching auth user data:", authError);
     }
+    // Ambil role dari tabel UserRole
+    const userRole = await models_1.UserRole.findOne({ where: { user_id: userId } });
     // Gabungkan data profil database dengan data auth (termasuk avatar)
     const fullProfile = {
         ...profile.toJSON(),
         email: authUser?.email,
+        role: userRole?.role || "user", // Default ke 'user' jika tidak ditemukan
         avatar_url: authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture,
         full_name: authUser?.user_metadata?.full_name,
         // Tambahkan data auth lainnya yang mungkin diperlukan
@@ -120,18 +126,22 @@ exports.getUserProfile = getUserProfile;
 // Fungsi BARU untuk memperbarui profil pengguna saat ini
 const updateUserRole = async (userId, newRole) => {
     // Cegah perubahan peran pada diri sendiri atau pengguna lain jika tidak sengaja
-    const targetUserRole = await userRole_1.UserRole.findOne({ where: { user_id: userId } });
+    const targetUserRole = await models_1.UserRole.findOne({ where: { user_id: userId } });
     if (targetUserRole && targetUserRole.role === "super_admin") {
         throw new apiError_1.default(403, "Tidak dapat mengubah peran super_admin.");
     }
-    const [role, created] = await userRole_1.UserRole.findOrCreate({
+    const [role, created] = await models_1.UserRole.findOrCreate({
         where: { user_id: userId },
-        defaults: { role: newRole },
+        defaults: { user_id: userId, role: newRole },
     });
     if (!created) {
         await role.update({ role: newRole });
         await touchSecurityTimestamp(userId);
     }
+    // === SYNC ROLE KE SUPABASE APP_METADATA ===
+    await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(userId, {
+        app_metadata: { role: newRole }
+    });
     return role;
 };
 exports.updateUserRole = updateUserRole;
@@ -168,7 +178,7 @@ const updateUserProfile = async (userId, data) => {
 };
 exports.updateUserProfile = updateUserProfile;
 const getUserPreferences = async (userId) => {
-    const preferences = await models_2.UserNotificationPreference.findAll({
+    const preferences = await models_1.UserNotificationPreference.findAll({
         where: { user_id: userId },
         attributes: ["system_type", "is_enabled"],
     });
@@ -181,7 +191,7 @@ const updateUserPreferences = async (userId, preferences) => {
         for (const pref of preferences) {
             // === PERBAIKAN: Ganti 'upsert' dengan 'findOrCreate' + 'update' ===
             // 1. Coba cari atau buat entri baru
-            const [preference, created] = await models_2.UserNotificationPreference.findOrCreate({
+            const [preference, created] = await models_1.UserNotificationPreference.findOrCreate({
                 where: {
                     user_id: userId,
                     system_type: pref.system_type,

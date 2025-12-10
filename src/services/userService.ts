@@ -1,12 +1,10 @@
 // backend/src/services/userService.ts
 import { supabaseAdmin } from "../config/supabaseAdmin";
 import { sendInviteEmail } from "./notificationService";
-import { Profile } from "../db/models"; // Ganti dengan model yang sesuai jika perlu
+import { Profile, UserRole, UserNotificationPreference } from "../db/models";
 import ApiError from "../utils/apiError";
-import { UserRole } from "../db/models/userRole";
 import { User } from "@supabase/supabase-js";
 import { en } from "zod/v4/locales";
-import { UserNotificationPreference } from "../db/models";
 import { sequelize } from "../db/config";
 
 const touchSecurityTimestamp = async (userId: string) => {
@@ -43,13 +41,19 @@ export const inviteUser = async (
     // === PERBAIKAN: Ganti 'upsert' dengan logika 'find-then-update-or-create' ===
     const [userRole, created] = await UserRole.findOrCreate({
       where: { user_id: invitedUser.id },
-      defaults: { role: role },
+      defaults: { user_id: invitedUser.id, role: role },
     });
 
     // Jika tidak dibuat (artinya sudah ada), maka update
     if (!created) {
       await userRole.update({ role: role });
     }
+    
+    // === SYNC ROLE KE SUPABASE APP_METADATA ===
+    // Ini akan membuat JWT mengandung role yang benar
+    await supabaseAdmin.auth.admin.updateUserById(invitedUser.id, {
+      app_metadata: { role: role }
+    });
     // ===================================================================
   } catch (dbError) {
     // Tambahkan log detail untuk debugging di masa depan
@@ -141,10 +145,14 @@ export const getUserProfile = async (userId: string) => {
     console.error("Error fetching auth user data:", authError);
   }
 
+  // Ambil role dari tabel UserRole
+  const userRole = await UserRole.findOne({ where: { user_id: userId } });
+
   // Gabungkan data profil database dengan data auth (termasuk avatar)
   const fullProfile = {
     ...profile.toJSON(),
     email: authUser?.email,
+    role: userRole?.role || "user", // Default ke 'user' jika tidak ditemukan
     avatar_url:
       authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture,
     full_name: authUser?.user_metadata?.full_name,
@@ -167,13 +175,18 @@ export const updateUserRole = async (
 
   const [role, created] = await UserRole.findOrCreate({
     where: { user_id: userId },
-    defaults: { role: newRole },
+    defaults: { user_id: userId, role: newRole },
   });
 
   if (!created) {
     await role.update({ role: newRole });
     await touchSecurityTimestamp(userId);
   }
+
+  // === SYNC ROLE KE SUPABASE APP_METADATA ===
+  await supabaseAdmin.auth.admin.updateUserById(userId, {
+    app_metadata: { role: newRole }
+  });
 
   return role;
 };

@@ -1,6 +1,7 @@
 // backend/src/api/controllers/userController.ts
 import { Request, Response } from "express";
 import * as userService from "../../services/userService";
+import * as webPushService from "../../services/webPushService";
 import ApiError from "../../utils/apiError";
 
 export const inviteUser = async (req: Request, res: Response) => {
@@ -47,9 +48,13 @@ export const getMyProfile = async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw new ApiError(401, "User not authenticated");
 
+    console.log(`[getMyProfile] Fetching profile for user: ${userId}`);
     const profile = await userService.getUserProfile(userId);
+    console.log(`[getMyProfile] Profile found:`, JSON.stringify(profile, null, 2));
+    
     res.status(200).json(profile);
   } catch (error) {
+    console.error(`[getMyProfile] Error:`, error);
     handleError(res, error);
   }
 };
@@ -139,6 +144,41 @@ export const updateMyPreferences = async (req: Request, res: Response) => {
     );
     res.status(200).json(updatedPreferences);
   } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const subscribeToPush = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const subscription = req.body; // Objek PushSubscription dari browser
+    console.log(`[Push] Saving subscription for user ${userId}:`, JSON.stringify(subscription).slice(0, 100) + '...');
+    await webPushService.saveSubscription(userId, subscription);
+    res.status(201).json({ message: "Push subscription saved." });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const getVapidPublicKey = (req: Request, res: Response) => {
+  res.status(200).json({ publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
+};
+
+// TEST ENDPOINT: Manually trigger a push notification to the current user
+export const testPushNotification = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    console.log(`[Push Test] Triggering test notification for user ${userId}`);
+    
+    await webPushService.sendPushNotification(userId, {
+      title: "🧪 Test Notification",
+      body: "Jika Anda melihat ini, push notification bekerja!",
+      url: "/dashboard",
+    });
+    
+    res.status(200).json({ message: "Test push notification sent. Check your device." });
+  } catch (error) {
+    console.error("[Push Test] Error:", error);
     handleError(res, error);
   }
 };

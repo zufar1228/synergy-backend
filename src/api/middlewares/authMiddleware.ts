@@ -1,93 +1,144 @@
 // backend/src/api/middlewares/authMiddleware.ts
-import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
-import ApiError from "../../utils/apiError";
-import Profile from "../../db/models/profile";
-import { supabaseAdmin } from "../../config/supabaseAdmin";
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import axios from 'axios';
+import crypto from 'crypto';
+import ApiError from '../../utils/apiError';
 
-export const authMiddleware = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+// Cache untuk menyimpan JWKS (Public Keys) dari Supabase
+let jwksCache: { keys: any[], lastFetch: number } | null = null;
+
+async function getSupabasePublicKey(iss: string, kid: string): Promise<crypto.KeyObject | null> {
   try {
+    const now = Date.now();
+    // Refresh cache jika kosong atau lebih tua dari 1 jam (3600000 ms)
+    if (!jwksCache || (now - jwksCache.lastFetch) > 3600000) {
+      // URL JWKS biasanya: https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+      // iss dari token biasanya: https://<project-ref>.supabase.co/auth/v1
+      const baseUrl = iss.replace(/\/$/, '');
+      const jwksUrl = `${baseUrl}/.well-known/jwks.json`;
+      
+      console.log(`🔄 Fetching JWKS from ${jwksUrl}...`);
+      const response = await axios.get(jwksUrl);
+      
+      if (response.data && Array.isArray(response.data.keys)) {
+        jwksCache = {
+          keys: response.data.keys,
+          lastFetch: now
+        };
+        console.log("✅ JWKS cached successfully.");
+      }
+    }
+
+    if (!jwksCache) return null;
+
+    const jwk = jwksCache.keys.find((k: any) => k.kid === kid);
+    
+    if (!jwk) {
+      console.error(`❌ Key with kid ${kid} not found in JWKS.`);
+      return null;
+    }
+
+    // Konversi JWK ke KeyObject (Node.js native)
+    return crypto.createPublicKey({ key: jwk, format: 'jwk' });
+  } catch (err: any) {
+    console.error("❌ Error fetching/parsing JWKS:", err.message);
+    return null;
+  }
+}
+
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // 1. Ambil token
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      throw new ApiError(401, "Unauthorized: No token provided");
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // Silent fail for no token, let routes handle it if needed, or throw error
+      // But usually middleware is used on protected routes, so throw error.
+      throw new ApiError(401, 'Akses ditolak. Token tidak ditemukan.');
     }
 
-    const token = authHeader.split(" ")[1];
-    const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-    if (!jwtSecret)
-      throw new ApiError(
-        500,
-        "Internal server error: JWT secret not configured"
-      );
+    const token = authHeader.split(' ')[1];
+    if (!token || token === 'undefined' || token === 'null') {
+      throw new ApiError(401, 'Token tidak valid.');
+    }
 
-    // --- BLOK VERIFIKASI DENGAN LOGGING BARU ---
-    let decoded: any;
+    // 2. Decode Header untuk melihat Algoritma
+    const decodedComplete = jwt.decode(token, { complete: true });
+    if (!decodedComplete) {
+      throw new ApiError(401, 'Token malformed (tidak dapat didecode).');
+    }
+
+    const { alg, kid } = decodedComplete.header;
+    const payload = decodedComplete.payload as any;
+    
+    let secretOrPublicKey: string | Buffer | crypto.KeyObject;
+
+    // 3. Tentukan Kunci Verifikasi berdasarkan Algoritma
+    if (alg === 'ES256' || alg === 'RS256') {
+      // === ASYMMETRIC KEY (ES256/RS256) ===
+      // Token ini menggunakan Public/Private Key. Kita butuh Public Key dari Supabase.
+      if (!payload.iss || !kid) {
+        throw new ApiError(401, 'Token ES256/RS256 harus memiliki iss dan kid.');
+      }
+
+      const publicKey = await getSupabasePublicKey(payload.iss, kid);
+      if (!publicKey) {
+        throw new ApiError(500, 'Gagal mendapatkan Public Key dari Supabase.');
+      }
+      secretOrPublicKey = publicKey;
+
+    } else {
+      // === SYMMETRIC KEY (HS256) ===
+      // Token ini menggunakan Shared Secret (SUPABASE_JWT_SECRET).
+      const rawSecret = process.env.SUPABASE_JWT_SECRET || "";
+      if (!rawSecret) {
+        throw new ApiError(500, 'Server Error: SUPABASE_JWT_SECRET belum diset.');
+      }
+
+      // Coba konversi Base64 jika perlu
+      if (rawSecret.length > 20 && /^[A-Za-z0-9+/]*={0,2}$/.test(rawSecret)) {
+         try {
+            secretOrPublicKey = Buffer.from(rawSecret, 'base64');
+         } catch {
+            secretOrPublicKey = rawSecret;
+         }
+      } else {
+        secretOrPublicKey = rawSecret;
+      }
+    }
+
+    // 4. Verifikasi Token
     try {
-      decoded = jwt.verify(token, jwtSecret);
-    } catch (error: any) {
-      // === TAMBAHKAN BLOK DEBUG INI ===
-      console.error("!!! DEBUG: JWT Verification Failed !!!");
-      console.error("Error Name:", error.name); // e.g., 'JsonWebTokenError', 'TokenExpiredError'
-      console.error("Error Message:", error.message); // e.g., 'invalid signature', 'jwt expired'
-      console.error("------------------------------------");
-      // ===================================
-      throw new ApiError(401, "Unauthorized: Invalid token"); // Lemparkan error lagi untuk ditangkap di bawah
-    }
-    // -----------------------------------------
+      const decoded = jwt.verify(token, secretOrPublicKey, { algorithms: [alg as jwt.Algorithm] }) as any;
+      
+      if (!decoded.sub) {
+        throw new ApiError(401, 'Token tidak memiliki User ID (sub).');
+      }
 
-    const { sub, role, sts } = decoded as {
-      sub: string;
-      role: string;
-      sts?: string;
-    };
+      // Debug: Log decoded JWT untuk melihat struktur
+      console.log('[AuthMiddleware] Decoded JWT app_metadata:', JSON.stringify(decoded.app_metadata));
+      console.log('[AuthMiddleware] Decoded JWT role:', decoded.role);
+      
+      const userRole = decoded.app_metadata?.role || decoded.role || 'user';
+      console.log('[AuthMiddleware] Final userRole:', userRole);
 
-    let profile = await Profile.findByPk(sub, {
-      attributes: ["security_timestamp"],
-    });
+      req.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: userRole,
+      };
 
-    // === LOGIKA PENGAMAN BARU ===
-    // Jika profil tidak ada (misal untuk pengguna lama sebelum ada trigger), buatkan sekarang.
-    if (!profile) {
-      console.warn(`Profile not found for user ${sub}. Creating one now.`);
-      const {
-        data: { user },
-      } = await supabaseAdmin.auth.admin.getUserById(sub);
-      if (!user) throw new ApiError(404, "User not found in Supabase Auth");
-
-      const defaultUsername =
-        user.email?.split("@")[0] || `user-${sub.substring(0, 8)}`;
-      profile = await Profile.create({
-        id: sub,
-        username: defaultUsername,
-        security_timestamp: new Date(),
-      });
-    }
-    // ===========================
-
-    if (!sts) {
-      throw new ApiError(
-        401,
-        "Unauthorized: Token is missing security timestamp"
-      );
+      next();
+    } catch (err: any) {
+      console.error(`🔴 JWT Verify Error (${alg}): ${err.message}`);
+      if (err.name === 'TokenExpiredError') {
+        throw new ApiError(401, 'Sesi berakhir. Silakan login kembali.');
+      }
+      throw new ApiError(401, `Verifikasi token gagal: ${err.message}`);
     }
 
-    const tokenTimestamp = new Date(sts);
-    const dbTimestamp = new Date(profile.security_timestamp.getTime() - 1000);
-
-    if (tokenTimestamp < dbTimestamp) {
-      throw new ApiError(401, "Unauthorized: Session has been revoked");
-    }
-
-    req.user = { id: sub, role: role };
-    next();
   } catch (error) {
-    if (error instanceof ApiError) return next(error);
-    // Tangkapan umum untuk error tak terduga
-    return next(new ApiError(401, "Unauthorized"));
+    next(error);
   }
 };
 

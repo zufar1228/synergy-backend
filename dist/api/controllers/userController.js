@@ -36,8 +36,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
+exports.testPushNotification = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
 const userService = __importStar(require("../../services/userService"));
+const webPushService = __importStar(require("../../services/webPushService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
 const inviteUser = async (req, res) => {
     const { email, role } = req.body;
@@ -86,10 +87,13 @@ const getMyProfile = async (req, res) => {
         const userId = req.user?.id;
         if (!userId)
             throw new apiError_1.default(401, "User not authenticated");
+        console.log(`[getMyProfile] Fetching profile for user: ${userId}`);
         const profile = await userService.getUserProfile(userId);
+        console.log(`[getMyProfile] Profile found:`, JSON.stringify(profile, null, 2));
         res.status(200).json(profile);
     }
     catch (error) {
+        console.error(`[getMyProfile] Error:`, error);
         handleError(res, error);
     }
 };
@@ -185,3 +189,38 @@ const updateMyPreferences = async (req, res) => {
     }
 };
 exports.updateMyPreferences = updateMyPreferences;
+const subscribeToPush = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const subscription = req.body; // Objek PushSubscription dari browser
+        console.log(`[Push] Saving subscription for user ${userId}:`, JSON.stringify(subscription).slice(0, 100) + '...');
+        await webPushService.saveSubscription(userId, subscription);
+        res.status(201).json({ message: "Push subscription saved." });
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.subscribeToPush = subscribeToPush;
+const getVapidPublicKey = (req, res) => {
+    res.status(200).json({ publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
+};
+exports.getVapidPublicKey = getVapidPublicKey;
+// TEST ENDPOINT: Manually trigger a push notification to the current user
+const testPushNotification = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        console.log(`[Push Test] Triggering test notification for user ${userId}`);
+        await webPushService.sendPushNotification(userId, {
+            title: "🧪 Test Notification",
+            body: "Jika Anda melihat ini, push notification bekerja!",
+            url: "/dashboard",
+        });
+        res.status(200).json({ message: "Test push notification sent. Check your device." });
+    }
+    catch (error) {
+        console.error("[Push Test] Error:", error);
+        handleError(res, error);
+    }
+};
+exports.testPushNotification = testPushNotification;

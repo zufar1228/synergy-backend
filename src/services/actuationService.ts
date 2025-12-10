@@ -15,6 +15,9 @@ interface DeviceWithArea extends Device {
  * @param state Status baru ('On' atau 'Off')
  */
 export const controlFanRelay = async (deviceId: string, state: FanStatus) => {
+  console.log(`[Actuation] 🎯 controlFanRelay CALLED: deviceId=${deviceId}, state=${state}`);
+  console.log(`[Actuation] 🎯 Stack trace:`, new Error().stack);
+  
   // 1. Ambil detail perangkat (termasuk relasinya) untuk membangun topik
   const device = (await Device.findByPk(deviceId, {
     include: [{ model: Area, as: "area", attributes: ["id", "warehouse_id"] }],
@@ -26,11 +29,13 @@ export const controlFanRelay = async (deviceId: string, state: FanStatus) => {
   if (device.system_type !== "lingkungan") {
     throw new ApiError(400, "Perintah ini hanya untuk perangkat lingkungan.");
   }
+  
+  console.log(`[Actuation] 🎯 Current DB fan_status: ${device.fan_status}`);
 
   // 2. Cegah pengiriman perintah yang tidak perlu
   if (device.fan_status === state) {
     console.log(
-      `[Actuation] Kipas untuk ${deviceId} sudah dalam status '${state}'. Perintah diabaikan.`
+      `[Actuation] ⏭️ Kipas untuk ${deviceId} sudah dalam status '${state}'. Perintah diabaikan.`
     );
     return;
   }

@@ -47,4 +47,9 @@ router.put(
   userController.updateMyPreferences
 );
 
+// Push Notification routes
+router.get("/push/vapid-key", authMiddleware, userController.getVapidPublicKey);
+router.post("/push/subscribe", authMiddleware, userController.subscribeToPush);
+router.post("/push/test", authMiddleware, userController.testPushNotification);
+
 export default router;

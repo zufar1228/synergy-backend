@@ -37,7 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateDeviceHeartbeat = exports.getDeviceById = exports.deleteDevice = exports.updateDevice = exports.createDevice = exports.getAllDevices = void 0;
+exports.updateDeviceHeartbeat = exports.getDeviceByAreaAndSystem = exports.getDeviceById = exports.deleteDevice = exports.updateDevice = exports.createDevice = exports.getAllDevices = void 0;
 const models_1 = require("../db/models");
 const config_1 = require("../db/config");
 const apiError_1 = __importDefault(require("../utils/apiError"));
@@ -152,6 +152,22 @@ const getDeviceById = async (id) => {
     return device;
 };
 exports.getDeviceById = getDeviceById;
+// --- TAMBAHKAN FUNGSI BARU INI ---
+const getDeviceByAreaAndSystem = async (areaId, systemType) => {
+    const device = await models_1.Device.findOne({
+        where: {
+            area_id: areaId,
+            system_type: systemType,
+        },
+        // Kita hanya perlu mengirim status penting
+        attributes: ["id", "name", "status", "fan_status"],
+    });
+    if (!device) {
+        throw new apiError_1.default(404, "Perangkat tidak ditemukan untuk area dan tipe sistem ini.");
+    }
+    return device;
+};
+exports.getDeviceByAreaAndSystem = getDeviceByAreaAndSystem;
 // Fungsi updateHeartbeat tetap ada
 const updateDeviceHeartbeat = async (deviceId) => {
     try {

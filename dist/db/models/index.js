@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
+exports.UserRole = exports.PushSubscription = exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
 const config_1 = require("../config");
 Object.defineProperty(exports, "sequelize", { enumerable: true, get: function () { return config_1.sequelize; } });
 const warehouse_1 = __importDefault(require("./warehouse"));
@@ -22,6 +22,10 @@ const userNotificationPreference_1 = __importDefault(require("./userNotification
 exports.UserNotificationPreference = userNotificationPreference_1.default;
 const keamananLog_1 = __importDefault(require("./keamananLog")); // <-- IMPORT
 exports.KeamananLog = keamananLog_1.default;
+const pushSubscription_1 = __importDefault(require("./pushSubscription"));
+exports.PushSubscription = pushSubscription_1.default;
+const userRole_1 = __importDefault(require("./userRole"));
+exports.UserRole = userRole_1.default;
 // Definisikan Asosiasi
 warehouse_1.default.hasMany(area_1.default, { foreignKey: "warehouse_id", as: "areas" });
 area_1.default.belongsTo(warehouse_1.default, { foreignKey: "warehouse_id", as: "warehouse" });
@@ -44,6 +48,16 @@ userNotificationPreference_1.default.belongsTo(profile_1.default, {
     foreignKey: "user_id",
     as: "profile",
 });
+profile_1.default.hasMany(pushSubscription_1.default, {
+    foreignKey: "user_id",
+    as: "pushSubscriptions",
+});
+pushSubscription_1.default.belongsTo(profile_1.default, {
+    foreignKey: "user_id",
+    as: "profile",
+});
+profile_1.default.hasOne(userRole_1.default, { foreignKey: 'user_id', as: 'userRole' });
+userRole_1.default.belongsTo(profile_1.default, { foreignKey: 'user_id', as: 'profile' });
 // Sinkronisasi database (opsional, bagus untuk development)
 const syncDatabase = async () => {
     try {
