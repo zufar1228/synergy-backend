@@ -1,0 +1,4 @@
+{
+    "appService.defaultWebAppToDeploy": "/subscriptions/9385f4a3-fe88-4c0e-8e04-d5161d654734/resourceGroups/synergy/providers/Microsoft.Web/sites/synergyiot",
+    "appService.deploySubpath": "."
+}
