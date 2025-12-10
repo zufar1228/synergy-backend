@@ -1,13 +1,13 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
+  "name":  "backend",
+  "version":  "1.0.0",
   "description": "",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules src/server.ts",
-    "migrate": "sequelize-cli db: migrate",
+    "migrate": "sequelize-cli db:migrate",
     "migrate: undo": "sequelize-cli db:migrate:undo"
   },
   "keywords":  [],
