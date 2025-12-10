@@ -1,0 +1,32 @@
+name: Deploy Express TypeScript
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Deploy to Azure VM via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.KEY }}
+        port: 22
+        script: |
+          # 1. Masuk ke folder project
+          cd /home/${{ secrets.USERNAME }}/synergy-backend
+          
+          # 2. Ambil kodingan terbaru
+          git pull origin main
+          
+          # 3. Install dependencies baru (gunakan pnpm)
+          pnpm install
+          
+          # 4. Compile TypeScript ke JavaScript
+          pnpm run build
+          
+          # 5. Restart aplikasi agar perubahan diterapkan
+          pm2 restart backend-api
