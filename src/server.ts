@@ -18,14 +18,16 @@ import keamananRoutes from "./api/routes/keamananRoutes";
 
 const app: Express = express();
 
-// ✅ FIX: Azure akan set PORT sebagai string
-const PORT:  number = parseInt(process.env. PORT || "5001", 10);
+// Azure sets PORT as a string; ensure numeric and bind to all interfaces
+const PORT: number = parseInt(process.env.PORT || "5001", 10);
+const HOST = process.env.HOST || "0.0.0.0";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 // Middlewares
 app.use(
   cors({
-    origin: process.env. FRONTEND_URL || "http://localhost:3000",
-    credentials:  true,
+    origin: FRONTEND_URL,
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -36,8 +38,8 @@ app.use(express.json());
 app.get("/", (req: Request, res: Response) => {
   res.status(200).json({
     message: "🚀 Backend TypeScript API is running!",
-    timestamp:  new Date().toISOString(),
-    environment: process.env. NODE_ENV || "development",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
     port: PORT,
   });
 });
@@ -61,7 +63,7 @@ app.get("/keep-alive", (req: Request, res: Response) => {
   });
 });
 
-app.head("/keep-alive", (req:  Request, res: Response) => {
+app.head("/keep-alive", (req: Request, res: Response) => {
   res.status(200).end();
 });
 
@@ -85,8 +87,8 @@ app.use((err: any, req: Request, res: Response, next: any) => {
   });
 });
 
-app.listen(PORT, () => {  // ← Hapus async! 
-  console.log(`✅ Server is listening on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`✅ Server is listening on ${HOST}:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 
   // Initialize services in background (NON-BLOCKING)
@@ -95,28 +97,28 @@ app.listen(PORT, () => {  // ← Hapus async!
       try {
         // Database - skip in production or add timeout
         if (process.env.NODE_ENV !== "production") {
-          console.log("🔄 Initializing database.. .");
+          console.log("🔄 Initializing database...");
           await Promise.race([
             syncDatabase(),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error("Database sync timeout")), 15000)
             ),
           ]).catch(err => {
-            console.error("⚠️ Database sync failed:", err. message);
-            console.log("⚠️ Continuing without sync.. .");
+            console.error("⚠️ Database sync failed:", err?.message);
+            console.log("⚠️ Continuing without sync...");
           });
           console.log("✅ Database initialized");
         } else {
-          console.log("ℹ️ Production:  skipping database sync");
+          console.log("ℹ️ Production: skipping database sync");
         }
 
         // MQTT
-        console.log("🔄 Initializing MQTT client.. .");
+        console.log("🔄 Initializing MQTT client...");
         try {
           initializeMqttClient();
           console.log("✅ MQTT client started");
-        } catch (err:  any) {
-          console.error("⚠️ MQTT failed:", err. message);
+        } catch (err: any) {
+          console.error("⚠️ MQTT failed:", err?.message);
         }
 
         // Jobs

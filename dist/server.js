@@ -21,11 +21,13 @@ const incidentRoutes_1 = __importDefault(require("./api/routes/incidentRoutes"))
 const alertRoutes_1 = __importDefault(require("./api/routes/alertRoutes"));
 const keamananRoutes_1 = __importDefault(require("./api/routes/keamananRoutes"));
 const app = (0, express_1.default)();
-// ✅ FIX: Azure akan set PORT sebagai string
+// Azure sets PORT as a string; ensure numeric and bind to all interfaces
 const PORT = parseInt(process.env.PORT || "5001", 10);
+const HOST = process.env.HOST || "0.0.0.0";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 // Middlewares
 app.use((0, cors_1.default)({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: FRONTEND_URL,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -78,58 +80,53 @@ app.use((err, req, res, next) => {
         message: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
 });
-// CRITICAL: Server MUST start immediately for Azure health probe
-const server = app.listen(PORT, () => {
-    console.log(`========================================`);
-    console.log(`✅ SERVER STARTED SUCCESSFULLY`);
-    console.log(`Port: ${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`✅ Server is listening on ${HOST}:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-    console.log(`Node Version: ${process.version}`);
-    console.log(`========================================`);
-});
-// Initialize services AFTER server is listening (non-blocking)
-process.nextTick(async () => {
-    console.log("🔄 Starting background services initialization...");
-    try {
-        // Database with short timeout
-        console.log("📦 Initializing database...");
-        const dbTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Database timeout")), 10000));
-        await Promise.race([(0, models_1.syncDatabase)(), dbTimeout])
-            .then(() => console.log("✅ Database initialized"))
-            .catch((err) => {
-            console.error("⚠️ Database init failed:", err.message);
-            console.log("⚠️ App will continue without database");
-        });
-        // MQTT (non-critical)
-        console.log("📡 Initializing MQTT...");
-        try {
-            (0, client_1.initializeMqttClient)();
-            console.log("✅ MQTT initialized");
-        }
-        catch (err) {
-            console.error("⚠️ MQTT failed:", err.message);
-        }
-        // Jobs (non-critical)
-        console.log("⏰ Starting cron jobs...");
-        try {
-            (0, heartbeatChecker_1.startHeartbeatJob)();
-            (0, repeatDetectionJob_1.startRepeatDetectionJob)();
-            console.log("✅ Cron jobs started");
-        }
-        catch (err) {
-            console.error("⚠️ Jobs failed:", err.message);
-        }
-        console.log("🎉 Background services initialization completed");
-    }
-    catch (error) {
-        console.error("❌ Service initialization error:", error);
-    }
-});
-// Graceful shutdown
-process.on("SIGTERM", () => {
-    console.log("⚠️ SIGTERM received, shutting down gracefully...");
-    server.close(() => {
-        console.log("✅ Server closed");
-        process.exit(0);
+    // Initialize services in background (NON-BLOCKING)
+    setImmediate(async () => {
+        const initializeServices = async () => {
+            try {
+                // Database - skip in production or add timeout
+                if (process.env.NODE_ENV !== "production") {
+                    console.log("🔄 Initializing database...");
+                    await Promise.race([
+                        (0, models_1.syncDatabase)(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Database sync timeout")), 15000)),
+                    ]).catch(err => {
+                        console.error("⚠️ Database sync failed:", err?.message);
+                        console.log("⚠️ Continuing without sync...");
+                    });
+                    console.log("✅ Database initialized");
+                }
+                else {
+                    console.log("ℹ️ Production: skipping database sync");
+                }
+                // MQTT
+                console.log("🔄 Initializing MQTT client...");
+                try {
+                    (0, client_1.initializeMqttClient)();
+                    console.log("✅ MQTT client started");
+                }
+                catch (err) {
+                    console.error("⚠️ MQTT failed:", err?.message);
+                }
+                // Jobs
+                console.log("🔄 Starting jobs...");
+                try {
+                    (0, heartbeatChecker_1.startHeartbeatJob)();
+                    (0, repeatDetectionJob_1.startRepeatDetectionJob)();
+                    console.log("✅ Jobs started");
+                }
+                catch (err) {
+                    console.error("⚠️ Jobs failed:", err.message);
+                }
+                console.log("🎉 All services initialized!");
+            }
+            catch (error) {
+                console.error("❌ Service initialization error:", error);
+            }
+        };
+        initializeServices();
     });
 });
