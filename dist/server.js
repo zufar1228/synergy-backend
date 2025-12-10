@@ -78,31 +78,58 @@ app.use((err, req, res, next) => {
         message: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
 });
-app.listen(PORT, async () => {
-    console.log(`✅ Server is listening on port ${PORT}`);
+// CRITICAL: Server MUST start immediately for Azure health probe
+const server = app.listen(PORT, () => {
+    console.log(`========================================`);
+    console.log(`✅ SERVER STARTED SUCCESSFULLY`);
+    console.log(`Port: ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-    const initializeServices = async () => {
+    console.log(`Node Version: ${process.version}`);
+    console.log(`========================================`);
+});
+// Initialize services AFTER server is listening (non-blocking)
+process.nextTick(async () => {
+    console.log("🔄 Starting background services initialization...");
+    try {
+        // Database with short timeout
+        console.log("📦 Initializing database...");
+        const dbTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Database timeout")), 10000));
+        await Promise.race([(0, models_1.syncDatabase)(), dbTimeout])
+            .then(() => console.log("✅ Database initialized"))
+            .catch((err) => {
+            console.error("⚠️ Database init failed:", err.message);
+            console.log("⚠️ App will continue without database");
+        });
+        // MQTT (non-critical)
+        console.log("📡 Initializing MQTT...");
         try {
-            console.log("🔄 Initializing database...");
-            await Promise.race([
-                (0, models_1.syncDatabase)(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error("Database sync timeout")), 30000)),
-            ]);
-            console.log("✅ Database initialized");
-            console.log("🔄 Initializing MQTT client...");
             (0, client_1.initializeMqttClient)();
-            console.log("✅ MQTT client started");
-            console.log("🔄 Starting heartbeat job.. .");
+            console.log("✅ MQTT initialized");
+        }
+        catch (err) {
+            console.error("⚠️ MQTT failed:", err.message);
+        }
+        // Jobs (non-critical)
+        console.log("⏰ Starting cron jobs...");
+        try {
             (0, heartbeatChecker_1.startHeartbeatJob)();
-            console.log("✅ Heartbeat job started");
-            console.log("🔄 Starting repeat detection job.. .");
             (0, repeatDetectionJob_1.startRepeatDetectionJob)();
-            console.log("✅ Repeat detection job started");
-            console.log("🎉 All services initialized successfully!");
+            console.log("✅ Cron jobs started");
         }
-        catch (error) {
-            console.error("❌ Error during service initialization:", error);
+        catch (err) {
+            console.error("⚠️ Jobs failed:", err.message);
         }
-    };
-    initializeServices();
+        console.log("🎉 Background services initialization completed");
+    }
+    catch (error) {
+        console.error("❌ Service initialization error:", error);
+    }
+});
+// Graceful shutdown
+process.on("SIGTERM", () => {
+    console.log("⚠️ SIGTERM received, shutting down gracefully...");
+    server.close(() => {
+        console.log("✅ Server closed");
+        process.exit(0);
+    });
 });
