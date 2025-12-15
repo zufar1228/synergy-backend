@@ -15,6 +15,8 @@ import navigationRoutes from "./api/routes/navigationRoutes";
 import incidentRoutes from "./api/routes/incidentRoutes";
 import alertRoutes from "./api/routes/alertRoutes";
 import keamananRoutes from "./api/routes/keamananRoutes";
+import telegramRoutes from "./api/routes/telegramRoutes";
+import { setWebhook as setupTelegramWebhook } from "./services/telegramService";
 
 const app: Express = express();
 
@@ -77,6 +79,7 @@ app.use("/api/navigation", navigationRoutes);
 app.use("/api/incidents", incidentRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/security-logs", authMiddleware, keamananRoutes);
+app.use("/api/telegram", telegramRoutes);
 
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err: any, req: Request, res: Response, next: any) => {
@@ -129,6 +132,19 @@ app.listen(PORT, HOST, () => {
           console.log("✅ Jobs started");
         } catch (err: any) {
           console.error("⚠️ Jobs failed:", err.message);
+        }
+
+        // Telegram Webhook Setup (only if configured)
+        if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_WEBHOOK_URL) {
+          console.log("🔄 Setting up Telegram webhook...");
+          try {
+            await setupTelegramWebhook();
+            console.log("✅ Telegram webhook configured");
+          } catch (err: any) {
+            console.error("⚠️ Telegram webhook setup failed:", err.message);
+          }
+        } else {
+          console.log("ℹ️ Telegram: Not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL missing)");
         }
 
         console.log("🎉 All services initialized!");

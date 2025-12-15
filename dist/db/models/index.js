@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UserRole = exports.PushSubscription = exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
+exports.TelegramSubscriber = exports.UserRole = exports.PushSubscription = exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
 const config_1 = require("../config");
 Object.defineProperty(exports, "sequelize", { enumerable: true, get: function () { return config_1.sequelize; } });
 const warehouse_1 = __importDefault(require("./warehouse"));
@@ -26,6 +26,8 @@ const pushSubscription_1 = __importDefault(require("./pushSubscription"));
 exports.PushSubscription = pushSubscription_1.default;
 const userRole_1 = __importDefault(require("./userRole"));
 exports.UserRole = userRole_1.default;
+const telegramSubscriber_1 = __importDefault(require("./telegramSubscriber"));
+exports.TelegramSubscriber = telegramSubscriber_1.default;
 // Definisikan Asosiasi
 warehouse_1.default.hasMany(area_1.default, { foreignKey: "warehouse_id", as: "areas" });
 area_1.default.belongsTo(warehouse_1.default, { foreignKey: "warehouse_id", as: "warehouse" });

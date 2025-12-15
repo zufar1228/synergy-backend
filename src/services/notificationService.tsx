@@ -9,7 +9,7 @@ import { render } from "@react-email/render";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Ganti "domain-anda-terverifikasi.com" dengan domain yang Anda verifikasi di Resend
-const SENDER_DOMAIN = "synergyiot.ninja";
+const SENDER_DOMAIN = "synergyiot.tech";
 
 // Gunakan 'typeof' untuk mendapatkan tipe props dari komponen
 type AlertEmailProps = React.ComponentProps<typeof AlertEmail>;

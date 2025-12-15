@@ -20,6 +20,11 @@ Profile.init({
         allowNull: false,
         defaultValue: sequelize_1.DataTypes.NOW,
     },
+    telegram_user_id: {
+        type: sequelize_1.DataTypes.BIGINT,
+        allowNull: true,
+        unique: true, // Satu akun Telegram hanya bisa terhubung ke satu profile
+    },
 }, {
     sequelize: config_1.sequelize,
     tableName: "profiles",

@@ -6,10 +6,16 @@ export interface ProfileAttributes {
   id: string; // Ini adalah UUID dari auth.users
   username: string;
   security_timestamp: Date;
+  telegram_user_id: number | null; // Telegram user ID for auto-kick feature
 }
 
 // Atribut yang dibutuhkan saat membuat profil baru
-export type ProfileCreationAttributes = ProfileAttributes;
+export interface ProfileCreationAttributes {
+  id: string;
+  username: string;
+  security_timestamp?: Date;
+  telegram_user_id?: number | null;
+}
 
 class Profile
   extends Model<ProfileAttributes, ProfileCreationAttributes>
@@ -18,6 +24,7 @@ class Profile
   public id!: string;
   public username!: string;
   public security_timestamp!: Date;
+  public telegram_user_id!: number | null;
 
   // Timestamps
   public readonly createdAt!: CreationOptional<Date>;
@@ -39,6 +46,11 @@ Profile.init(
       type: DataTypes.DATE,
       allowNull: false,
       defaultValue: DataTypes.NOW,
+    },
+    telegram_user_id: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      unique: true, // Satu akun Telegram hanya bisa terhubung ke satu profile
     },
   },
   {

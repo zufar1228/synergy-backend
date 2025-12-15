@@ -10,6 +10,7 @@ import { supabaseAdmin } from "../config/supabaseAdmin";
 import { sendAlertEmail, sendAllClearEmail } from "./notificationService"; // <-- IMPORT BARU
 import * as actuationService from "./actuationService"; // <-- IMPORT BARU
 import * as webPushService from "./webPushService"; // <-- IMPORT PUSH
+import * as telegramService from "./telegramService"; // <-- IMPORT TELEGRAM
 import { format } from "date-fns";
 import { id as localeID } from "date-fns/locale";
 import ApiError from "../utils/apiError";
@@ -37,7 +38,7 @@ const deviceAlertState: Map<string, {
 }> = new Map();
 
 /**
- * Mengirim notifikasi (email) ke semua pengguna yang berlangganan
+ * Mengirim notifikasi (email, push, dan Telegram) ke semua pengguna yang berlangganan
  */
 const notifySubscribers = async (
   systemType: string,
@@ -98,9 +99,44 @@ const notifySubscribers = async (
     }
   })();
 
-  // === EKSEKUSI KEDUANYA BERSAMAAN ===
-  // Ini memastikan Push dan Email jalan bareng, tapi kita tunggu sampai keduanya beres
-  await Promise.all([pushTask, emailTask]);
+  // === TASK 3: KIRIM KE TELEGRAM GROUP ===
+  const telegramTask = (async () => {
+    try {
+      const isAlert = subject.includes("PERINGATAN");
+      const emoji = isAlert ? "🚨" : "✅";
+      const statusText = isAlert ? "PERINGATAN BAHAYA" : "KEMBALI NORMAL";
+      
+      // Build detail text from emailProps.details if available
+      let detailText = "";
+      if (emailProps.details && Array.isArray(emailProps.details)) {
+        detailText = emailProps.details
+          .map((d: { key: string; value: string }) => `   • ${d.key}: ${d.value}`)
+          .join("\n");
+      }
+
+      const message = `
+${emoji} <b>${statusText}</b> ${emoji}
+
+📍 <b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
+🔧 <b>Device:</b> ${emailProps.deviceName}
+${emailProps.incidentType ? `⚠️ <b>Tipe:</b> ${emailProps.incidentType}` : ""}
+${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ""}
+
+🕐 <b>Waktu:</b> ${emailProps.timestamp}
+
+<i>Harap segera diperiksa.</i>
+`.trim();
+
+      await telegramService.sendGroupAlert(message);
+      console.log("[Alerting] Telegram notification sent.");
+    } catch (error) {
+      console.error("[Alerting] Telegram notification failed:", error);
+    }
+  })();
+
+  // === EKSEKUSI SEMUANYA BERSAMAAN ===
+  // Push, Email, dan Telegram jalan paralel
+  await Promise.all([pushTask, emailTask, telegramTask]);
 };
 
 /**

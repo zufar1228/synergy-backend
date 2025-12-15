@@ -52,6 +52,8 @@ router.get("/me", authMiddleware_1.authMiddleware, userController.getMyProfile);
 router.put("/me", authMiddleware_1.authMiddleware, userController.updateMyProfile);
 router.get("/me/preferences", authMiddleware_1.authMiddleware, userController.getMyPreferences);
 router.put("/me/preferences", authMiddleware_1.authMiddleware, userController.updateMyPreferences);
+// Sync all roles to Supabase (super_admin only)
+router.post("/sync-roles", authMiddleware_1.authMiddleware, superAdminOnly, userController.syncAllRoles);
 // Push Notification routes
 router.get("/push/vapid-key", authMiddleware_1.authMiddleware, userController.getVapidPublicKey);
 router.post("/push/subscribe", authMiddleware_1.authMiddleware, userController.subscribeToPush);

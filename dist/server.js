@@ -20,6 +20,8 @@ const navigationRoutes_1 = __importDefault(require("./api/routes/navigationRoute
 const incidentRoutes_1 = __importDefault(require("./api/routes/incidentRoutes"));
 const alertRoutes_1 = __importDefault(require("./api/routes/alertRoutes"));
 const keamananRoutes_1 = __importDefault(require("./api/routes/keamananRoutes"));
+const telegramRoutes_1 = __importDefault(require("./api/routes/telegramRoutes"));
+const telegramService_1 = require("./services/telegramService");
 const app = (0, express_1.default)();
 // Azure sets PORT as a string; ensure numeric and bind to all interfaces
 const PORT = parseInt(process.env.PORT || "5001", 10);
@@ -72,6 +74,7 @@ app.use("/api/navigation", navigationRoutes_1.default);
 app.use("/api/incidents", incidentRoutes_1.default);
 app.use("/api/alerts", alertRoutes_1.default);
 app.use("/api/security-logs", authMiddleware_1.authMiddleware, keamananRoutes_1.default);
+app.use("/api/telegram", telegramRoutes_1.default);
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err, req, res, next) => {
     console.error("Error:", err);
@@ -121,6 +124,20 @@ app.listen(PORT, HOST, () => {
                 catch (err) {
                     console.error("⚠️ Jobs failed:", err.message);
                 }
+                // Telegram Webhook Setup (only if configured)
+                if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_WEBHOOK_URL) {
+                    console.log("🔄 Setting up Telegram webhook...");
+                    try {
+                        await (0, telegramService_1.setWebhook)();
+                        console.log("✅ Telegram webhook configured");
+                    }
+                    catch (err) {
+                        console.error("⚠️ Telegram webhook setup failed:", err.message);
+                    }
+                }
+                else {
+                    console.log("ℹ️ Telegram: Not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL missing)");
+                }
                 console.log("🎉 All services initialized!");
             }
             catch (error) {
@@ -130,3 +147,4 @@ app.listen(PORT, HOST, () => {
         initializeServices();
     });
 });
+//tes

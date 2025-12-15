@@ -9,6 +9,7 @@ import UserNotificationPreference from "./userNotificationPreference";
 import KeamananLog from "./keamananLog"; // <-- IMPORT
 import PushSubscription from "./pushSubscription";
 import UserRole from "./userRole";
+import TelegramSubscriber from "./telegramSubscriber";
 
 // Definisikan Asosiasi
 Warehouse.hasMany(Area, { foreignKey: "warehouse_id", as: "areas" });
@@ -83,4 +84,5 @@ export {
   KeamananLog,
   PushSubscription,
   UserRole,
+  TelegramSubscriber,
 };

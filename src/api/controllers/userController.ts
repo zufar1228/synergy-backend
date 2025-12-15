@@ -88,7 +88,7 @@ export const updateUserRole = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { role } = req.body;
-    if (!role || !["admin", "user"].includes(role)) {
+    if (!role || !["admin", "user", "super_admin"].includes(role)) {
       return res.status(400).json({ message: "Peran tidak valid." });
     }
     const updatedRole = await userService.updateUserRole(id, role);

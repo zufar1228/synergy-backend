@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.testPushNotification = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
+exports.testPushNotification = exports.syncAllRoles = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
 const userService = __importStar(require("../../services/userService"));
 const webPushService = __importStar(require("../../services/webPushService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
@@ -128,7 +128,7 @@ const updateUserRole = async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        if (!role || !["admin", "user"].includes(role)) {
+        if (!role || !["admin", "user", "super_admin"].includes(role)) {
             return res.status(400).json({ message: "Peran tidak valid." });
         }
         const updatedRole = await userService.updateUserRole(id, role);
@@ -206,6 +206,19 @@ const getVapidPublicKey = (req, res) => {
     res.status(200).json({ publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
 };
 exports.getVapidPublicKey = getVapidPublicKey;
+// Sync all roles from database to Supabase app_metadata
+const syncAllRoles = async (req, res) => {
+    try {
+        console.log(`[syncAllRoles] Starting sync by user ${req.user?.id}`);
+        const result = await userService.syncAllRolesToSupabase();
+        console.log(`[syncAllRoles] Sync complete:`, result);
+        res.status(200).json({ message: 'Roles synced successfully', ...result });
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.syncAllRoles = syncAllRoles;
 // TEST ENDPOINT: Manually trigger a push notification to the current user
 const testPushNotification = async (req, res) => {
     try {

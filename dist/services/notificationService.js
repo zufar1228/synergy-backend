@@ -11,7 +11,7 @@ const AllClearEmail_1 = require("../emails/AllClearEmail"); // <-- IMPORT BARU
 const render_1 = require("@react-email/render");
 const resend = new resend_1.Resend(process.env.RESEND_API_KEY);
 // Ganti "domain-anda-terverifikasi.com" dengan domain yang Anda verifikasi di Resend
-const SENDER_DOMAIN = "synergyiot.ninja";
+const SENDER_DOMAIN = "synergyiot.tech";
 const sendAlertEmail = async ({ to, subject, emailProps, }) => {
     // Gunakan 'await' karena render bersifat async
     const emailHtml = await (0, render_1.render)((0, jsx_runtime_1.jsx)(AlertEmail_1.AlertEmail, { ...emailProps }));

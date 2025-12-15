@@ -6,6 +6,7 @@ import ApiError from "../utils/apiError";
 import { User } from "@supabase/supabase-js";
 import { en } from "zod/v4/locales";
 import { sequelize } from "../db/config";
+import * as telegramService from "./telegramService";
 
 const touchSecurityTimestamp = async (userId: string) => {
   await Profile.update(
@@ -108,6 +109,26 @@ export const getAllUsers = async (requestingUserId: string) => {
 
 // Fungsi untuk menghapus pengguna
 export const deleteUser = async (userId: string) => {
+  // 1. Ambil data profil user sebelum dihapus (untuk cek Telegram ID)
+  const profile = await Profile.findByPk(userId);
+  
+  // 2. AUTO-KICK TELEGRAM (jika user terhubung ke Telegram)
+  if (profile?.telegram_user_id) {
+    console.log(`[AutoKick] Attempting to kick Telegram user: ${profile.telegram_user_id}`);
+    
+    // Best effort strategy - tidak blocking proses delete
+    telegramService.kickMember(profile.telegram_user_id)
+      .then((success) => {
+        if (success) {
+          console.log(`[AutoKick] ✅ Successfully kicked Telegram user: ${profile.telegram_user_id}`);
+        } else {
+          console.log(`[AutoKick] ⚠️ Failed to kick Telegram user (might not be in group): ${profile.telegram_user_id}`);
+        }
+      })
+      .catch((err) => console.error('[AutoKick] ❌ Error:', err));
+  }
+
+  // 3. Hapus dari Supabase Auth
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (error)
     throw new ApiError(500, `Gagal menghapus pengguna: ${error.message}`);

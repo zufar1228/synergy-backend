@@ -1,15 +1,49 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateUserPreferences = exports.getUserPreferences = exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = void 0;
+exports.updateUserPreferences = exports.syncAllRolesToSupabase = exports.getUserPreferences = exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = void 0;
 // backend/src/services/userService.ts
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
 const notificationService_1 = require("./notificationService");
 const models_1 = require("../db/models");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const config_1 = require("../db/config");
+const telegramService = __importStar(require("./telegramService"));
 const touchSecurityTimestamp = async (userId) => {
     await models_1.Profile.update({ security_timestamp: new Date() }, { where: { id: userId } });
 };
@@ -83,6 +117,24 @@ const getAllUsers = async (requestingUserId) => {
 exports.getAllUsers = getAllUsers;
 // Fungsi untuk menghapus pengguna
 const deleteUser = async (userId) => {
+    // 1. Ambil data profil user sebelum dihapus (untuk cek Telegram ID)
+    const profile = await models_1.Profile.findByPk(userId);
+    // 2. AUTO-KICK TELEGRAM (jika user terhubung ke Telegram)
+    if (profile?.telegram_user_id) {
+        console.log(`[AutoKick] Attempting to kick Telegram user: ${profile.telegram_user_id}`);
+        // Best effort strategy - tidak blocking proses delete
+        telegramService.kickMember(profile.telegram_user_id)
+            .then((success) => {
+            if (success) {
+                console.log(`[AutoKick] ✅ Successfully kicked Telegram user: ${profile.telegram_user_id}`);
+            }
+            else {
+                console.log(`[AutoKick] ⚠️ Failed to kick Telegram user (might not be in group): ${profile.telegram_user_id}`);
+            }
+        })
+            .catch((err) => console.error('[AutoKick] ❌ Error:', err));
+    }
+    // 3. Hapus dari Supabase Auth
     const { error } = await supabaseAdmin_1.supabaseAdmin.auth.admin.deleteUser(userId);
     if (error)
         throw new apiError_1.default(500, `Gagal menghapus pengguna: ${error.message}`);
@@ -185,6 +237,27 @@ const getUserPreferences = async (userId) => {
     return preferences;
 };
 exports.getUserPreferences = getUserPreferences;
+// === SYNC ALL ROLES TO SUPABASE APP_METADATA ===
+// Berguna jika role diubah langsung di database tanpa melalui API
+const syncAllRolesToSupabase = async () => {
+    const roles = await models_1.UserRole.findAll();
+    const results = { success: 0, failed: 0, details: [] };
+    for (const role of roles) {
+        try {
+            await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(role.user_id, {
+                app_metadata: { role: role.role }
+            });
+            results.success++;
+            results.details.push({ user_id: role.user_id, role: role.role, status: 'synced' });
+        }
+        catch (error) {
+            results.failed++;
+            results.details.push({ user_id: role.user_id, role: role.role, status: 'failed', error: error.message });
+        }
+    }
+    return results;
+};
+exports.syncAllRolesToSupabase = syncAllRolesToSupabase;
 const updateUserPreferences = async (userId, preferences) => {
     const transaction = await config_1.sequelize.transaction();
     try {
