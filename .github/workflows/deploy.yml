@@ -19,8 +19,9 @@ jobs:
           # 1. Masuk ke folder project
           cd /home/${{ secrets.USERNAME }}/synergy-backend
           
-          # 2. Ambil kodingan terbaru
-          git pull origin main
+          # 2. Reset local changes (dist/ folder often has uncommitted changes after build)
+          git fetch origin main
+          git reset --hard origin/main
           
           # 3. Install dependencies baru (gunakan pnpm)
           pnpm install
