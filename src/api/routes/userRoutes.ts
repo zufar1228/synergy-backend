@@ -47,6 +47,9 @@ router.put(
   userController.updateMyPreferences
 );
 
+// Sync all roles to Supabase (super_admin only)
+router.post("/sync-roles", authMiddleware, superAdminOnly, userController.syncAllRoles);
+
 // Push Notification routes
 router.get("/push/vapid-key", authMiddleware, userController.getVapidPublicKey);
 router.post("/push/subscribe", authMiddleware, userController.subscribeToPush);

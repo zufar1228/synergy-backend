@@ -248,6 +248,28 @@ export const getUserPreferences = async (userId: string) => {
   return preferences;
 };
 
+// === SYNC ALL ROLES TO SUPABASE APP_METADATA ===
+// Berguna jika role diubah langsung di database tanpa melalui API
+export const syncAllRolesToSupabase = async () => {
+  const roles = await UserRole.findAll();
+  const results = { success: 0, failed: 0, details: [] as any[] };
+
+  for (const role of roles) {
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(role.user_id, {
+        app_metadata: { role: role.role }
+      });
+      results.success++;
+      results.details.push({ user_id: role.user_id, role: role.role, status: 'synced' });
+    } catch (error: any) {
+      results.failed++;
+      results.details.push({ user_id: role.user_id, role: role.role, status: 'failed', error: error.message });
+    }
+  }
+
+  return results;
+};
+
 export const updateUserPreferences = async (
   userId: string,
   preferences: { system_type: string; is_enabled: boolean }[]

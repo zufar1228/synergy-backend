@@ -164,6 +164,18 @@ export const getVapidPublicKey = (req: Request, res: Response) => {
   res.status(200).json({ publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
 };
 
+// Sync all roles from database to Supabase app_metadata
+export const syncAllRoles = async (req: Request, res: Response) => {
+  try {
+    console.log(`[syncAllRoles] Starting sync by user ${req.user?.id}`);
+    const result = await userService.syncAllRolesToSupabase();
+    console.log(`[syncAllRoles] Sync complete:`, result);
+    res.status(200).json({ message: 'Roles synced successfully', ...result });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
 // TEST ENDPOINT: Manually trigger a push notification to the current user
 export const testPushNotification = async (req: Request, res: Response) => {
   try {
