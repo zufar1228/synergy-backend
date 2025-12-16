@@ -40,7 +40,7 @@ const validateRequest_1 = require("../middlewares/validateRequest");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
 // Daftar tipe sistem yang kita izinkan
-const systemTypes = zod_1.z.enum(["lingkungan", "gangguan", "keamanan", "medis_air"]);
+const systemTypes = zod_1.z.enum(["lingkungan", "gangguan", "keamanan", "medis_air", "intrusi"]);
 const createDeviceSchema = zod_1.z.object({
     body: zod_1.z.object({
         name: zod_1.z.string().min(1, { message: "Nama wajib diisi." }),

@@ -313,3 +313,46 @@ export const processSensorDataForAlerts = async (
     console.log("[Alerting] Kondisi stabil. Tidak ada aksi diperlukan.");
   }
 };
+
+/**
+ * Memproses alert dari TinyML Intrusion Detection
+ * Hanya dipanggil ketika event "Intrusion" terdeteksi
+ */
+export const processIntrusiAlert = async (
+  deviceId: string,
+  device: any,
+  data: { event: string; conf: number; ts?: string }
+) => {
+  const { area } = device;
+  const { warehouse } = area;
+
+  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
+    locale: localeID,
+  });
+
+  const confidencePercent = (data.conf * 100).toFixed(1);
+
+  const emailProps = {
+    incidentType: "UPAYA INTRUSI TERDETEKSI (TinyML)",
+    warehouseName: warehouse.name,
+    areaName: area.name,
+    deviceName: device.name,
+    timestamp,
+    details: [
+      { key: "Tipe Event", value: data.event },
+      { key: "Confidence", value: `${confidencePercent}%` },
+      { key: "Sistem", value: "TinyML Edge AI (ESP32)" },
+    ],
+  };
+
+  const subject = `[🚨 INTRUSI] Terdeteksi Percobaan Penyusupan di ${warehouse.name}`;
+
+  console.log(`[Alerting-Intrusi] 🚨 Sending intrusion alert for device ${device.name}...`);
+
+  try {
+    await notifySubscribers("intrusi", subject, emailProps, sendAlertEmail);
+    console.log(`[Alerting-Intrusi] ✅ Intrusion alert sent successfully!`);
+  } catch (error) {
+    console.error(`[Alerting-Intrusi] ❌ Error sending intrusion alert:`, error);
+  }
+};

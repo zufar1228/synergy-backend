@@ -7,6 +7,7 @@ import {
   Incident,
   KeamananLog,
   Area,
+  IntrusiLog,
 } from "../db/models";
 import ApiError from "../utils/apiError";
 import { Op, ModelStatic, Model } from "sequelize";
@@ -17,6 +18,7 @@ const logModels: { [key: string]: ModelStatic<Model<any, any>> } = {
   lingkungan: LingkunganLog,
   gangguan: Incident, // <-- Tambahkan model untuk 'gangguan'
   keamanan: KeamananLog, // <-- TAMBAHKAN
+  intrusi: IntrusiLog, // <-- TAMBAHKAN untuk TinyML
 };
 
 interface AnalyticsQuery {
@@ -96,6 +98,15 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
       "attributes",
       "status",
       "notes",
+    ];
+  } else if (system_type === "intrusi") {
+    modelAttributes = [
+      "id",
+      "device_id",
+      "timestamp",
+      "event_class",
+      "confidence",
+      "payload",
     ];
   }
   // ========================================================
@@ -200,6 +211,61 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
     summary = {
       total_detections: totalDetections,
       unacknowledged_alerts: unacknowledged,
+    };
+  } else if (system_type === "intrusi") {
+    // --- Logika Summary untuk Intrusi (TinyML) ---
+    const totalEvents = count;
+
+    const intrusions = await IntrusiLog.count({
+      where: { ...whereCondition, event_class: "Intrusion" },
+      include: [
+        {
+          model: Device,
+          as: "device",
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id,
+        },
+      ],
+    });
+
+    const disturbances = await IntrusiLog.count({
+      where: { ...whereCondition, event_class: "Disturbance" },
+      include: [
+        {
+          model: Device,
+          as: "device",
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id,
+        },
+      ],
+    });
+
+    // Get the deviceId for the first device in this area with intrusi type
+    const intrusiDevice = await Device.findOne({
+      where: { area_id, system_type: "intrusi" },
+      attributes: ["id"],
+    });
+
+    summary = {
+      total_events: totalEvents,
+      intrusions,
+      disturbances,
+      normals: totalEvents - intrusions - disturbances,
+    };
+
+    // Return with deviceId for the component
+    return {
+      summary,
+      logs: data,
+      deviceId: intrusiDevice?.id || null,
+      pagination: {
+        total: count,
+        page: page,
+        per_page: perPage,
+        total_pages: Math.ceil(count / perPage),
+      },
     };
   }
 

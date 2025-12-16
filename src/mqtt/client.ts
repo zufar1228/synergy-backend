@@ -3,6 +3,7 @@ import mqtt from "mqtt";
 import * as logService from "../services/logService";
 import { updateDeviceHeartbeat } from "../services/deviceService";
 import * as alertingService from "../services/alertingService";
+import * as intrusiService from "../services/intrusiService"; // <-- Import intrusi service
 
 console.log("\n" + "=".repeat(80));
 console.log("🔧 MQTT CLIENT MODULE LOADED");
@@ -165,6 +166,50 @@ export const initializeMqttClient = () => {
               data
             );
             console.log("✅ Alert processing completed");
+          } else if (systemType === "intrusi") {
+            // === TinyML INTRUSION DETECTION ===
+            console.log("🛡️  Processing TinyML intrusion data...");
+            
+            try {
+              // Payload dari ESP32: { "event": "Intrusion", "conf": 0.98, "ts": "..." }
+              
+              // 1. Validate payload
+              const validatedPayload = intrusiService.validateTinyMLPayload(data);
+              if (!validatedPayload) {
+                console.error("❌ [TinyML] Invalid payload format, skipping");
+                console.log("=".repeat(80) + "\n");
+                return;
+              }
+              
+              // 2. Simpan ke Database (Semua event disimpan untuk audit)
+              const savedLog = await intrusiService.saveIntrusiLog(deviceId, validatedPayload);
+              if (!savedLog) {
+                console.error("❌ [TinyML] Failed to save log");
+                console.log("=".repeat(80) + "\n");
+                return;
+              }
+
+              // 3. LOGIKA ALERTING (Hanya jika Intrusi)
+              if (validatedPayload.event === "Intrusion") {
+                console.log("🚨 [TinyML] INTRUSION DETECTED! Triggering alerts...");
+                
+                const device = await intrusiService.getDeviceWithRelations(deviceId);
+
+                if (device) {
+                  // Gunakan alertingService untuk kirim notifikasi
+                  await alertingService.processIntrusiAlert(
+                    deviceId,
+                    device,
+                    validatedPayload
+                  );
+                  console.log("✅ [TinyML] Alert notifications sent");
+                } else {
+                  console.error(`❌ [TinyML] Device ${deviceId} not found for alerting`);
+                }
+              }
+            } catch (intrusiError) {
+              console.error("❌ [TinyML] Error processing intrusion data:", intrusiError);
+            }
           } else {
             console.log(`⚠️  Unknown system type: ${systemType}`);
           }

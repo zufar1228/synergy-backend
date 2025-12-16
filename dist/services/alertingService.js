@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processSensorDataForAlerts = void 0;
+exports.processIntrusiAlert = exports.processSensorDataForAlerts = void 0;
 // backend/src/services/alertingService.ts
 const models_1 = require("../db/models");
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
@@ -269,3 +269,37 @@ const processSensorDataForAlerts = async (deviceId, systemType, data) => {
     }
 };
 exports.processSensorDataForAlerts = processSensorDataForAlerts;
+/**
+ * Memproses alert dari TinyML Intrusion Detection
+ * Hanya dipanggil ketika event "Intrusion" terdeteksi
+ */
+const processIntrusiAlert = async (deviceId, device, data) => {
+    const { area } = device;
+    const { warehouse } = area;
+    const timestamp = (0, date_fns_1.format)(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
+        locale: locale_1.id,
+    });
+    const confidencePercent = (data.conf * 100).toFixed(1);
+    const emailProps = {
+        incidentType: "UPAYA INTRUSI TERDETEKSI (TinyML)",
+        warehouseName: warehouse.name,
+        areaName: area.name,
+        deviceName: device.name,
+        timestamp,
+        details: [
+            { key: "Tipe Event", value: data.event },
+            { key: "Confidence", value: `${confidencePercent}%` },
+            { key: "Sistem", value: "TinyML Edge AI (ESP32)" },
+        ],
+    };
+    const subject = `[🚨 INTRUSI] Terdeteksi Percobaan Penyusupan di ${warehouse.name}`;
+    console.log(`[Alerting-Intrusi] 🚨 Sending intrusion alert for device ${device.name}...`);
+    try {
+        await notifySubscribers("intrusi", subject, emailProps, notificationService_1.sendAlertEmail);
+        console.log(`[Alerting-Intrusi] ✅ Intrusion alert sent successfully!`);
+    }
+    catch (error) {
+        console.error(`[Alerting-Intrusi] ❌ Error sending intrusion alert:`, error);
+    }
+};
+exports.processIntrusiAlert = processIntrusiAlert;

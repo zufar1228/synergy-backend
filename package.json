@@ -8,7 +8,10 @@
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules src/server.ts",
     "migrate": "sequelize-cli db:migrate",
-    "migrate: undo": "sequelize-cli db:migrate:undo"
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:intrusi": "ts-node scripts/run-intrusi-migration.ts",
+    "simulator:intrusi": "ts-node device-simulator/intrusi-simulator.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords":  [],
   "author": "",

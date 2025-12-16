@@ -15,6 +15,7 @@ const logModels = {
     lingkungan: models_1.LingkunganLog,
     gangguan: models_1.Incident, // <-- Tambahkan model untuk 'gangguan'
     keamanan: models_1.KeamananLog, // <-- TAMBAHKAN
+    intrusi: models_1.IntrusiLog, // <-- TAMBAHKAN untuk TinyML
 };
 const getAnalyticsData = async (query) => {
     const { system_type, area_id, from, to } = query;
@@ -73,6 +74,16 @@ const getAnalyticsData = async (query) => {
             "attributes",
             "status",
             "notes",
+        ];
+    }
+    else if (system_type === "intrusi") {
+        modelAttributes = [
+            "id",
+            "device_id",
+            "timestamp",
+            "event_class",
+            "confidence",
+            "payload",
         ];
     }
     // ========================================================
@@ -172,6 +183,57 @@ const getAnalyticsData = async (query) => {
         summary = {
             total_detections: totalDetections,
             unacknowledged_alerts: unacknowledged,
+        };
+    }
+    else if (system_type === "intrusi") {
+        // --- Logika Summary untuk Intrusi (TinyML) ---
+        const totalEvents = count;
+        const intrusions = await models_1.IntrusiLog.count({
+            where: { ...whereCondition, event_class: "Intrusion" },
+            include: [
+                {
+                    model: models_1.Device,
+                    as: "device",
+                    attributes: [],
+                    where: area_id ? deviceWhereCondition : undefined,
+                    required: !!area_id,
+                },
+            ],
+        });
+        const disturbances = await models_1.IntrusiLog.count({
+            where: { ...whereCondition, event_class: "Disturbance" },
+            include: [
+                {
+                    model: models_1.Device,
+                    as: "device",
+                    attributes: [],
+                    where: area_id ? deviceWhereCondition : undefined,
+                    required: !!area_id,
+                },
+            ],
+        });
+        // Get the deviceId for the first device in this area with intrusi type
+        const intrusiDevice = await models_1.Device.findOne({
+            where: { area_id, system_type: "intrusi" },
+            attributes: ["id"],
+        });
+        summary = {
+            total_events: totalEvents,
+            intrusions,
+            disturbances,
+            normals: totalEvents - intrusions - disturbances,
+        };
+        // Return with deviceId for the component
+        return {
+            summary,
+            logs: data,
+            deviceId: intrusiDevice?.id || null,
+            pagination: {
+                total: count,
+                page: page,
+                per_page: perPage,
+                total_pages: Math.ceil(count / perPage),
+            },
         };
     }
     // --- Gabungkan Hasil ---

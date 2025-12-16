@@ -16,6 +16,7 @@ import incidentRoutes from "./api/routes/incidentRoutes";
 import alertRoutes from "./api/routes/alertRoutes";
 import keamananRoutes from "./api/routes/keamananRoutes";
 import telegramRoutes from "./api/routes/telegramRoutes";
+import intrusiRoutes from "./api/routes/intrusiRoutes"; // <-- TinyML Intrusion Detection
 import { setWebhook as setupTelegramWebhook } from "./services/telegramService";
 
 const app: Express = express();
@@ -80,6 +81,7 @@ app.use("/api/incidents", incidentRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/security-logs", authMiddleware, keamananRoutes);
 app.use("/api/telegram", telegramRoutes);
+app.use("/api", intrusiRoutes); // <-- TinyML Intrusion Detection (routes prefixed with /api)
 
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err: any, req: Request, res: Response, next: any) => {

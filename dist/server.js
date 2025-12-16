@@ -21,6 +21,7 @@ const incidentRoutes_1 = __importDefault(require("./api/routes/incidentRoutes"))
 const alertRoutes_1 = __importDefault(require("./api/routes/alertRoutes"));
 const keamananRoutes_1 = __importDefault(require("./api/routes/keamananRoutes"));
 const telegramRoutes_1 = __importDefault(require("./api/routes/telegramRoutes"));
+const intrusiRoutes_1 = __importDefault(require("./api/routes/intrusiRoutes")); // <-- TinyML Intrusion Detection
 const telegramService_1 = require("./services/telegramService");
 const app = (0, express_1.default)();
 // Azure sets PORT as a string; ensure numeric and bind to all interfaces
@@ -75,6 +76,7 @@ app.use("/api/incidents", incidentRoutes_1.default);
 app.use("/api/alerts", alertRoutes_1.default);
 app.use("/api/security-logs", authMiddleware_1.authMiddleware, keamananRoutes_1.default);
 app.use("/api/telegram", telegramRoutes_1.default);
+app.use("/api", intrusiRoutes_1.default); // <-- TinyML Intrusion Detection (routes prefixed with /api)
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err, req, res, next) => {
     console.error("Error:", err);
