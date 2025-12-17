@@ -8,7 +8,7 @@ import { z } from "zod";
 const router = Router();
 
 // Daftar tipe sistem yang kita izinkan
-const systemTypes = z.enum(["lingkungan", "gangguan", "keamanan", "medis_air", "intrusi"]);
+const systemTypes = z.enum(["lingkungan", "gangguan", "keamanan", "medis_air", "intrusi", "proteksi_aset"]);
 
 const createDeviceSchema = z.object({
   body: z.object({

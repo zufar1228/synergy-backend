@@ -356,3 +356,107 @@ export const processIntrusiAlert = async (
     console.error(`[Alerting-Intrusi] ❌ Error sending intrusion alert:`, error);
   }
 };
+
+/**
+ * Memproses alert dari Proteksi Aset System (ML-based detection)
+ * Dipanggil untuk IMPACT, WATER_LEAK, dan insiden bahaya lainnya
+ */
+export const processProteksiAsetAlert = async (
+  deviceId: string,
+  incidentType: string,
+  rawData: {
+    sensorId: string;
+    type: string;
+    data: Record<string, unknown>;
+  }
+) => {
+  // Ambil device dengan relasi
+  const device = (await Device.findByPk(deviceId, {
+    include: [
+      {
+        model: Area,
+        as: "area",
+        include: [{ model: Warehouse, as: "warehouse" }],
+      },
+    ],
+  })) as DeviceWithRelations | null;
+
+  if (!device || !device.area || !device.area.warehouse) {
+    console.error(`[Alerting-ProteksiAset] Device ${deviceId} not found or missing relations`);
+    return;
+  }
+
+  const { area } = device;
+  const { warehouse } = area;
+
+  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
+    locale: localeID,
+  });
+
+  // Build details based on incident type
+  const details: { key: string; value: string }[] = [];
+
+  if (incidentType === "IMPACT") {
+    details.push(
+      { key: "Tipe Insiden", value: "BENTURAN KERAS (Impact)" },
+      { key: "Akselerometer X", value: `${rawData.data.accX || 0} g` },
+      { key: "Akselerometer Y", value: `${rawData.data.accY || 0} g` },
+      { key: "Akselerometer Z", value: `${rawData.data.accZ || 0} g` },
+      { key: "Level Suara", value: `${rawData.data.mic_level || 0}` }
+    );
+  } else if (incidentType === "WATER_LEAK") {
+    const waterLevel = rawData.data.water_level as number || 0;
+    const estimatedMm = ((waterLevel - 500) * 48 / 3595).toFixed(1);
+    details.push(
+      { key: "Tipe Insiden", value: "KEBOCORAN AIR (Water Leak)" },
+      { key: "Level Sensor", value: `${waterLevel}` },
+      { key: "Estimasi Ketinggian", value: `${estimatedMm} mm` }
+    );
+  } else if (incidentType === "VIBRATION") {
+    details.push(
+      { key: "Tipe Insiden", value: "GETARAN TINGGI (Vibration)" },
+      { key: "Akselerometer X", value: `${rawData.data.accX || 0} g` }
+    );
+  } else if (incidentType === "THERMAL") {
+    const thermalData = rawData.data.thermal_data as number[] || [];
+    const avg = thermalData.length > 0 
+      ? (thermalData.reduce((a, b) => a + b, 0) / thermalData.length).toFixed(1) 
+      : "N/A";
+    const max = thermalData.length > 0 ? Math.max(...thermalData).toFixed(1) : "N/A";
+    details.push(
+      { key: "Tipe Insiden", value: "SUHU TINGGI (Thermal)" },
+      { key: "Suhu Rata-rata", value: `${avg}°C` },
+      { key: "Suhu Maksimal", value: `${max}°C` }
+    );
+  }
+
+  details.push({ key: "Sistem", value: "Proteksi Aset (ML Detection)" });
+
+  const incidentLabels: Record<string, string> = {
+    IMPACT: "BENTURAN KERAS",
+    WATER_LEAK: "KEBOCORAN AIR", 
+    VIBRATION: "GETARAN TINGGI",
+    THERMAL: "SUHU TINGGI",
+  };
+
+  const emailProps = {
+    incidentType: `${incidentLabels[incidentType] || incidentType} TERDETEKSI`,
+    warehouseName: warehouse.name,
+    areaName: area.name,
+    deviceName: device.name,
+    timestamp,
+    details,
+  };
+
+  const emoji = ["IMPACT", "WATER_LEAK"].includes(incidentType) ? "🚨" : "⚠️";
+  const subject = `[${emoji} PROTEKSI ASET] ${incidentLabels[incidentType] || incidentType} di ${warehouse.name}`;
+
+  console.log(`[Alerting-ProteksiAset] ${emoji} Sending ${incidentType} alert for device ${device.name}...`);
+
+  try {
+    await notifySubscribers("proteksi_aset", subject, emailProps, sendAlertEmail);
+    console.log(`[Alerting-ProteksiAset] ✅ Alert sent successfully!`);
+  } catch (error) {
+    console.error(`[Alerting-ProteksiAset] ❌ Error sending alert:`, error);
+  }
+};

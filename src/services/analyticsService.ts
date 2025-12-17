@@ -8,6 +8,7 @@ import {
   KeamananLog,
   Area,
   IntrusiLog,
+  ProteksiAsetLog,
 } from "../db/models";
 import ApiError from "../utils/apiError";
 import { Op, ModelStatic, Model } from "sequelize";
@@ -19,6 +20,7 @@ const logModels: { [key: string]: ModelStatic<Model<any, any>> } = {
   gangguan: Incident, // <-- Tambahkan model untuk 'gangguan'
   keamanan: KeamananLog, // <-- TAMBAHKAN
   intrusi: IntrusiLog, // <-- TAMBAHKAN untuk TinyML
+  proteksi_aset: ProteksiAsetLog, // <-- TAMBAHKAN untuk Proteksi Aset
 };
 
 interface AnalyticsQuery {
@@ -53,7 +55,7 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
   const whereCondition: any = {};
   const deviceWhereCondition: any = { area_id: area_id };
   const dateColumn =
-    system_type === "gangguan" || system_type === "keamanan"
+    system_type === "gangguan" || system_type === "keamanan" || system_type === "proteksi_aset"
       ? "created_at"
       : "timestamp";
 
@@ -107,6 +109,16 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
       "event_class",
       "confidence",
       "payload",
+    ];
+  } else if (system_type === "proteksi_aset") {
+    modelAttributes = [
+      "id",
+      "device_id",
+      "created_at",
+      "incident_type",
+      "confidence",
+      "raw_values",
+      "is_cleared",
     ];
   }
   // ========================================================
@@ -260,6 +272,60 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
       summary,
       logs: data,
       deviceId: intrusiDevice?.id || null,
+      pagination: {
+        total: count,
+        page: page,
+        per_page: perPage,
+        total_pages: Math.ceil(count / perPage),
+      },
+    };
+  } else if (system_type === "proteksi_aset") {
+    // --- Logika Summary untuk Proteksi Aset ---
+    const totalIncidents = count;
+
+    const activeIncidents = await ProteksiAsetLog.count({
+      where: { ...whereCondition, is_cleared: false },
+      include: [
+        {
+          model: Device,
+          as: "device",
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id,
+        },
+      ],
+    });
+
+    const clearedIncidents = await ProteksiAsetLog.count({
+      where: { ...whereCondition, is_cleared: true },
+      include: [
+        {
+          model: Device,
+          as: "device",
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id,
+        },
+      ],
+    });
+
+    // Get the deviceId for the first device in this area with proteksi_aset type
+    const proteksiAsetDevice = await Device.findOne({
+      where: { area_id, system_type: "proteksi_aset" },
+      attributes: ["id"],
+    });
+
+    summary = {
+      total_incidents: totalIncidents,
+      active_incidents: activeIncidents,
+      cleared_incidents: clearedIncidents,
+    };
+
+    // Return with deviceId for the component
+    return {
+      summary,
+      logs: data,
+      deviceId: proteksiAsetDevice?.id || null,
       pagination: {
         total: count,
         page: page,

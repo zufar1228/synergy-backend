@@ -11,6 +11,7 @@ import PushSubscription from "./pushSubscription";
 import UserRole from "./userRole";
 import TelegramSubscriber from "./telegramSubscriber";
 import IntrusiLog from "./intrusiLog"; // <-- IMPORT (TinyML Intrusion Detection)
+import ProteksiAsetLog from "./proteksiAsetLog"; // <-- IMPORT (Proteksi Aset)
 
 // Definisikan Asosiasi
 Warehouse.hasMany(Area, { foreignKey: "warehouse_id", as: "areas" });
@@ -34,6 +35,10 @@ KeamananLog.belongsTo(Device, { foreignKey: "device_id", as: "device" });
 // Relasi IntrusiLog (TinyML Intrusion Detection)
 Device.hasMany(IntrusiLog, { foreignKey: "device_id", as: "intrusiLogs" });
 IntrusiLog.belongsTo(Device, { foreignKey: "device_id", as: "device" });
+
+// Relasi ProteksiAsetLog (Proteksi Aset ML Detection)
+Device.hasMany(ProteksiAsetLog, { foreignKey: "device_id", as: "proteksiAsetLogs" });
+ProteksiAsetLog.belongsTo(Device, { foreignKey: "device_id", as: "device" });
 
 Profile.hasMany(UserNotificationPreference, {
   foreignKey: "user_id",
@@ -91,4 +96,5 @@ export {
   UserRole,
   TelegramSubscriber,
   IntrusiLog,
+  ProteksiAsetLog,
 };
