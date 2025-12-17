@@ -130,36 +130,44 @@ const processWaterData = (rawData) => {
  * Buat log insiden baru
  */
 const createLog = async (deviceId, incidentType, confidence, rawData) => {
-    // Ekstrak raw_values berdasarkan tipe sensor
-    let raw_values = {};
+    // Simpan semua data sensor untuk realtime display
+    const dataToStore = {
+        sensor_type: rawData.type,
+    };
     if (rawData.type === "vibration") {
-        raw_values = {
-            accX: rawData.data.accX,
-            accY: rawData.data.accY,
-            accZ: rawData.data.accZ,
-            gyroX: rawData.data.gyroX,
-            gyroY: rawData.data.gyroY,
-            gyroZ: rawData.data.gyroZ,
-            mic_level: rawData.data.mic_level,
+        dataToStore.accelerometer = {
+            x: rawData.data.accX,
+            y: rawData.data.accY,
+            z: rawData.data.accZ,
         };
+        dataToStore.gyroscope = {
+            x: rawData.data.gyroX,
+            y: rawData.data.gyroY,
+            z: rawData.data.gyroZ,
+        };
+        dataToStore.mic_level = rawData.data.mic_level;
     }
-    else if (rawData.type === "thermal" && rawData.data.thermal_data) {
-        const thermalData = rawData.data.thermal_data;
-        raw_values = {
-            thermal_avg: thermalData.reduce((a, b) => a + b, 0) / thermalData.length,
-            thermal_max: Math.max(...thermalData),
-        };
+    else if (rawData.type === "thermal") {
+        // Simpan full thermal data untuk grid visualization
+        dataToStore.thermal_data = rawData.data.thermal_data;
+        dataToStore.temperature = rawData.data.avg_temperature;
+        dataToStore.min_temperature = rawData.data.min_temperature;
+        dataToStore.max_temperature = rawData.data.max_temperature;
+        dataToStore.is_alert = rawData.data.is_alert;
+        // Simpan camera image jika ada
+        if (rawData.data.camera_image) {
+            dataToStore.camera_image = rawData.data.camera_image;
+        }
     }
     else if (rawData.type === "water") {
-        raw_values = {
-            water_level: rawData.data.water_level,
-        };
+        dataToStore.water_level = rawData.data.water_level;
+        dataToStore.water_raw = rawData.data.water_raw;
     }
     const log = await proteksiAsetLog_1.default.create({
         device_id: deviceId,
         incident_type: incidentType,
         confidence,
-        data: { raw_values },
+        data: dataToStore,
     });
     // Update last_heartbeat pada device
     await models_1.Device.update({ last_heartbeat: new Date(), status: "Online" }, { where: { id: deviceId } });
