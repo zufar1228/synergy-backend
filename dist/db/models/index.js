@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IntrusiLog = exports.TelegramSubscriber = exports.UserRole = exports.PushSubscription = exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
+exports.ProteksiAsetLog = exports.IntrusiLog = exports.TelegramSubscriber = exports.UserRole = exports.PushSubscription = exports.KeamananLog = exports.UserNotificationPreference = exports.Incident = exports.Profile = exports.LingkunganLog = exports.Device = exports.Area = exports.Warehouse = exports.syncDatabase = exports.sequelize = void 0;
 const config_1 = require("../config");
 Object.defineProperty(exports, "sequelize", { enumerable: true, get: function () { return config_1.sequelize; } });
 const warehouse_1 = __importDefault(require("./warehouse"));
@@ -30,6 +30,8 @@ const telegramSubscriber_1 = __importDefault(require("./telegramSubscriber"));
 exports.TelegramSubscriber = telegramSubscriber_1.default;
 const intrusiLog_1 = __importDefault(require("./intrusiLog")); // <-- IMPORT (TinyML Intrusion Detection)
 exports.IntrusiLog = intrusiLog_1.default;
+const proteksiAsetLog_1 = __importDefault(require("./proteksiAsetLog")); // <-- IMPORT (Proteksi Aset)
+exports.ProteksiAsetLog = proteksiAsetLog_1.default;
 // Definisikan Asosiasi
 warehouse_1.default.hasMany(area_1.default, { foreignKey: "warehouse_id", as: "areas" });
 area_1.default.belongsTo(warehouse_1.default, { foreignKey: "warehouse_id", as: "warehouse" });
@@ -47,6 +49,9 @@ keamananLog_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as:
 // Relasi IntrusiLog (TinyML Intrusion Detection)
 device_1.default.hasMany(intrusiLog_1.default, { foreignKey: "device_id", as: "intrusiLogs" });
 intrusiLog_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as: "device" });
+// Relasi ProteksiAsetLog (Proteksi Aset ML Detection)
+device_1.default.hasMany(proteksiAsetLog_1.default, { foreignKey: "device_id", as: "proteksiAsetLogs" });
+proteksiAsetLog_1.default.belongsTo(device_1.default, { foreignKey: "device_id", as: "device" });
 profile_1.default.hasMany(userNotificationPreference_1.default, {
     foreignKey: "user_id",
     as: "notificationPreferences",

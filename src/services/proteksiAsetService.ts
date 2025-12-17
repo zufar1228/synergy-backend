@@ -1,7 +1,7 @@
 // backend/src/services/proteksiAsetService.ts
 
 import { Op } from "sequelize";
-import { ProteksiAsetLog, IncidentType } from "../db/models/proteksiAsetLog";
+import ProteksiAsetLog, { IncidentType } from "../db/models/proteksiAsetLog";
 import { Device } from "../db/models";
 
 // URL untuk ML Model API (dari environment variable)
@@ -211,8 +211,6 @@ export const createLog = async (
     incident_type: incidentType,
     confidence,
     data: { raw_values },
-    is_cleared: false,
-    timestamp: new Date(),
   });
 
   // Update last_heartbeat pada device

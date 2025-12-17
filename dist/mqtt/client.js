@@ -43,6 +43,7 @@ const logService = __importStar(require("../services/logService"));
 const deviceService_1 = require("../services/deviceService");
 const alertingService = __importStar(require("../services/alertingService"));
 const intrusiService = __importStar(require("../services/intrusiService")); // <-- Import intrusi service
+const proteksiAsetService = __importStar(require("../services/proteksiAsetService")); // <-- Import proteksi aset service
 console.log("\n" + "=".repeat(80));
 console.log("🔧 MQTT CLIENT MODULE LOADED");
 console.log("=".repeat(80));
@@ -201,6 +202,53 @@ const initializeMqttClient = () => {
                         }
                         catch (intrusiError) {
                             console.error("❌ [TinyML] Error processing intrusion data:", intrusiError);
+                        }
+                    }
+                    else if (systemType === "proteksi_aset") {
+                        // === PROTEKSI ASET SYSTEM (ML-based incident detection) ===
+                        console.log("🛡️  Processing Proteksi Aset data...");
+                        try {
+                            // Data bisa berupa: vibration, thermal, atau water sensor
+                            // Format: { type: "vibration"|"thermal"|"water", data: {...} }
+                            const sensorType = data.type || "vibration";
+                            // Validasi payload
+                            const validation = proteksiAsetService.validateProteksiAsetPayload({
+                                sensorId: deviceId,
+                                type: sensorType,
+                                data: data.data || data,
+                            });
+                            if (!validation.valid) {
+                                console.error(`❌ [ProteksiAset] Invalid payload: ${validation.error}`);
+                                console.log("=".repeat(80) + "\n");
+                                return;
+                            }
+                            // Proses dengan ML API (untuk vibration) atau lokal (untuk thermal/water)
+                            const rawData = {
+                                sensorId: deviceId,
+                                type: sensorType,
+                                data: data.data || data,
+                            };
+                            const result = await proteksiAsetService.processSensorDataWithML(rawData);
+                            console.log(`📊 [ProteksiAset] ML Result: ${result.incident_type} (confidence: ${result.confidence})`);
+                            // Simpan log jika bukan NORMAL
+                            if (result.shouldSave) {
+                                const savedLog = await proteksiAsetService.createLog(deviceId, result.incident_type, result.confidence, rawData);
+                                console.log(`✅ [ProteksiAset] Incident logged: ${savedLog.id} - ${result.incident_type}`);
+                                // Trigger alerting untuk incident berbahaya
+                                if (["IMPACT", "WATER_LEAK"].includes(result.incident_type)) {
+                                    console.log("🚨 [ProteksiAset] DANGER DETECTED! Triggering alerts...");
+                                    await alertingService.processProteksiAsetAlert(deviceId, result.incident_type, rawData);
+                                }
+                                else if (["VIBRATION", "THERMAL"].includes(result.incident_type)) {
+                                    console.log("⚠️ [ProteksiAset] WARNING detected, logging only");
+                                }
+                            }
+                            else {
+                                console.log("✅ [ProteksiAset] Normal reading, no incident saved");
+                            }
+                        }
+                        catch (proteksiError) {
+                            console.error("❌ [ProteksiAset] Error processing data:", proteksiError);
                         }
                     }
                     else {

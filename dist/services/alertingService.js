@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processIntrusiAlert = exports.processSensorDataForAlerts = void 0;
+exports.processProteksiAsetAlert = exports.processIntrusiAlert = exports.processSensorDataForAlerts = void 0;
 // backend/src/services/alertingService.ts
 const models_1 = require("../db/models");
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
@@ -303,3 +303,75 @@ const processIntrusiAlert = async (deviceId, device, data) => {
     }
 };
 exports.processIntrusiAlert = processIntrusiAlert;
+/**
+ * Memproses alert dari Proteksi Aset System (ML-based detection)
+ * Dipanggil untuk IMPACT, WATER_LEAK, dan insiden bahaya lainnya
+ */
+const processProteksiAsetAlert = async (deviceId, incidentType, rawData) => {
+    // Ambil device dengan relasi
+    const device = (await models_1.Device.findByPk(deviceId, {
+        include: [
+            {
+                model: models_1.Area,
+                as: "area",
+                include: [{ model: models_1.Warehouse, as: "warehouse" }],
+            },
+        ],
+    }));
+    if (!device || !device.area || !device.area.warehouse) {
+        console.error(`[Alerting-ProteksiAset] Device ${deviceId} not found or missing relations`);
+        return;
+    }
+    const { area } = device;
+    const { warehouse } = area;
+    const timestamp = (0, date_fns_1.format)(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
+        locale: locale_1.id,
+    });
+    // Build details based on incident type
+    const details = [];
+    if (incidentType === "IMPACT") {
+        details.push({ key: "Tipe Insiden", value: "BENTURAN KERAS (Impact)" }, { key: "Akselerometer X", value: `${rawData.data.accX || 0} g` }, { key: "Akselerometer Y", value: `${rawData.data.accY || 0} g` }, { key: "Akselerometer Z", value: `${rawData.data.accZ || 0} g` }, { key: "Level Suara", value: `${rawData.data.mic_level || 0}` });
+    }
+    else if (incidentType === "WATER_LEAK") {
+        const waterLevel = rawData.data.water_level || 0;
+        const estimatedMm = ((waterLevel - 500) * 48 / 3595).toFixed(1);
+        details.push({ key: "Tipe Insiden", value: "KEBOCORAN AIR (Water Leak)" }, { key: "Level Sensor", value: `${waterLevel}` }, { key: "Estimasi Ketinggian", value: `${estimatedMm} mm` });
+    }
+    else if (incidentType === "VIBRATION") {
+        details.push({ key: "Tipe Insiden", value: "GETARAN TINGGI (Vibration)" }, { key: "Akselerometer X", value: `${rawData.data.accX || 0} g` });
+    }
+    else if (incidentType === "THERMAL") {
+        const thermalData = rawData.data.thermal_data || [];
+        const avg = thermalData.length > 0
+            ? (thermalData.reduce((a, b) => a + b, 0) / thermalData.length).toFixed(1)
+            : "N/A";
+        const max = thermalData.length > 0 ? Math.max(...thermalData).toFixed(1) : "N/A";
+        details.push({ key: "Tipe Insiden", value: "SUHU TINGGI (Thermal)" }, { key: "Suhu Rata-rata", value: `${avg}°C` }, { key: "Suhu Maksimal", value: `${max}°C` });
+    }
+    details.push({ key: "Sistem", value: "Proteksi Aset (ML Detection)" });
+    const incidentLabels = {
+        IMPACT: "BENTURAN KERAS",
+        WATER_LEAK: "KEBOCORAN AIR",
+        VIBRATION: "GETARAN TINGGI",
+        THERMAL: "SUHU TINGGI",
+    };
+    const emailProps = {
+        incidentType: `${incidentLabels[incidentType] || incidentType} TERDETEKSI`,
+        warehouseName: warehouse.name,
+        areaName: area.name,
+        deviceName: device.name,
+        timestamp,
+        details,
+    };
+    const emoji = ["IMPACT", "WATER_LEAK"].includes(incidentType) ? "🚨" : "⚠️";
+    const subject = `[${emoji} PROTEKSI ASET] ${incidentLabels[incidentType] || incidentType} di ${warehouse.name}`;
+    console.log(`[Alerting-ProteksiAset] ${emoji} Sending ${incidentType} alert for device ${device.name}...`);
+    try {
+        await notifySubscribers("proteksi_aset", subject, emailProps, notificationService_1.sendAlertEmail);
+        console.log(`[Alerting-ProteksiAset] ✅ Alert sent successfully!`);
+    }
+    catch (error) {
+        console.error(`[Alerting-ProteksiAset] ❌ Error sending alert:`, error);
+    }
+};
+exports.processProteksiAsetAlert = processProteksiAsetAlert;

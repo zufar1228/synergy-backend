@@ -117,7 +117,7 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
       "created_at",
       "incident_type",
       "confidence",
-      "raw_values",
+      "data",
       "is_cleared",
     ];
   }
