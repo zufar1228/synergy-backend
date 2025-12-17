@@ -102,7 +102,8 @@ const processThermalData = (rawData) => {
             shouldSave: true,
         };
     }
-    return { incident_type: "NORMAL", confidence: null, shouldSave: false };
+    // SELALU simpan data untuk realtime display
+    return { incident_type: "NORMAL", confidence: null, shouldSave: true };
 };
 /**
  * Proses data water leak
@@ -122,7 +123,8 @@ const processWaterData = (rawData) => {
             shouldSave: true,
         };
     }
-    return { incident_type: "NORMAL", confidence: null, shouldSave: false };
+    // SELALU simpan data untuk realtime display
+    return { incident_type: "NORMAL", confidence: null, shouldSave: true };
 };
 /**
  * Buat log insiden baru

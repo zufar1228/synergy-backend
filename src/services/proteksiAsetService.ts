@@ -143,7 +143,8 @@ const processThermalData = (
     };
   }
 
-  return { incident_type: "NORMAL", confidence: null, shouldSave: false };
+  // SELALU simpan data untuk realtime display
+  return { incident_type: "NORMAL", confidence: null, shouldSave: true };
 };
 
 /**
@@ -169,7 +170,8 @@ const processWaterData = (
     };
   }
 
-  return { incident_type: "NORMAL", confidence: null, shouldSave: false };
+  // SELALU simpan data untuk realtime display
+  return { incident_type: "NORMAL", confidence: null, shouldSave: true };
 };
 
 /**
