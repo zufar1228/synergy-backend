@@ -9,6 +9,7 @@ import {
 } from "../db/models";
 import { supabaseAdmin } from "../config/supabaseAdmin";
 import { sendRepeatAlertEmail } from "./notificationService";
+import * as telegramService from "./telegramService"; // <-- ADD TELEGRAM IMPORT
 import { Op, literal } from "sequelize";
 import { format, differenceInMinutes } from "date-fns";
 import { id as localeID } from "date-fns/locale";
@@ -148,6 +149,34 @@ export const findAndNotifyRepeatDetections = async () => {
 
       const subject = `[PERINGATAN] Orang yang Sama Terdeteksi Berulang Kali di ${warehouse.name} - ${area.name}`;
 
+      // === ADD TELEGRAM NOTIFICATION ===
+      const telegramTask = (async () => {
+        try {
+          const message = `
+🚨 <b>PERINGATAN KEAMANAN</b> 🚨
+
+📍 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
+🔧 <b>Device:</b> ${device.name}
+👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes as any[]).replace(/_/g, ", ")}
+
+📊 <b>Detail Deteksi:</b>
+   • Jumlah deteksi: ${detections.length}x
+   • Durasi: ${duration} menit
+   • Deteksi pertama: ${format(firstDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: localeID })}
+   • Deteksi terakhir: ${format(lastDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: localeID })}
+
+🖼️ <b>Gambar:</b> ${lastDetection.image_url}
+
+<i>Orang yang sama terdeteksi berulang kali dalam waktu singkat.</i>
+`.trim();
+
+          await telegramService.sendGroupAlert(message);
+          console.log("[RepeatDetection] Telegram notification sent to group.");
+        } catch (error) {
+          console.error("[RepeatDetection] Telegram notification failed:", error);
+        }
+      })();
+
       // 6. Dapatkan daftar penerima notifikasi
       // (Logika ini sudah kita buat di alertingService, kita pinjam di sini)
       const userIds = (
@@ -168,6 +197,9 @@ export const findAndNotifyRepeatDetections = async () => {
       for (const user of subscribedUsers) {
         await sendRepeatAlertEmail({ to: user.email, subject, emailProps });
       }
+
+      // Wait for Telegram notification to complete
+      await telegramTask;
 
       // 8. Tandai semua log ini sebagai sudah dinotifikasi
       await KeamananLog.update(

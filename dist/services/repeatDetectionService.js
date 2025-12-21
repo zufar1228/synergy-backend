@@ -1,10 +1,44 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findAndNotifyRepeatDetections = void 0;
 // backend/src/services/repeatDetectionService.ts
 const models_1 = require("../db/models");
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
 const notificationService_1 = require("./notificationService");
+const telegramService = __importStar(require("./telegramService")); // <-- ADD TELEGRAM IMPORT
 const sequelize_1 = require("sequelize");
 const date_fns_1 = require("date-fns");
 const locale_1 = require("date-fns/locale");
@@ -113,6 +147,33 @@ const findAndNotifyRepeatDetections = async () => {
                 imageUrl: lastDetection.image_url,
             };
             const subject = `[PERINGATAN] Orang yang Sama Terdeteksi Berulang Kali di ${warehouse.name} - ${area.name}`;
+            // === ADD TELEGRAM NOTIFICATION ===
+            const telegramTask = (async () => {
+                try {
+                    const message = `
+🚨 <b>PERINGATAN KEAMANAN</b> 🚨
+
+📍 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
+🔧 <b>Device:</b> ${device.name}
+👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes).replace(/_/g, ", ")}
+
+📊 <b>Detail Deteksi:</b>
+   • Jumlah deteksi: ${detections.length}x
+   • Durasi: ${duration} menit
+   • Deteksi pertama: ${(0, date_fns_1.format)(firstDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: locale_1.id })}
+   • Deteksi terakhir: ${(0, date_fns_1.format)(lastDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: locale_1.id })}
+
+🖼️ <b>Gambar:</b> ${lastDetection.image_url}
+
+<i>Orang yang sama terdeteksi berulang kali dalam waktu singkat.</i>
+`.trim();
+                    await telegramService.sendGroupAlert(message);
+                    console.log("[RepeatDetection] Telegram notification sent to group.");
+                }
+                catch (error) {
+                    console.error("[RepeatDetection] Telegram notification failed:", error);
+                }
+            })();
             // 6. Dapatkan daftar penerima notifikasi
             // (Logika ini sudah kita buat di alertingService, kita pinjam di sini)
             const userIds = (await models_1.UserNotificationPreference.findAll({
@@ -127,6 +188,8 @@ const findAndNotifyRepeatDetections = async () => {
             for (const user of subscribedUsers) {
                 await (0, notificationService_1.sendRepeatAlertEmail)({ to: user.email, subject, emailProps });
             }
+            // Wait for Telegram notification to complete
+            await telegramTask;
             // 8. Tandai semua log ini sebagai sudah dinotifikasi
             await models_1.KeamananLog.update({ notification_sent_at: new Date() }, { where: { id: { [sequelize_1.Op.in]: detections.map((d) => d.id) } } });
         }

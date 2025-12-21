@@ -56,6 +56,7 @@ const THRESHOLDS = {
 const deviceAlertState = new Map();
 /**
  * Mengirim notifikasi (email, push, dan Telegram) ke semua pengguna yang berlangganan
+ * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
  */
 const notifySubscribers = async (systemType, subject, emailProps, emailFunction) => {
     // 1. Ambil User ID yang subscribe
@@ -63,12 +64,53 @@ const notifySubscribers = async (systemType, subject, emailProps, emailFunction)
         where: { system_type: systemType, is_enabled: true },
         attributes: ["user_id"],
     })).map((sub) => sub.user_id);
-    if (userIds.length === 0)
+    // === TASK 1: KIRIM KE TELEGRAM GROUP (SELALU, tidak tergantung subscriber) ===
+    const telegramTask = (async () => {
+        try {
+            // Check if this is an alert (not "back to normal" message)
+            // Alert subjects contain: PERINGATAN, INTRUSI, PROTEKSI ASET, 🚨
+            const isAlert = subject.includes("PERINGATAN") ||
+                subject.includes("INTRUSI") ||
+                subject.includes("PROTEKSI ASET") ||
+                subject.includes("🚨");
+            const emoji = isAlert ? "🚨" : "✅";
+            const statusText = isAlert ? "PERINGATAN BAHAYA" : "KEMBALI NORMAL";
+            // Build detail text from emailProps.details if available
+            let detailText = "";
+            if (emailProps.details && Array.isArray(emailProps.details)) {
+                detailText = emailProps.details
+                    .map((d) => `   • ${d.key}: ${d.value}`)
+                    .join("\n");
+            }
+            const message = `
+${emoji} <b>${statusText}</b> ${emoji}
+
+📍 <b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
+🔧 <b>Device:</b> ${emailProps.deviceName}
+${emailProps.incidentType ? `⚠️ <b>Tipe:</b> ${emailProps.incidentType}` : ""}
+${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ""}
+
+🕐 <b>Waktu:</b> ${emailProps.timestamp}
+
+<i>Harap segera diperiksa.</i>
+`.trim();
+            await telegramService.sendGroupAlert(message);
+            console.log("[Alerting] Telegram notification sent to group.");
+        }
+        catch (error) {
+            console.error("[Alerting] Telegram notification failed:", error);
+        }
+    })();
+    // Jika tidak ada subscriber, hanya kirim Telegram saja
+    if (userIds.length === 0) {
+        console.log(`[Alerting] No subscribers for ${systemType}, sending Telegram only.`);
+        await telegramTask;
         return;
-    // === TASK 1: SIAPKAN PUSH NOTIFICATION ===
+    }
+    // === TASK 2: SIAPKAN PUSH NOTIFICATION ===
     const pushTask = (async () => {
         console.log(`[Alerting] Starting push task for ${userIds.length} users:`, userIds);
-        const pushTitle = subject.includes("PERINGATAN")
+        const pushTitle = subject.includes("PERINGATAN") || subject.includes("🚨")
             ? "🚨 BAHAYA TERDETEKSI"
             : "✅ KEMBALI NORMAL";
         const pushBody = `Lokasi: ${emailProps.warehouseName} - ${emailProps.areaName}. ${emailProps.incidentType || "Status Update"}.`;
@@ -95,38 +137,6 @@ const notifySubscribers = async (systemType, subject, emailProps, emailFunction)
         }
         catch (error) {
             console.error("[Alerting] Email processing failed:", error);
-        }
-    })();
-    // === TASK 3: KIRIM KE TELEGRAM GROUP ===
-    const telegramTask = (async () => {
-        try {
-            const isAlert = subject.includes("PERINGATAN");
-            const emoji = isAlert ? "🚨" : "✅";
-            const statusText = isAlert ? "PERINGATAN BAHAYA" : "KEMBALI NORMAL";
-            // Build detail text from emailProps.details if available
-            let detailText = "";
-            if (emailProps.details && Array.isArray(emailProps.details)) {
-                detailText = emailProps.details
-                    .map((d) => `   • ${d.key}: ${d.value}`)
-                    .join("\n");
-            }
-            const message = `
-${emoji} <b>${statusText}</b> ${emoji}
-
-📍 <b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
-🔧 <b>Device:</b> ${emailProps.deviceName}
-${emailProps.incidentType ? `⚠️ <b>Tipe:</b> ${emailProps.incidentType}` : ""}
-${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ""}
-
-🕐 <b>Waktu:</b> ${emailProps.timestamp}
-
-<i>Harap segera diperiksa.</i>
-`.trim();
-            await telegramService.sendGroupAlert(message);
-            console.log("[Alerting] Telegram notification sent.");
-        }
-        catch (error) {
-            console.error("[Alerting] Telegram notification failed:", error);
         }
     })();
     // === EKSEKUSI SEMUANYA BERSAMAAN ===

@@ -11,6 +11,7 @@
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:intrusi": "ts-node scripts/run-intrusi-migration.ts",
     "simulator:intrusi": "ts-node device-simulator/intrusi-simulator.ts",
+    "simulator:keamanan": "ts-node device-simulator/keamanan-simulator.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords":  [],
