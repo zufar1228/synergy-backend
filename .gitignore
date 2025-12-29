@@ -42,4 +42,4 @@ yarn-error.log*
 next-env.d.ts
 
 # device simulator (local testing only)
-device-simulator/
+# device-simulator/
