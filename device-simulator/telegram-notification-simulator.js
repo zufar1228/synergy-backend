@@ -15,6 +15,25 @@ const BUCKET_NAME = 'captured_images';
 const LOCAL_IMAGE_PATH = path.join(__dirname, 'test.jpg');
 
 /**
+ * Clear old test detections to avoid interference
+ */
+async function clearOldTestDetections() {
+  console.log('🧹 Clearing old test detections...');
+
+  // Delete detections that contain 'telegram-sim' in the image URL (our test images)
+  const { error } = await supabase
+    .from('keamanan_logs')
+    .delete()
+    .like('image_url', '%telegram-sim%');
+
+  if (error) {
+    console.error('❌ Error clearing old detections:', error.message);
+  } else {
+    console.log('✅ Old test detections cleared');
+  }
+}
+
+/**
  * Upload image to Supabase storage and return the public URL
  */
 async function uploadImageToStorage(imageIndex) {
@@ -59,6 +78,9 @@ async function simulateRepeatDetections() {
   console.log('🚨 Starting Telegram Notification Simulation with Real Images...');
 
   try {
+    // Clear old test detections first
+    await clearOldTestDetections();
+
     // First, upload 3 copies of the test image
     console.log('📸 Uploading test images to Supabase...');
     const imageUrls = [];
@@ -69,27 +91,27 @@ async function simulateRepeatDetections() {
 
     console.log('✅ All images uploaded successfully!');
 
-    // Create 3 detections of the same person within 15 SECONDS
+    // Create 3 detections of the same person within 5 SECONDS (very close together)
     const baseTime = new Date();
 
-    // Detection 1: 12 seconds ago
-    const detection1Time = new Date(baseTime.getTime() - 12 * 1000);
+    // Detection 1: 4 seconds ago
+    const detection1Time = new Date(baseTime.getTime() - 4 * 1000);
 
-    // Detection 2: 8 seconds ago
-    const detection2Time = new Date(baseTime.getTime() - 8 * 1000);
+    // Detection 2: 2 seconds ago
+    const detection2Time = new Date(baseTime.getTime() - 2 * 1000);
 
-    // Detection 3: Just now (4 seconds ago)
-    const detection3Time = new Date(baseTime.getTime() - 4 * 1000);
+    // Detection 3: Just now (1 second ago)
+    const detection3Time = new Date(baseTime.getTime() - 1 * 1000);
 
     console.log('📝 Creating 3 repeat detections with real image URLs...');
 
-    // Same person attributes for all detections (green shirt person - different from previous)
+    // Same person attributes for all detections (red shirt person - matches what ML detects from test.jpg)
     const personAttributes = [
       {
         confidence: 0.96,
         attributes: [
           {
-            attribute: "person wearing a green shirt",
+            attribute: "person wearing a red shirt",
             confidence: 0.88
           }
         ]

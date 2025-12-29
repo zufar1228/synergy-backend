@@ -101,6 +101,7 @@ export const findAndNotifyRepeatDetections = async () => {
 
   // 2. Proses setiap grup identitas
   for (const [identityKey, detections] of detectionMap.entries()) {
+
     // 3. Cek apakah ada log LAMA (sudah dinotifikasi) dengan kunci yang sama dalam 15 DETIK terakhir
     // Ini untuk mencegah spam jika notifikasi baru saja dikirim
     const recentNotifiedCount = await KeamananLog.count({
