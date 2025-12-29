@@ -177,8 +177,6 @@ const findAndNotifyRepeatDetections = async () => {
 👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes).replace(/_/g, ", ")}
 
 📊 <b>Detail Deteksi:</b>
-   • Jumlah deteksi: ${detections.length}x
-   • Durasi: ${duration} menit
    • Deteksi pertama: ${(0, date_fns_1.format)(firstDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: locale_1.id })}
    • Deteksi terakhir: ${(0, date_fns_1.format)(lastDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: locale_1.id })}
 

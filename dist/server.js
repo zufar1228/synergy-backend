@@ -76,7 +76,6 @@ app.use("/api/navigation", navigationRoutes_1.default);
 app.use("/api/incidents", incidentRoutes_1.default);
 app.use("/api/alerts", alertRoutes_1.default);
 app.use("/api/security-logs", authMiddleware_1.authMiddleware, keamananRoutes_1.default);
-app.use("/api/keamanan", keamananRoutes_1.default); // <-- For public endpoints like check-repeats
 app.use("/api/telegram", telegramRoutes_1.default);
 app.use("/api", intrusiRoutes_1.default); // <-- TinyML Intrusion Detection (routes prefixed with /api)
 app.use("/api/proteksi-aset", authMiddleware_1.authMiddleware, proteksiAsetRoutes_1.default); // <-- Proteksi Aset

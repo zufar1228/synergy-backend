@@ -5,4 +5,5 @@ import { authMiddleware } from "../middlewares/authMiddleware";
 
 const router = Router();
 router.put("/:id/status", authMiddleware, keamananController.updateStatus);
+router.post("/trigger-repeat-detection", authMiddleware, keamananController.triggerRepeatDetection);
 export default router;

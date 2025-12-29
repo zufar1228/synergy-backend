@@ -39,6 +39,5 @@ const keamananController = __importStar(require("../controllers/keamananControll
 const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
 router.put("/:id/status", authMiddleware_1.authMiddleware, keamananController.updateStatus);
-// 🔄 NEW: Endpoint to trigger repeat detection check
-router.post("/check-repeats", keamananController.checkRepeatDetections);
+router.post("/trigger-repeat-detection", authMiddleware_1.authMiddleware, keamananController.triggerRepeatDetection);
 exports.default = router;

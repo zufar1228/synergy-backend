@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkRepeatDetections = exports.updateStatus = void 0;
+exports.triggerRepeatDetection = exports.updateStatus = void 0;
 const keamananService = __importStar(require("../../services/keamananService"));
 const repeatDetectionService_1 = require("../../services/repeatDetectionService");
 const apiError_1 = __importDefault(require("../../utils/apiError"));
@@ -69,20 +69,15 @@ const updateStatus = async (req, res) => {
     }
 };
 exports.updateStatus = updateStatus;
-// 🔄 NEW: Endpoint to manually trigger repeat detection check
-const checkRepeatDetections = async (req, res) => {
+const triggerRepeatDetection = async (req, res) => {
     try {
-        console.log("[KeamananController] 🔍 Checking for repeat detections...");
+        console.log("[KeamananController] Triggering repeat detection notifications...");
         await (0, repeatDetectionService_1.findAndNotifyRepeatDetections)();
-        console.log("[KeamananController] ✅ Repeat detection check completed");
-        res.status(200).json({
-            message: "Repeat detection check completed",
-            timestamp: new Date().toISOString()
-        });
+        res.status(200).json({ message: "Repeat detection notifications triggered successfully" });
     }
     catch (error) {
-        console.error("[KeamananController] ❌ Repeat detection check failed:", error);
+        console.error("[KeamananController] Error triggering repeat detection:", error);
         handleError(res, error);
     }
 };
-exports.checkRepeatDetections = checkRepeatDetections;
+exports.triggerRepeatDetection = triggerRepeatDetection;

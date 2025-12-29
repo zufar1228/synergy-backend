@@ -1,6 +1,7 @@
 // backend/src/api/controllers/keamananController.ts
 import { Request, Response } from "express";
 import * as keamananService from "../../services/keamananService";
+import { findAndNotifyRepeatDetections } from "../../services/repeatDetectionService";
 import { IncidentStatus } from "../../db/models/incident";
 import ApiError from "../../utils/apiError";
 
@@ -36,6 +37,17 @@ export const updateStatus = async (req: Request, res: Response) => {
     );
     res.status(200).json(updatedLog);
   } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const triggerRepeatDetection = async (req: Request, res: Response) => {
+  try {
+    console.log("[KeamananController] Triggering repeat detection notifications...");
+    await findAndNotifyRepeatDetections();
+    res.status(200).json({ message: "Repeat detection notifications triggered successfully" });
+  } catch (error) {
+    console.error("[KeamananController] Error triggering repeat detection:", error);
     handleError(res, error);
   }
 };
