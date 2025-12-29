@@ -101,7 +101,7 @@ export const findAndNotifyRepeatDetections = async () => {
 
   // 2. Proses setiap grup identitas
   for (const [identityKey, detections] of detectionMap.entries()) {
-    // 3. Cek apakah ada log LAMA (sudah dinotifikasi) dengan kunci yang sama dalam 15 menit terakhir
+    // 3. Cek apakah ada log LAMA (sudah dinotifikasi) dengan kunci yang sama dalam 15 DETIK terakhir
     // Ini untuk mencegah spam jika notifikasi baru saja dikirim
     const recentNotifiedCount = await KeamananLog.count({
       where: {
@@ -110,7 +110,7 @@ export const findAndNotifyRepeatDetections = async () => {
         attributes: { [Op.eq]: detections[0].attributes }, // Mencocokkan atribut
         notification_sent_at: { [Op.ne]: null }, // Yang SUDAH dinotifikasi
         created_at: {
-          [Op.gt]: new Date(Date.now() - REPEAT_WINDOW_MINUTES * 60 * 1000),
+          [Op.gt]: new Date(Date.now() - 15 * 1000), // 15 DETIK, bukan menit
         },
       },
     });
@@ -127,18 +127,16 @@ export const findAndNotifyRepeatDetections = async () => {
       continue;
     }
 
-    // 4. Jika tidak ada notifikasi baru, cek apakah log BARU ini memenuhi syarat (lebih dari 1x dalam 15 menit)
+    // 4. Jika tidak ada notifikasi baru, cek apakah log BARU ini memenuhi syarat (lebih dari 1x dalam 15 DETIK)
     const firstDetection = detections[0];
     const lastDetection = detections[detections.length - 1];
-    const duration = differenceInMinutes(
-      lastDetection.created_at,
-      firstDetection.created_at
-    );
+    const durationMs = lastDetection.created_at.getTime() - firstDetection.created_at.getTime();
+    const durationSeconds = durationMs / 1000;
 
-    if (detections.length > 1 && duration <= REPEAT_WINDOW_MINUTES) {
-      // KITA PUNYA DETEKSI BERULANG!
+    if (detections.length >= 2 && durationSeconds <= 15) {
+      // KITA PUNYA DETEKSI BERULANG DALAM 15 DETIK!
       console.log(
-        `[RepeatDetection] Terdeteksi pengulangan untuk ${identityKey}! Mengirim notifikasi...`
+        `[RepeatDetection] Terdeteksi pengulangan untuk ${identityKey} dalam ${durationSeconds.toFixed(1)} detik! Mengirim notifikasi...`
       );
 
       const device = firstDetection.get("device") as Device;
@@ -154,7 +152,7 @@ export const findAndNotifyRepeatDetections = async () => {
           ", "
         ),
         detectionCount: detections.length,
-        durationMinutes: duration,
+        durationMinutes: durationSeconds / 60, // Convert to minutes for email
         firstSeen: format(firstDetection.created_at, "dd MMM yyyy, HH:mm:ss", {
           locale: localeID,
         }),
@@ -182,7 +180,7 @@ export const findAndNotifyRepeatDetections = async () => {
 
 🖼️ <b>Gambar:</b> ${lastDetection.image_url}
 
-<i>Orang yang sama terdeteksi berulang kali dalam waktu singkat.</i>
+<i>Orang yang sama terdeteksi berulang dalam 15 detik!</i>
 `.trim();
 
           await telegramService.sendGroupAlert(message);
