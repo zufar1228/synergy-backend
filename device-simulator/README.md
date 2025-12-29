@@ -219,8 +219,10 @@ If you prefer to run manually:
 ### What Happens
 
 1. **Image Upload**: Real `test.jpg` uploaded to Supabase Storage with public URL
-2. **Detection Creation**: Creates 3 repeat person detections **within 15 seconds** with the real image URL
-3. **Notification Trigger**: Automatically sends Telegram alert to your configured group
+2. **Detection Creation**: Creates 2 repeat person detections with a **15-second time gap**:
+   - Detection 1: Created immediately
+   - Detection 2: Created 15 seconds later
+3. **Notification Trigger**: Automatically sends Telegram alert when 2 detections of same person occur within 15 seconds
 4. **Frontend Display**: Images appear in the keamanan dashboard
 
 ### Verification

@@ -81,29 +81,26 @@ async function simulateRepeatDetections() {
     // Clear old test detections first
     await clearOldTestDetections();
 
-    // First, upload 3 copies of the test image
+    // First, upload 2 copies of the test image
     console.log('📸 Uploading test images to Supabase...');
     const imageUrls = [];
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 2; i++) {
       const imageUrl = await uploadImageToStorage(i);
       imageUrls.push(imageUrl);
     }
 
     console.log('✅ All images uploaded successfully!');
 
-    // Create 3 detections of the same person within 5 SECONDS (very close together)
+    // Create 2 detections of the same person with 15 SECOND gap
     const baseTime = new Date();
 
-    // Detection 1: 4 seconds ago
-    const detection1Time = new Date(baseTime.getTime() - 4 * 1000);
+    // Detection 1: Now
+    const detection1Time = new Date(baseTime.getTime());
 
-    // Detection 2: 2 seconds ago
-    const detection2Time = new Date(baseTime.getTime() - 2 * 1000);
+    // Detection 2: 15 seconds later
+    const detection2Time = new Date(baseTime.getTime() + 15 * 1000);
 
-    // Detection 3: Just now (1 second ago)
-    const detection3Time = new Date(baseTime.getTime() - 1 * 1000);
-
-    console.log('📝 Creating 3 repeat detections with real image URLs...');
+    console.log('📝 Creating 2 repeat detections with 15-second gap...');
 
     // Same person attributes for all detections (red shirt person - matches what ML detects from test.jpg)
     const personAttributes = [
@@ -158,26 +155,6 @@ async function simulateRepeatDetections() {
     }
     console.log('✅ Detection 2 created:', log2[0].id);
 
-    // Insert Detection 3
-    const { data: log3, error: error3 } = await supabase
-      .from('keamanan_logs')
-      .insert({
-        device_id: DEVICE_ID,
-        image_url: imageUrls[2],
-        detected: true,
-        confidence: 0.91,
-        attributes: personAttributes,
-        status: 'unacknowledged',
-        created_at: detection3Time.toISOString()
-      })
-      .select();
-
-    if (error3) {
-      console.error('❌ Error creating detection 3:', error3);
-      return;
-    }
-    console.log('✅ Detection 3 created:', log3[0].id);
-
     console.log('\n🎯 Repeat detections with REAL images created successfully!');
     console.log('🔄 To trigger Telegram notification, run this command from backend folder:');
     console.log('   node -e "const { findAndNotifyRepeatDetections } = require(\'./dist/services/repeatDetectionService.js\'); findAndNotifyRepeatDetections().then(() => console.log(\'✅ Telegram notification sent!\')).catch(console.error);"');
@@ -185,6 +162,7 @@ async function simulateRepeatDetections() {
     console.log('\n✅ Telegram notification simulation setup completed!');
     console.log('📲 Run the above command to send the Telegram alert.');
     console.log('🌐 Check your frontend to see the real uploaded images!');
+    console.log('⏰ Note: Detection 2 will be created 15 seconds after Detection 1');
 
   } catch (error) {
     console.error('💥 Simulation failed:', error);
