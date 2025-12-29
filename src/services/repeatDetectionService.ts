@@ -24,16 +24,33 @@ const REPEAT_WINDOW_MINUTES = 15;
 function getIdentityKey(attributes: any[] | null): string {
   if (!attributes || attributes.length === 0) return "unknown";
 
-  return attributes
-    .map((attr: any) =>
-      attr.attribute
+  // Flatten attributes to handle both nested and flat structures
+  const flatAttributes: any[] = [];
+
+  attributes.forEach((person: any) => {
+    if (person.attributes && Array.isArray(person.attributes)) {
+      // Nested structure: { attributes: [{ attribute: "..." }] }
+      flatAttributes.push(...person.attributes);
+    } else if (person.attribute) {
+      // Flat structure: { attribute: "..." }
+      flatAttributes.push(person);
+    }
+  });
+
+  if (flatAttributes.length === 0) return "unknown";
+
+  return flatAttributes
+    .map((attr: any) => {
+      if (!attr.attribute) return "";
+      return attr.attribute
         .replace("person wearing a ", "baju-")
         .replace("person not wearing a ", "tanpa-")
         .replace(" shirt", "")
         .replace(" hat", "-topi")
-        .replace(" glasses", "-kacamata")
-    )
-    .sort() // Sortir agar urutannya konsisten
+        .replace(" glasses", "-kacamata");
+    })
+    .filter(attr => attr.length > 0)
+    .sort()
     .join("_");
 }
 
