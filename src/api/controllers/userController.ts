@@ -4,6 +4,31 @@ import * as userService from "../../services/userService";
 import * as webPushService from "../../services/webPushService";
 import ApiError from "../../utils/apiError";
 
+/**
+ * Verify if the current user is authorized to access the system.
+ * Users must be invited through user management or manually added to Supabase.
+ * If not authorized, the user will be deleted from Supabase Auth.
+ */
+export const verifyAccess = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ authorized: false, message: "User not authenticated" });
+    }
+    
+    const result = await userService.verifyUserAccess(userId);
+    
+    if (!result.authorized) {
+      return res.status(403).json(result);
+    }
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("[verifyAccess] Error:", error);
+    res.status(500).json({ authorized: false, message: "Terjadi kesalahan saat memverifikasi akses." });
+  }
+};
+
 export const inviteUser = async (req: Request, res: Response) => {
   const { email, role } = req.body;
   if (!email || !role) {

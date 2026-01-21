@@ -40,6 +40,9 @@ router.put(
 router.get("/me", authMiddleware, userController.getMyProfile);
 router.put("/me", authMiddleware, userController.updateMyProfile);
 
+// Verify if user is authorized (was invited or manually added)
+router.get("/verify-access", authMiddleware, userController.verifyAccess);
+
 router.get("/me/preferences", authMiddleware, userController.getMyPreferences);
 router.put(
   "/me/preferences",

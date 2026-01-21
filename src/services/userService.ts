@@ -8,6 +8,39 @@ import { en } from "zod/v4/locales";
 import { sequelize } from "../db/config";
 import * as telegramService from "./telegramService";
 
+/**
+ * Verifies if a user is authorized to access the system.
+ * A user is authorized only if they have an entry in the user_roles table,
+ * which means they were invited through the user management page or manually added.
+ * 
+ * If user is not authorized, they will be deleted from Supabase Auth.
+ */
+export const verifyUserAccess = async (userId: string): Promise<{ authorized: boolean; message: string }> => {
+  const userRole = await UserRole.findOne({ where: { user_id: userId } });
+  
+  if (!userRole) {
+    // User was not invited - delete them from Supabase Auth
+    console.log(`[verifyUserAccess] User ${userId} not found in user_roles table. Deleting unauthorized user.`);
+    
+    try {
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+      console.log(`[verifyUserAccess] Successfully deleted unauthorized user ${userId}`);
+    } catch (deleteError) {
+      console.error(`[verifyUserAccess] Failed to delete unauthorized user ${userId}:`, deleteError);
+    }
+    
+    return {
+      authorized: false,
+      message: "Anda tidak memiliki akses. Silakan hubungi administrator untuk mendapatkan undangan."
+    };
+  }
+  
+  return {
+    authorized: true,
+    message: "User authorized"
+  };
+};
+
 const touchSecurityTimestamp = async (userId: string) => {
   await Profile.update(
     { security_timestamp: new Date() },
