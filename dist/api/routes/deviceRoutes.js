@@ -40,43 +40,43 @@ const validateRequest_1 = require("../middlewares/validateRequest");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
 // Daftar tipe sistem yang kita izinkan
-const systemTypes = zod_1.z.enum(["lingkungan", "gangguan", "keamanan", "medis_air", "intrusi", "proteksi_aset"]);
+const systemTypes = zod_1.z.enum(['lingkungan', 'keamanan', 'intrusi']);
 const createDeviceSchema = zod_1.z.object({
     body: zod_1.z.object({
-        name: zod_1.z.string().min(1, { message: "Nama wajib diisi." }),
+        name: zod_1.z.string().min(1, { message: 'Nama wajib diisi.' }),
         area_id: zod_1.z
             .string()
-            .uuid({ message: "Area ID harus berupa UUID yang valid." }),
-        system_type: systemTypes, // <-- PERUBAHAN DI SINI
-    }),
+            .uuid({ message: 'Area ID harus berupa UUID yang valid.' }),
+        system_type: systemTypes // <-- PERUBAHAN DI SINI
+    })
 });
 const updateDeviceSchema = zod_1.z.object({
     body: zod_1.z.object({
         name: zod_1.z.string().min(1).optional(),
-        area_id: zod_1.z.string().uuid().optional(),
+        area_id: zod_1.z.string().uuid().optional()
         // Tipe sistem tidak boleh diubah saat update, jadi kita hapus dari skema update
-    }),
+    })
 });
 // Tambahkan schema untuk manual command
 const manualCommandSchema = zod_1.z.object({
     body: zod_1.z.object({
-        action: zod_1.z.enum(["On", "Off"], {
-            message: 'Aksi harus "On" atau "Off"',
-        }),
-    }),
+        action: zod_1.z.enum(['On', 'Off'], {
+            message: 'Aksi harus "On" atau "Off"'
+        })
+    })
 });
 // Daftarkan semua endpoint
 // --- TAMBAHKAN RUTE BARU INI ---
 // Rute ini harus di atas rute '/:id' agar 'details' tidak dianggap sebagai ID
-router.get("/details", deviceController.getDeviceDetailsByArea);
+router.get('/details', deviceController.getDeviceDetailsByArea);
 // Rute BARU untuk perintah manual
-router.post("/:id/command", (0, validateRequest_1.validate)(manualCommandSchema), // ✅ Tambahkan ini
+router.post('/:id/command', (0, validateRequest_1.validate)(manualCommandSchema), // ✅ Tambahkan ini
 deviceController.sendManualCommand);
 // ---------------------------------
 // Rute yang sudah ada
-router.get("/", deviceController.listDevices);
-router.post("/", (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
-router.get("/:id", deviceController.getDeviceById);
-router.put("/:id", (0, validateRequest_1.validate)(updateDeviceSchema), deviceController.updateDevice);
-router.delete("/:id", deviceController.deleteDevice);
+router.get('/', deviceController.listDevices);
+router.post('/', (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
+router.get('/:id', deviceController.getDeviceById);
+router.put('/:id', (0, validateRequest_1.validate)(updateDeviceSchema), deviceController.updateDevice);
+router.delete('/:id', deviceController.deleteDevice);
 exports.default = router;

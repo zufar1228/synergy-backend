@@ -50,6 +50,8 @@ router.put("/:id/status", authMiddleware_1.authMiddleware, superAdminOnly, userC
 // Rute /me untuk pengguna biasa tetap ada dan tidak berubah
 router.get("/me", authMiddleware_1.authMiddleware, userController.getMyProfile);
 router.put("/me", authMiddleware_1.authMiddleware, userController.updateMyProfile);
+// Verify if user is authorized (was invited or manually added)
+router.get("/verify-access", authMiddleware_1.authMiddleware, userController.verifyAccess);
 router.get("/me/preferences", authMiddleware_1.authMiddleware, userController.getMyPreferences);
 router.put("/me/preferences", authMiddleware_1.authMiddleware, userController.updateMyPreferences);
 // Sync all roles to Supabase (super_admin only)

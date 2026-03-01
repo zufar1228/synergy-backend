@@ -1,26 +1,21 @@
 // backend/src/services/analyticsService.ts
 
-import { sequelize } from "../db/config";
+import { sequelize } from '../db/config';
 import {
   Device,
   LingkunganLog,
-  Incident,
   KeamananLog,
-  Area,
   IntrusiLog,
-  ProteksiAsetLog,
-} from "../db/models";
-import ApiError from "../utils/apiError";
-import { Op, ModelStatic, Model } from "sequelize";
-import { format } from "date-fns"; // Pastikan 'format' diimpor
+  Area
+} from '../db/models';
+import ApiError from '../utils/apiError';
+import { Op, ModelStatic, Model } from 'sequelize';
 
 // Map string system_type ke Sequelize Model
 const logModels: { [key: string]: ModelStatic<Model<any, any>> } = {
   lingkungan: LingkunganLog,
-  gangguan: Incident, // <-- Tambahkan model untuk 'gangguan'
-  keamanan: KeamananLog, // <-- TAMBAHKAN
-  intrusi: IntrusiLog, // <-- TAMBAHKAN untuk TinyML
-  proteksi_aset: ProteksiAsetLog, // <-- TAMBAHKAN untuk Proteksi Aset
+  keamanan: KeamananLog,
+  intrusi: IntrusiLog
 };
 
 interface AnalyticsQuery {
@@ -54,71 +49,53 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
 
   const whereCondition: any = {};
   const deviceWhereCondition: any = { area_id: area_id };
-  const dateColumn =
-    system_type === "gangguan" || system_type === "keamanan" || system_type === "proteksi_aset"
-      ? "created_at"
-      : "timestamp";
+  const dateColumn = system_type === 'keamanan' ? 'created_at' : 'timestamp';
 
   if (from || to) {
     whereCondition[dateColumn] = {
       ...(from && { [Op.gte]: new Date(from) }),
-      ...(to && { [Op.lte]: new Date(to) }),
+      ...(to && { [Op.lte]: new Date(to) })
     };
   }
 
   // === PERBAIKAN UTAMA: Definisikan kolom yang akan diambil ===
   let modelAttributes;
-  if (system_type === "lingkungan") {
+  if (system_type === 'lingkungan') {
     modelAttributes = [
-      "id",
-      "device_id",
-      "timestamp",
-      "payload",
-      "temperature",
-      "humidity",
-      "co2_ppm", // <-- 1. TAMBAHKAN 'co2_ppm'
+      'id',
+      'device_id',
+      'timestamp',
+      'payload',
+      'temperature',
+      'humidity',
+      'co2_ppm' // <-- 1. TAMBAHKAN 'co2_ppm'
     ];
-  } else if (system_type === "gangguan") {
+  } else if (system_type === 'keamanan') {
     modelAttributes = [
-      "id",
-      "device_id",
-      "created_at",
-      "incident_type",
-      "confidence",
-      "status",
-      "notes",
+      'id',
+      'device_id',
+      'created_at',
+      'image_url',
+      'detected', // <-- 'detected' sekarang ada di sini
+      'box',
+      'confidence',
+      'attributes',
+      'status',
+      'notes'
     ];
-  } else if (system_type === "keamanan") {
+  } else if (system_type === 'intrusi') {
     modelAttributes = [
-      "id",
-      "device_id",
-      "created_at",
-      "image_url",
-      "detected", // <-- 'detected' sekarang ada di sini
-      "box",
-      "confidence",
-      "attributes",
-      "status",
-      "notes",
-    ];
-  } else if (system_type === "intrusi") {
-    modelAttributes = [
-      "id",
-      "device_id",
-      "timestamp",
-      "event_class",
-      "confidence",
-      "payload",
-    ];
-  } else if (system_type === "proteksi_aset") {
-    modelAttributes = [
-      "id",
-      "device_id",
-      "created_at",
-      "incident_type",
-      "confidence",
-      "data",
-      "is_cleared",
+      'id',
+      'device_id',
+      'timestamp',
+      'event_type',
+      'system_state',
+      'door_state',
+      'peak_delta_g',
+      'hit_count',
+      'payload',
+      'status',
+      'notes'
     ];
   }
   // ========================================================
@@ -129,40 +106,40 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
     include: [
       {
         model: Device,
-        as: "device",
-        attributes: ["id", "name"],
+        as: 'device',
+        attributes: ['id', 'name'],
         where: area_id ? deviceWhereCondition : undefined,
-        required: !!area_id,
-      },
+        required: !!area_id
+      }
     ],
     limit: perPage,
     offset: offset,
-    order: [[dateColumn, "DESC"]],
+    order: [[dateColumn, 'DESC']]
   });
 
   // --- Query 2: Hitung Data Ringkasan (Summary) ---
   let summary: object = {};
 
-  if (system_type === "lingkungan") {
+  if (system_type === 'lingkungan') {
     // Logika summary untuk 'lingkungan' tetap sama persis
     const aggResult = (await LingkunganLog.findOne({
       attributes: [
-        [sequelize.fn("AVG", sequelize.col("temperature")), "avg_temp"],
-        [sequelize.fn("MAX", sequelize.col("humidity")), "max_humidity"],
-        [sequelize.fn("MIN", sequelize.col("temperature")), "min_temp"],
-        [sequelize.fn("AVG", sequelize.col("co2_ppm")), "avg_co2"], // <-- 2. TAMBAHKAN AVG CO2
+        [sequelize.fn('AVG', sequelize.col('temperature')), 'avg_temp'],
+        [sequelize.fn('MAX', sequelize.col('humidity')), 'max_humidity'],
+        [sequelize.fn('MIN', sequelize.col('temperature')), 'min_temp'],
+        [sequelize.fn('AVG', sequelize.col('co2_ppm')), 'avg_co2'] // <-- 2. TAMBAHKAN AVG CO2
       ],
       where: whereCondition,
       include: [
         {
           model: Device,
-          as: "device",
+          as: 'device',
           attributes: [],
           where: area_id ? { area_id } : undefined,
-          required: !!area_id,
-        },
+          required: !!area_id
+        }
       ],
-      raw: true,
+      raw: true
     })) as LingkunganSummary | null;
 
     if (aggResult && aggResult.avg_temp !== null) {
@@ -170,168 +147,122 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
         avg_temp:
           aggResult.avg_temp !== null
             ? parseFloat(aggResult.avg_temp).toFixed(2)
-            : "N/A",
-        max_humidity: parseInt(aggResult.max_humidity || "0", 10),
+            : 'N/A',
+        max_humidity: parseInt(aggResult.max_humidity || '0', 10),
         min_temp:
           aggResult.min_temp !== null
             ? parseFloat(aggResult.min_temp).toFixed(2)
-            : "N/A",
-        avg_co2: parseInt((aggResult as any).avg_co2, 10), // <-- 3. TAMBAHKAN KE SUMMARY
+            : 'N/A',
+        avg_co2:
+          (aggResult as any).avg_co2 !== null
+            ? parseInt((aggResult as any).avg_co2, 10)
+            : 'N/A' // <-- 3. TAMBAHKAN KE SUMMARY
       };
     } else {
       summary = {
-        avg_temp: "N/A",
-        max_humidity: "N/A",
-        min_temp: "N/A",
-        avg_co2: "N/A", // <-- TAMBAHKAN KE DEFAULT
+        avg_temp: 'N/A',
+        max_humidity: 'N/A',
+        min_temp: 'N/A',
+        avg_co2: 'N/A' // <-- TAMBAHKAN KE DEFAULT
       };
     }
-  } else if (system_type === "gangguan") {
-    // Logika summary baru untuk 'gangguan'
-    // Cukup gunakan hasil 'count' dari query utama, lebih efisien!
-    summary = {
-      total_incidents: count,
-    };
-  } else if (system_type === "keamanan") {
+  } else if (system_type === 'keamanan') {
     // --- Logika Summary BARU untuk Keamanan ---
     const totalDetections = await KeamananLog.count({
       where: whereCondition,
       include: [
         {
           model: Device,
-          as: "device",
+          as: 'device',
           attributes: [],
           where: area_id ? deviceWhereCondition : undefined,
-          required: !!area_id,
-        },
-      ],
+          required: !!area_id
+        }
+      ]
     });
 
     const unacknowledged = await KeamananLog.count({
-      where: { ...whereCondition, status: "unacknowledged" },
+      where: { ...whereCondition, status: 'unacknowledged' },
       include: [
         {
           model: Device,
-          as: "device",
+          as: 'device',
           attributes: [],
           where: area_id ? deviceWhereCondition : undefined,
-          required: !!area_id,
-        },
-      ],
+          required: !!area_id
+        }
+      ]
     });
 
     summary = {
       total_detections: totalDetections,
-      unacknowledged_alerts: unacknowledged,
+      unacknowledged_alerts: unacknowledged
     };
-  } else if (system_type === "intrusi") {
-    // --- Logika Summary untuk Intrusi (TinyML) ---
-    const totalEvents = count;
-
-    const intrusions = await IntrusiLog.count({
-      where: { ...whereCondition, event_class: "Intrusion" },
+  } else if (system_type === 'intrusi') {
+    // --- Logika Summary untuk Intrusi (Door Security) ---
+    const totalEvents = await IntrusiLog.count({
+      where: whereCondition,
       include: [
         {
           model: Device,
-          as: "device",
+          as: 'device',
           attributes: [],
           where: area_id ? deviceWhereCondition : undefined,
-          required: !!area_id,
-        },
-      ],
+          required: !!area_id
+        }
+      ]
     });
 
-    const disturbances = await IntrusiLog.count({
-      where: { ...whereCondition, event_class: "Disturbance" },
+    const alarmEvents = await IntrusiLog.count({
+      where: {
+        ...whereCondition,
+        event_type: { [Op.in]: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'] }
+      },
       include: [
         {
           model: Device,
-          as: "device",
+          as: 'device',
           attributes: [],
           where: area_id ? deviceWhereCondition : undefined,
-          required: !!area_id,
-        },
-      ],
+          required: !!area_id
+        }
+      ]
     });
 
-    // Get the deviceId for the first device in this area with intrusi type
-    const intrusiDevice = await Device.findOne({
-      where: { area_id, system_type: "intrusi" },
-      attributes: ["id"],
+    const impactWarnings = await IntrusiLog.count({
+      where: {
+        ...whereCondition,
+        event_type: 'IMPACT_WARNING'
+      },
+      include: [
+        {
+          model: Device,
+          as: 'device',
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id
+        }
+      ]
+    });
+
+    const unacknowledgedIntrusi = await IntrusiLog.count({
+      where: { ...whereCondition, status: 'unacknowledged' },
+      include: [
+        {
+          model: Device,
+          as: 'device',
+          attributes: [],
+          where: area_id ? deviceWhereCondition : undefined,
+          required: !!area_id
+        }
+      ]
     });
 
     summary = {
       total_events: totalEvents,
-      intrusions,
-      disturbances,
-      normals: totalEvents - intrusions - disturbances,
-    };
-
-    // Return with deviceId for the component
-    return {
-      summary,
-      logs: data,
-      deviceId: intrusiDevice?.id || null,
-      pagination: {
-        total: count,
-        page: page,
-        per_page: perPage,
-        total_pages: Math.ceil(count / perPage),
-      },
-    };
-  } else if (system_type === "proteksi_aset") {
-    // --- Logika Summary untuk Proteksi Aset ---
-    const totalIncidents = count;
-
-    const activeIncidents = await ProteksiAsetLog.count({
-      where: { ...whereCondition, is_cleared: false },
-      include: [
-        {
-          model: Device,
-          as: "device",
-          attributes: [],
-          where: area_id ? deviceWhereCondition : undefined,
-          required: !!area_id,
-        },
-      ],
-    });
-
-    const clearedIncidents = await ProteksiAsetLog.count({
-      where: { ...whereCondition, is_cleared: true },
-      include: [
-        {
-          model: Device,
-          as: "device",
-          attributes: [],
-          where: area_id ? deviceWhereCondition : undefined,
-          required: !!area_id,
-        },
-      ],
-    });
-
-    // Get the deviceId for the first device in this area with proteksi_aset type
-    const proteksiAsetDevice = await Device.findOne({
-      where: { area_id, system_type: "proteksi_aset" },
-      attributes: ["id"],
-    });
-
-    summary = {
-      total_incidents: totalIncidents,
-      active_incidents: activeIncidents,
-      cleared_incidents: clearedIncidents,
-    };
-
-    // Return with deviceId for the component
-    return {
-      summary,
-      logs: data,
-      deviceId: proteksiAsetDevice?.id || null,
-      pagination: {
-        total: count,
-        page: page,
-        per_page: perPage,
-        total_pages: Math.ceil(count / perPage),
-      },
+      alarm_events: alarmEvents,
+      impact_warnings: impactWarnings,
+      unacknowledged: unacknowledgedIntrusi
     };
   }
 
@@ -343,112 +274,7 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
       total: count,
       page: page,
       per_page: perPage,
-      total_pages: Math.ceil(count / perPage),
-    },
+      total_pages: Math.ceil(count / perPage)
+    }
   };
-};
-
-export const getIncidentSummaryByType = async (filters: {
-  area_id?: string;
-  from?: string;
-  to?: string;
-}) => {
-  const { area_id, from, to } = filters;
-
-  const whereCondition: any = {};
-  const deviceWhereCondition: any = {};
-  if (area_id) deviceWhereCondition.area_id = area_id;
-
-  if (from || to) {
-    whereCondition.created_at = {
-      ...(from && { [Op.gte]: new Date(from) }),
-      ...(to && { [Op.lte]: new Date(to) }),
-    };
-  }
-
-  const results = await Incident.findAll({
-    attributes: [
-      "incident_type",
-      [sequelize.fn("COUNT", sequelize.col("incident_type")), "total"],
-    ],
-    include: [
-      {
-        model: Device,
-        as: "device",
-        attributes: [],
-        where: area_id ? deviceWhereCondition : undefined,
-        required: !!area_id,
-      },
-    ],
-    where: whereCondition,
-    group: ["incident_type"],
-    order: [[sequelize.fn("COUNT", sequelize.col("incident_type")), "DESC"]],
-    raw: true,
-  });
-
-  // Ubah format agar sesuai dengan yang dibutuhkan oleh library chart
-  // Sequelize mengembalikan 'total' sebagai string, jadi kita parse ke integer
-  const formattedResults = results.map((item: any) => ({
-    name: item.incident_type,
-    total: parseInt(item.total, 10),
-  }));
-
-  return formattedResults;
-};
-
-export const getIncidentTrendByWarehouse = async (filters: {
-  warehouse_id: string;
-  from?: string;
-  to?: string;
-}) => {
-  const { warehouse_id, from, to } = filters;
-
-  const whereCondition: any = {};
-  if (from || to) {
-    whereCondition.created_at = {
-      ...(from && { [Op.gte]: new Date(from) }),
-      ...(to && { [Op.lte]: new Date(to) }),
-    };
-  }
-
-  const results = await Incident.findAll({
-    attributes: [
-      // Truncate timestamp ke level 'hari' dan beri nama alias 'date'
-      [
-        sequelize.fn("DATE_TRUNC", "day", sequelize.col("Incident.created_at")),
-        "date",
-      ],
-      // Hitung jumlah insiden per hari
-      [sequelize.fn("COUNT", sequelize.col("Incident.id")), "total"],
-    ],
-    include: [
-      {
-        model: Device,
-        as: "device",
-        attributes: [],
-        required: true,
-        include: [
-          {
-            model: Area,
-            as: "area",
-            attributes: [],
-            where: { warehouse_id: warehouse_id },
-            required: true,
-          },
-        ],
-      },
-    ],
-    where: whereCondition,
-    group: ["date"], // Kelompokkan hasil berdasarkan hari
-    order: [["date", "ASC"]], // Urutkan dari tanggal terlama
-    raw: true,
-  });
-
-  // Format hasil agar mudah digunakan oleh library chart
-  const formattedResults = results.map((item: any) => ({
-    date: format(new Date(item.date), "dd MMM"), // Format tanggal (e.g., "11 Okt")
-    total: parseInt(item.total, 10),
-  }));
-
-  return formattedResults;
 };

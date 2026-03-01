@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
-import * as analyticsService from "../../services/analyticsService";
-import ApiError from "../../utils/apiError";
+import { Request, Response } from 'express';
+import * as analyticsService from '../../services/analyticsService';
+import ApiError from '../../utils/apiError';
 
 export const getAnalytics = async (req: Request, res: Response) => {
   try {
@@ -17,7 +17,7 @@ export const getAnalytics = async (req: Request, res: Response) => {
       from: from as string,
       to: to as string,
       page,
-      per_page,
+      per_page
     });
 
     res.status(200).json(data);
@@ -25,57 +25,9 @@ export const getAnalytics = async (req: Request, res: Response) => {
     if (error instanceof ApiError) {
       return res.status(error.statusCode).json({ message: error.message });
     }
-    console.error("Analytics Error:", error); // Log error tak terduga
+    console.error('Analytics Error:', error); // Log error tak terduga
     return res
       .status(500)
-      .json({ message: "An unexpected server error occurred." });
-  }
-};
-
-export const getIncidentSummaryByType = async (req: Request, res: Response) => {
-  try {
-    const { area_id, from, to } = req.query;
-    const data = await analyticsService.getIncidentSummaryByType({
-      area_id: area_id as string,
-      from: from as string,
-      to: to as string,
-    });
-    res.status(200).json(data);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return res.status(error.statusCode).json({ message: error.message });
-    }
-    console.error("Analytics Error:", error); // Log error tak terduga
-    return res
-      .status(500)
-      .json({ message: "An unexpected server error occurred." });
-  }
-};
-
-export const getIncidentTrendByWarehouse = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    const { warehouse_id, from, to } = req.query;
-    if (!warehouse_id) {
-      return res
-        .status(400)
-        .json({ message: 'Query parameter "warehouse_id" is required.' });
-    }
-    const data = await analyticsService.getIncidentTrendByWarehouse({
-      warehouse_id: warehouse_id as string,
-      from: from as string,
-      to: to as string,
-    });
-    res.status(200).json(data);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return res.status(error.statusCode).json({ message: error.message });
-    }
-    console.error("Analytics Error:", error); // Log error tak terduga
-    return res
-      .status(500)
-      .json({ message: "An unexpected server error occurred." });
+      .json({ message: 'An unexpected server error occurred.' });
   }
 };

@@ -1,20 +1,56 @@
 // backend/src/api/routes/intrusiRoutes.ts
-import { Router } from "express";
-import * as intrusiController from "../controllers/intrusiController";
-import { authMiddleware } from "../middlewares/authMiddleware";
+import { Router } from 'express';
+import * as intrusiController from '../controllers/intrusiController';
+import { authMiddleware } from '../middlewares/authMiddleware';
+import { validate } from '../middlewares/validateRequest';
+import { z } from 'zod';
 
 const router = Router();
 
-// All routes require authentication
-router.use(authMiddleware);
+// === Zod Schema: Intrusi command validation ===
+const intrusiCommandSchema = z.object({
+  body: z.discriminatedUnion('cmd', [
+    z.object({ cmd: z.literal('ARM') }),
+    z.object({ cmd: z.literal('DISARM') }),
+    z.object({
+      cmd: z.literal('CALIB_KNOCK_START'),
+      n_hits: z.number().int().min(3).max(15).optional(),
+      timeout_ms: z.number().int().min(10000).max(300000).optional()
+    }),
+    z.object({
+      cmd: z.literal('SIREN_SILENCE'),
+      issued_by: z.string().optional()
+    }),
+    z.object({ cmd: z.literal('STATUS') })
+  ])
+});
 
-// GET /api/devices/:deviceId/intrusi/logs - Get intrusion logs with pagination
-router.get("/devices/:deviceId/intrusi/logs", intrusiController.getIntrusiLogs);
+// Device-level endpoints
+router.get(
+  '/devices/:deviceId/logs',
+  authMiddleware,
+  intrusiController.getLogs
+);
+router.get(
+  '/devices/:deviceId/summary',
+  authMiddleware,
+  intrusiController.getSummary
+);
+router.get(
+  '/devices/:deviceId/status',
+  authMiddleware,
+  intrusiController.getStatus
+);
 
-// GET /api/devices/:deviceId/intrusi/summary - Get intrusion summary statistics
-router.get("/devices/:deviceId/intrusi/summary", intrusiController.getIntrusiSummary);
+// Send command to intrusi device (ARM, DISARM, CALIB, SIREN_SILENCE, STATUS)
+router.post(
+  '/devices/:deviceId/command',
+  authMiddleware,
+  validate(intrusiCommandSchema),
+  intrusiController.sendCommand
+);
 
-// GET /api/devices/:deviceId/intrusi/status - Get current intrusion status
-router.get("/devices/:deviceId/intrusi/status", intrusiController.getIntrusiStatus);
+// Log status update (acknowledgement)
+router.put('/logs/:id/status', authMiddleware, intrusiController.updateStatus);
 
 export default router;

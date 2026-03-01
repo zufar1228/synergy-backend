@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateUserPreferences = exports.syncAllRolesToSupabase = exports.getUserPreferences = exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = void 0;
+exports.updateUserPreferences = exports.syncAllRolesToSupabase = exports.getUserPreferences = exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = exports.verifyUserAccess = void 0;
 // backend/src/services/userService.ts
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
 const notificationService_1 = require("./notificationService");
@@ -44,6 +44,36 @@ const models_1 = require("../db/models");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const config_1 = require("../db/config");
 const telegramService = __importStar(require("./telegramService"));
+/**
+ * Verifies if a user is authorized to access the system.
+ * A user is authorized only if they have an entry in the user_roles table,
+ * which means they were invited through the user management page or manually added.
+ *
+ * If user is not authorized, they will be deleted from Supabase Auth.
+ */
+const verifyUserAccess = async (userId) => {
+    const userRole = await models_1.UserRole.findOne({ where: { user_id: userId } });
+    if (!userRole) {
+        // User was not invited - delete them from Supabase Auth
+        console.log(`[verifyUserAccess] User ${userId} not found in user_roles table. Deleting unauthorized user.`);
+        try {
+            await supabaseAdmin_1.supabaseAdmin.auth.admin.deleteUser(userId);
+            console.log(`[verifyUserAccess] Successfully deleted unauthorized user ${userId}`);
+        }
+        catch (deleteError) {
+            console.error(`[verifyUserAccess] Failed to delete unauthorized user ${userId}:`, deleteError);
+        }
+        return {
+            authorized: false,
+            message: "Anda tidak memiliki akses. Silakan hubungi administrator untuk mendapatkan undangan."
+        };
+    }
+    return {
+        authorized: true,
+        message: "User authorized"
+    };
+};
+exports.verifyUserAccess = verifyUserAccess;
 const touchSecurityTimestamp = async (userId) => {
     await models_1.Profile.update({ security_timestamp: new Date() }, { where: { id: userId } });
 };

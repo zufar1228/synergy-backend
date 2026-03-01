@@ -36,8 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const analyticsController = __importStar(require("../controllers/analyticsController"));
 const router = (0, express_1.Router)();
-router.get("/gangguan/summary-by-type", analyticsController.getIncidentSummaryByType);
 // Kita tidak perlu validasi Zod yang rumit di sini karena semua query bersifat opsional
-router.get("/:system_type", analyticsController.getAnalytics);
-router.get("/gangguan/trend-by-warehouse", analyticsController.getIncidentTrendByWarehouse);
+router.get('/:system_type', analyticsController.getAnalytics);
 exports.default = router;

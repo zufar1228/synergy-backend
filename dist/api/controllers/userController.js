@@ -36,10 +36,33 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.testPushNotification = exports.syncAllRoles = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = void 0;
+exports.testPushNotification = exports.syncAllRoles = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = exports.verifyAccess = void 0;
 const userService = __importStar(require("../../services/userService"));
 const webPushService = __importStar(require("../../services/webPushService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
+/**
+ * Verify if the current user is authorized to access the system.
+ * Users must be invited through user management or manually added to Supabase.
+ * If not authorized, the user will be deleted from Supabase Auth.
+ */
+const verifyAccess = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ authorized: false, message: "User not authenticated" });
+        }
+        const result = await userService.verifyUserAccess(userId);
+        if (!result.authorized) {
+            return res.status(403).json(result);
+        }
+        res.status(200).json(result);
+    }
+    catch (error) {
+        console.error("[verifyAccess] Error:", error);
+        res.status(500).json({ authorized: false, message: "Terjadi kesalahan saat memverifikasi akses." });
+    }
+};
+exports.verifyAccess = verifyAccess;
 const inviteUser = async (req, res) => {
     const { email, role } = req.body;
     if (!email || !role) {

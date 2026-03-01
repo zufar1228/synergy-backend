@@ -1,114 +1,124 @@
 // backend/src/api/controllers/intrusiController.ts
-import { Request, Response, NextFunction } from "express";
-import * as intrusiService from "../../services/intrusiService";
-import { IntrusiEventClass } from "../../db/models/intrusiLog";
-import ApiError from "../../utils/apiError";
+import { Request, Response } from 'express';
+import * as intrusiService from '../../services/intrusiService';
+import * as actuationService from '../../services/actuationService';
+import { AcknowledgeStatus } from '../../db/models/intrusiLog';
+import ApiError from '../../utils/apiError';
 
-// GET /api/devices/:deviceId/intrusi/logs
-export const getIntrusiLogs = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+const handleError = (res: Response, error: unknown) => {
+  if (error instanceof ApiError) {
+    return res.status(error.statusCode).json({ message: error.message });
+  }
+  console.error('Unhandled Error in IntrusiController:', error);
+  return res
+    .status(500)
+    .json({ message: 'An unexpected internal server error occurred.' });
+};
+
+/**
+ * GET /api/intrusi/devices/:deviceId/logs
+ */
+export const getLogs = async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
-    const { limit, offset, from, to, eventClass } = req.query;
+    const { limit, offset, from, to, event_type } = req.query;
 
-    // Parse query params
-    const options = {
-      limit: limit ? parseInt(limit as string) : 50,
-      offset: offset ? parseInt(offset as string) : 0,
-      from: from ? new Date(from as string) : undefined,
-      to: to ? new Date(to as string) : undefined,
-      eventClass: eventClass as IntrusiEventClass | undefined,
-    };
-
-    // Validate limit
-    if (options.limit > 100) {
-      options.limit = 100;
-    }
-
-    const result = await intrusiService.getIntrusiLogs(deviceId, options);
-
-    res.json({
-      success: true,
-      data: result.logs,
-      pagination: {
-        total: result.total,
-        limit: result.limit,
-        offset: result.offset,
-        hasMore: result.offset + result.logs.length < result.total,
-      },
+    const result = await intrusiService.getIntrusiLogs({
+      device_id: deviceId,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      offset: offset ? parseInt(offset as string, 10) : undefined,
+      from: from as string,
+      to: to as string,
+      event_type: event_type as string
     });
+
+    res.status(200).json(result);
   } catch (error) {
-    next(error);
+    handleError(res, error);
   }
 };
 
-// GET /api/devices/:deviceId/intrusi/summary
-export const getIntrusiSummary = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+/**
+ * GET /api/intrusi/devices/:deviceId/summary
+ */
+export const getSummary = async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
     const { from, to } = req.query;
 
-    const summary = await intrusiService.getIntrusiSummary(
+    const data = await intrusiService.getIntrusiSummary(
       deviceId,
-      from ? new Date(from as string) : undefined,
-      to ? new Date(to as string) : undefined
+      from as string,
+      to as string
     );
 
-    res.json({
-      success: true,
-      data: summary,
-    });
+    res.status(200).json({ data });
   } catch (error) {
-    next(error);
+    handleError(res, error);
   }
 };
 
-// GET /api/devices/:deviceId/intrusi/status
-export const getIntrusiStatus = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+/**
+ * GET /api/intrusi/devices/:deviceId/status
+ */
+export const getStatus = async (req: Request, res: Response) => {
   try {
     const { deviceId } = req.params;
+    const data = await intrusiService.getIntrusiStatus(deviceId);
+    res.status(200).json({ data });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
 
-    const isInAlert = await intrusiService.isDeviceInAlertState(deviceId);
-    const summary = await intrusiService.getIntrusiSummary(deviceId);
+/**
+ * PUT /api/intrusi/logs/:id/status
+ */
+export const updateStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    const userId = req.user?.id;
 
-    // Determine status
-    let status: "AMAN" | "GANGGUAN" | "BAHAYA" = "AMAN";
-    
-    if (isInAlert) {
-      status = "BAHAYA";
-    } else if (summary.latest_event?.event_class === "Disturbance") {
-      // Check if disturbance was recent (within 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (new Date(summary.latest_event.timestamp) > fiveMinutesAgo) {
-        status = "GANGGUAN";
-      }
+    if (!userId) {
+      throw new ApiError(401, 'User tidak terautentikasi.');
+    }
+    if (!status) {
+      return res.status(400).json({ message: 'Status wajib diisi.' });
     }
 
-    res.json({
-      success: true,
-      data: {
-        status,
-        isInAlert,
-        latestEvent: summary.latest_event,
-        summary: {
-          total_events: summary.total_events,
-          intrusions: summary.intrusions,
-          disturbances: summary.disturbances,
-        },
-      },
+    const updatedLog = await intrusiService.updateIntrusiLogStatus(
+      id,
+      userId,
+      status as AcknowledgeStatus,
+      notes
+    );
+    res.status(200).json(updatedLog);
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+/**
+ * POST /api/intrusi/devices/:deviceId/command
+ * Mengirim perintah ke perangkat intrusi (ARM, DISARM, CALIB, SIREN_SILENCE, STATUS)
+ */
+export const sendCommand = async (req: Request, res: Response) => {
+  try {
+    const { deviceId } = req.params;
+    const command = req.body; // Sudah divalidasi oleh Zod
+
+    await actuationService.sendIntrusiCommand(
+      deviceId,
+      command as actuationService.IntrusiCommand
+    );
+
+    res.status(200).json({
+      message: `Perintah '${command.cmd}' berhasil dikirim.`,
+      device_id: deviceId,
+      command: command.cmd
     });
   } catch (error) {
-    next(error);
+    handleError(res, error);
   }
 };

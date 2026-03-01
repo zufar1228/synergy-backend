@@ -9,39 +9,68 @@ Device.init({
     id: {
         type: sequelize_1.DataTypes.UUID,
         defaultValue: sequelize_1.UUIDV4,
-        primaryKey: true,
+        primaryKey: true
     },
     area_id: {
         type: sequelize_1.DataTypes.UUID,
-        allowNull: false,
+        allowNull: false
     },
     name: {
         type: sequelize_1.DataTypes.TEXT,
-        allowNull: false,
+        allowNull: false
     },
     system_type: {
         type: sequelize_1.DataTypes.TEXT,
-        allowNull: false,
+        allowNull: false
     },
     status: {
-        type: sequelize_1.DataTypes.ENUM("Online", "Offline"),
+        type: sequelize_1.DataTypes.ENUM('Online', 'Offline'),
         allowNull: false,
-        defaultValue: "Offline",
+        defaultValue: 'Offline'
     },
     last_heartbeat: {
         type: sequelize_1.DataTypes.DATE,
-        allowNull: true,
+        allowNull: true
     },
     fan_status: {
-        // <-- TAMBAHKAN BLOK INI
-        type: sequelize_1.DataTypes.ENUM("On", "Off"),
+        type: sequelize_1.DataTypes.ENUM('On', 'Off'),
         allowNull: false,
-        defaultValue: "Off",
+        defaultValue: 'Off'
     },
+    door_state: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
+    },
+    intrusi_system_state: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
+    },
+    siren_state: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
+    },
+    power_source: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
+    },
+    vbat_voltage: {
+        type: sequelize_1.DataTypes.REAL,
+        allowNull: true,
+        defaultValue: null
+    },
+    vbat_pct: {
+        type: sequelize_1.DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null
+    }
 }, {
     sequelize: config_1.sequelize,
-    tableName: "devices",
+    tableName: 'devices',
     timestamps: true,
-    underscored: true,
+    underscored: true
 });
 exports.default = Device;

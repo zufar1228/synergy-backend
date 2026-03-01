@@ -49,18 +49,18 @@ const getAllDevices = async () => {
         include: [
             {
                 model: models_1.Area,
-                as: "area",
-                attributes: ["id", "name"],
+                as: 'area',
+                attributes: ['id', 'name'],
                 include: [
                     {
                         model: models_1.Warehouse,
-                        as: "warehouse",
-                        attributes: ["id", "name"],
-                    },
-                ],
-            },
+                        as: 'warehouse',
+                        attributes: ['id', 'name']
+                    }
+                ]
+            }
         ],
-        order: [["name", "ASC"]],
+        order: [['name', 'ASC']]
     });
 };
 exports.getAllDevices = getAllDevices;
@@ -72,15 +72,16 @@ const createDevice = async (deviceData) => {
         let mqttCredentials = null; // Default kredensial adalah null
         // === PERUBAHAN DI SINI: Provisioning Bersyarat ===
         // Hanya jalankan provisioning MQTT jika BUKAN tipe keamanan
-        if (deviceData.system_type !== "keamanan") {
+        if (deviceData.system_type !== 'keamanan') {
             const deviceWithRelations = (await models_1.Device.findByPk(newDevice.id, {
-                include: [{ model: models_1.Area, as: "area" }],
-                transaction,
+                include: [{ model: models_1.Area, as: 'area' }],
+                transaction
             }));
             if (!deviceWithRelations)
-                throw new Error("Gagal mengambil relasi untuk perangkat baru");
+                throw new Error('Gagal mengambil relasi untuk perangkat baru');
             // Panggil service EMQX
-            mqttCredentials = await emqxService.provisionDeviceInEMQX(deviceWithRelations);
+            mqttCredentials =
+                await emqxService.provisionDeviceInEMQX(deviceWithRelations);
         }
         // ===============================================
         await transaction.commit();
@@ -91,17 +92,17 @@ const createDevice = async (deviceData) => {
         await transaction.rollback();
         // === PERBAIKAN UTAMA DI SINI ===
         // Cek nama error secara spesifik
-        if (error.name === "SequelizeUniqueConstraintError") {
+        if (error.name === 'SequelizeUniqueConstraintError') {
             throw new apiError_1.default(409, `Perangkat dengan tipe sistem '${deviceData.system_type}' sudah ada di area ini.`);
         }
         // =============================
-        console.error("[Device Service] Failed to create device:", error);
+        console.error('[Device Service] Failed to create device:', error);
         if (error instanceof apiError_1.default)
             throw error;
         if (error.isAxiosError) {
-            throw new apiError_1.default(502, "Gagal membuat konfigurasi MQTT di provider.");
+            throw new apiError_1.default(502, 'Gagal membuat konfigurasi MQTT di provider.');
         }
-        throw new apiError_1.default(500, "Gagal membuat perangkat karena kesalahan server.");
+        throw new apiError_1.default(500, 'Gagal membuat perangkat karena kesalahan server.');
     }
 };
 exports.createDevice = createDevice;
@@ -109,10 +110,10 @@ exports.createDevice = createDevice;
 const updateDevice = async (id, data) => {
     const device = await models_1.Device.findByPk(id);
     if (!device)
-        throw new apiError_1.default(404, "Perangkat tidak ditemukan");
+        throw new apiError_1.default(404, 'Perangkat tidak ditemukan');
     // Mencegah perubahan system_type setelah dibuat
     if (data.system_type && data.system_type !== device.system_type) {
-        throw new apiError_1.default(400, "Tipe sistem (system_type) tidak dapat diubah setelah perangkat dibuat.");
+        throw new apiError_1.default(400, 'Tipe sistem (system_type) tidak dapat diubah setelah perangkat dibuat.');
     }
     try {
         await device.update(data);
@@ -131,10 +132,10 @@ exports.updateDevice = updateDevice;
 const deleteDevice = async (id) => {
     const device = await models_1.Device.findByPk(id);
     if (!device)
-        throw new apiError_1.default(404, "Perangkat tidak ditemukan");
+        throw new apiError_1.default(404, 'Perangkat tidak ditemukan');
     // === PERUBAHAN DI SINI: De-provisioning Bersyarat ===
     // Hanya hapus user EMQX jika BUKAN tipe keamanan
-    if (device.system_type !== "keamanan") {
+    if (device.system_type !== 'keamanan') {
         await emqxService.deprovisionDeviceInEMQX(id);
     }
     // =================================================
@@ -145,10 +146,10 @@ exports.deleteDevice = deleteDevice;
 // Fungsi baru untuk mengambil satu device by id
 const getDeviceById = async (id) => {
     const device = await models_1.Device.findByPk(id, {
-        include: [{ model: models_1.Area, as: "area" }], // Sertakan area untuk konteks
+        include: [{ model: models_1.Area, as: 'area' }] // Sertakan area untuk konteks
     });
     if (!device)
-        throw new apiError_1.default(404, "Perangkat tidak ditemukan");
+        throw new apiError_1.default(404, 'Perangkat tidak ditemukan');
     return device;
 };
 exports.getDeviceById = getDeviceById;
@@ -157,21 +158,56 @@ const getDeviceByAreaAndSystem = async (areaId, systemType) => {
     const device = await models_1.Device.findOne({
         where: {
             area_id: areaId,
-            system_type: systemType,
+            system_type: systemType
         },
         // Kita hanya perlu mengirim status penting
-        attributes: ["id", "name", "status", "fan_status"],
+        attributes: [
+            'id',
+            'name',
+            'status',
+            'fan_status',
+            'door_state',
+            'intrusi_system_state',
+            'siren_state',
+            'power_source',
+            'vbat_voltage',
+            'vbat_pct'
+        ]
     });
     if (!device) {
-        throw new apiError_1.default(404, "Perangkat tidak ditemukan untuk area dan tipe sistem ini.");
+        throw new apiError_1.default(404, 'Perangkat tidak ditemukan untuk area dan tipe sistem ini.');
     }
     return device;
 };
 exports.getDeviceByAreaAndSystem = getDeviceByAreaAndSystem;
 // Fungsi updateHeartbeat tetap ada
-const updateDeviceHeartbeat = async (deviceId) => {
+const updateDeviceHeartbeat = async (deviceId, extraFields) => {
     try {
-        await models_1.Device.update({ status: "Online", last_heartbeat: new Date() }, { where: { id: deviceId } });
+        const updateData = {
+            status: 'Online',
+            last_heartbeat: new Date()
+        };
+        // Merge intrusi-specific fields if provided
+        if (extraFields?.door_state) {
+            updateData.door_state = extraFields.door_state;
+        }
+        if (extraFields?.intrusi_system_state) {
+            updateData.intrusi_system_state = extraFields.intrusi_system_state;
+        }
+        if (extraFields?.siren_state) {
+            updateData.siren_state = extraFields.siren_state;
+        }
+        if (extraFields?.power_source) {
+            updateData.power_source = extraFields.power_source;
+        }
+        if (extraFields?.vbat_voltage !== undefined &&
+            extraFields?.vbat_voltage !== null) {
+            updateData.vbat_voltage = extraFields.vbat_voltage;
+        }
+        if (extraFields?.vbat_pct !== undefined && extraFields?.vbat_pct !== null) {
+            updateData.vbat_pct = extraFields.vbat_pct;
+        }
+        await models_1.Device.update(updateData, { where: { id: deviceId } });
         console.log(`[Device Service] Heartbeat updated for device ${deviceId}`);
     }
     catch (error) {

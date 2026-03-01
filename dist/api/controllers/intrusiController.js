@@ -32,93 +32,113 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getIntrusiStatus = exports.getIntrusiSummary = exports.getIntrusiLogs = void 0;
+exports.sendCommand = exports.updateStatus = exports.getStatus = exports.getSummary = exports.getLogs = void 0;
 const intrusiService = __importStar(require("../../services/intrusiService"));
-// GET /api/devices/:deviceId/intrusi/logs
-const getIntrusiLogs = async (req, res, next) => {
+const actuationService = __importStar(require("../../services/actuationService"));
+const apiError_1 = __importDefault(require("../../utils/apiError"));
+const handleError = (res, error) => {
+    if (error instanceof apiError_1.default) {
+        return res.status(error.statusCode).json({ message: error.message });
+    }
+    console.error('Unhandled Error in IntrusiController:', error);
+    return res
+        .status(500)
+        .json({ message: 'An unexpected internal server error occurred.' });
+};
+/**
+ * GET /api/intrusi/devices/:deviceId/logs
+ */
+const getLogs = async (req, res) => {
     try {
         const { deviceId } = req.params;
-        const { limit, offset, from, to, eventClass } = req.query;
-        // Parse query params
-        const options = {
-            limit: limit ? parseInt(limit) : 50,
-            offset: offset ? parseInt(offset) : 0,
-            from: from ? new Date(from) : undefined,
-            to: to ? new Date(to) : undefined,
-            eventClass: eventClass,
-        };
-        // Validate limit
-        if (options.limit > 100) {
-            options.limit = 100;
-        }
-        const result = await intrusiService.getIntrusiLogs(deviceId, options);
-        res.json({
-            success: true,
-            data: result.logs,
-            pagination: {
-                total: result.total,
-                limit: result.limit,
-                offset: result.offset,
-                hasMore: result.offset + result.logs.length < result.total,
-            },
+        const { limit, offset, from, to, event_type } = req.query;
+        const result = await intrusiService.getIntrusiLogs({
+            device_id: deviceId,
+            limit: limit ? parseInt(limit, 10) : undefined,
+            offset: offset ? parseInt(offset, 10) : undefined,
+            from: from,
+            to: to,
+            event_type: event_type
         });
+        res.status(200).json(result);
     }
     catch (error) {
-        next(error);
+        handleError(res, error);
     }
 };
-exports.getIntrusiLogs = getIntrusiLogs;
-// GET /api/devices/:deviceId/intrusi/summary
-const getIntrusiSummary = async (req, res, next) => {
+exports.getLogs = getLogs;
+/**
+ * GET /api/intrusi/devices/:deviceId/summary
+ */
+const getSummary = async (req, res) => {
     try {
         const { deviceId } = req.params;
         const { from, to } = req.query;
-        const summary = await intrusiService.getIntrusiSummary(deviceId, from ? new Date(from) : undefined, to ? new Date(to) : undefined);
-        res.json({
-            success: true,
-            data: summary,
-        });
+        const data = await intrusiService.getIntrusiSummary(deviceId, from, to);
+        res.status(200).json({ data });
     }
     catch (error) {
-        next(error);
+        handleError(res, error);
     }
 };
-exports.getIntrusiSummary = getIntrusiSummary;
-// GET /api/devices/:deviceId/intrusi/status
-const getIntrusiStatus = async (req, res, next) => {
+exports.getSummary = getSummary;
+/**
+ * GET /api/intrusi/devices/:deviceId/status
+ */
+const getStatus = async (req, res) => {
     try {
         const { deviceId } = req.params;
-        const isInAlert = await intrusiService.isDeviceInAlertState(deviceId);
-        const summary = await intrusiService.getIntrusiSummary(deviceId);
-        // Determine status
-        let status = "AMAN";
-        if (isInAlert) {
-            status = "BAHAYA";
+        const data = await intrusiService.getIntrusiStatus(deviceId);
+        res.status(200).json({ data });
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.getStatus = getStatus;
+/**
+ * PUT /api/intrusi/logs/:id/status
+ */
+const updateStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, notes } = req.body;
+        const userId = req.user?.id;
+        if (!userId) {
+            throw new apiError_1.default(401, 'User tidak terautentikasi.');
         }
-        else if (summary.latest_event?.event_class === "Disturbance") {
-            // Check if disturbance was recent (within 5 minutes)
-            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-            if (new Date(summary.latest_event.timestamp) > fiveMinutesAgo) {
-                status = "GANGGUAN";
-            }
+        if (!status) {
+            return res.status(400).json({ message: 'Status wajib diisi.' });
         }
-        res.json({
-            success: true,
-            data: {
-                status,
-                isInAlert,
-                latestEvent: summary.latest_event,
-                summary: {
-                    total_events: summary.total_events,
-                    intrusions: summary.intrusions,
-                    disturbances: summary.disturbances,
-                },
-            },
+        const updatedLog = await intrusiService.updateIntrusiLogStatus(id, userId, status, notes);
+        res.status(200).json(updatedLog);
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.updateStatus = updateStatus;
+/**
+ * POST /api/intrusi/devices/:deviceId/command
+ * Mengirim perintah ke perangkat intrusi (ARM, DISARM, CALIB, SIREN_SILENCE, STATUS)
+ */
+const sendCommand = async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const command = req.body; // Sudah divalidasi oleh Zod
+        await actuationService.sendIntrusiCommand(deviceId, command);
+        res.status(200).json({
+            message: `Perintah '${command.cmd}' berhasil dikirim.`,
+            device_id: deviceId,
+            command: command.cmd
         });
     }
     catch (error) {
-        next(error);
+        handleError(res, error);
     }
 };
-exports.getIntrusiStatus = getIntrusiStatus;
+exports.sendCommand = sendCommand;

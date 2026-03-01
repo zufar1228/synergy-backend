@@ -1,196 +1,202 @@
 // backend/src/services/intrusiService.ts
-// Service untuk menangani operasi terkait Intrusion Detection (TinyML)
+import { IntrusiLog } from '../db/models';
+import {
+  IntrusiEventType,
+  DoorState,
+  SystemState,
+  AcknowledgeStatus,
+  IntrusiLogCreationAttributes
+} from '../db/models/intrusiLog';
+import ApiError from '../utils/apiError';
 
-import { IntrusiLog, Device, Area, Warehouse } from "../db/models";
-import { IntrusiEventClass } from "../db/models/intrusiLog";
-import { Op } from "sequelize";
+/**
+ * Ingest a door-security event from MQTT into the database.
+ */
+export const ingestIntrusiEvent = async (data: {
+  device_id: string;
+  event_type: IntrusiEventType;
+  system_state: SystemState;
+  door_state: DoorState;
+  peak_delta_g?: number | null;
+  hit_count?: number | null;
+  payload: object;
+}) => {
+  const log = await IntrusiLog.create({
+    device_id: data.device_id,
+    event_type: data.event_type,
+    system_state: data.system_state,
+    door_state: data.door_state,
+    peak_delta_g: data.peak_delta_g ?? null,
+    hit_count: data.hit_count ?? null,
+    payload: data.payload
+  });
 
-// Validation schema for TinyML payload
-interface TinyMLPayload {
-  event: IntrusiEventClass;
-  conf: number;
-  ts?: string;
-}
+  console.log(
+    `[IntrusiService] Ingested ${data.event_type} event for device ${data.device_id}`
+  );
+  return log;
+};
 
-// Validate incoming TinyML payload
-export const validateTinyMLPayload = (data: any): TinyMLPayload | null => {
-  // Validate event class
-  const validEvents: IntrusiEventClass[] = ["Normal", "Disturbance", "Intrusion"];
-  if (!data.event || !validEvents.includes(data.event)) {
-    console.error(`[IntrusiService] Invalid event class: ${data.event}`);
-    return null;
+/**
+ * Get intrusion logs for a device with pagination and filters.
+ */
+export const getIntrusiLogs = async (options: {
+  device_id: string;
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+  event_type?: string;
+}) => {
+  const { device_id, limit = 50, offset = 0, from, to, event_type } = options;
+  const where: any = { device_id };
+
+  if (from || to) {
+    where.timestamp = {
+      ...(from && { $gte: new Date(from) }),
+      ...(to && { $lte: new Date(to) })
+    };
   }
 
-  // Validate confidence (0.0 - 1.0)
-  const conf = parseFloat(data.conf);
-  if (isNaN(conf) || conf < 0 || conf > 1) {
-    console.error(`[IntrusiService] Invalid confidence: ${data.conf}`);
-    return null;
+  if (event_type) {
+    where.event_type = event_type;
   }
+
+  const { count, rows } = await IntrusiLog.findAndCountAll({
+    where,
+    limit,
+    offset,
+    order: [['timestamp', 'DESC']]
+  });
 
   return {
-    event: data.event,
-    conf: conf,
-    ts: data.ts,
+    data: rows,
+    pagination: {
+      total: count,
+      limit,
+      offset,
+      hasMore: offset + limit < count
+    }
   };
 };
 
-// Save intrusion log to database
-export const saveIntrusiLog = async (
-  deviceId: string,
-  payload: TinyMLPayload
-): Promise<IntrusiLog | null> => {
-  try {
-    const log = await IntrusiLog.create({
-      device_id: deviceId,
-      event_class: payload.event,
-      confidence: payload.conf,
-      payload: payload as any,
-      timestamp: payload.ts ? new Date(payload.ts) : new Date(),
-    });
-
-    console.log(
-      `[IntrusiService] ✅ Saved: ${payload.event} (${(payload.conf * 100).toFixed(1)}%)`
-    );
-    return log;
-  } catch (error) {
-    console.error("[IntrusiService] ❌ Error saving log:", error);
-    return null;
-  }
-};
-
-// Get device with relations for alerting
-export const getDeviceWithRelations = async (deviceId: string) => {
-  try {
-    const device = await Device.findByPk(deviceId, {
-      include: [
-        {
-          model: Area,
-          as: "area",
-          include: [{ model: Warehouse, as: "warehouse" }],
-        },
-      ],
-    });
-    return device;
-  } catch (error) {
-    console.error("[IntrusiService] ❌ Error fetching device:", error);
-    return null;
-  }
-};
-
-// Get intrusion logs for a device with pagination
-export const getIntrusiLogs = async (
-  deviceId: string,
-  options: {
-    limit?: number;
-    offset?: number;
-    from?: Date;
-    to?: Date;
-    eventClass?: IntrusiEventClass;
-  } = {}
-) => {
-  const { limit = 50, offset = 0, from, to, eventClass } = options;
-
-  const whereClause: any = { device_id: deviceId };
-
-  if (from || to) {
-    whereClause.timestamp = {};
-    if (from) whereClause.timestamp[Op.gte] = from;
-    if (to) whereClause.timestamp[Op.lte] = to;
-  }
-
-  if (eventClass) {
-    whereClause.event_class = eventClass;
-  }
-
-  try {
-    const { rows: logs, count: total } = await IntrusiLog.findAndCountAll({
-      where: whereClause,
-      order: [["timestamp", "DESC"]],
-      limit,
-      offset,
-    });
-
-    return { logs, total, limit, offset };
-  } catch (error) {
-    console.error("[IntrusiService] ❌ Error fetching logs:", error);
-    return { logs: [], total: 0, limit, offset };
-  }
-};
-
-// Get summary statistics for a device
+/**
+ * Get summary statistics for a device's intrusion events.
+ */
 export const getIntrusiSummary = async (
-  deviceId: string,
-  from?: Date,
-  to?: Date
+  device_id: string,
+  from?: string,
+  to?: string
 ) => {
-  const whereClause: any = { device_id: deviceId };
+  const where: any = { device_id };
 
   if (from || to) {
-    whereClause.timestamp = {};
-    if (from) whereClause.timestamp[Op.gte] = from;
-    if (to) whereClause.timestamp[Op.lte] = to;
-  }
-
-  try {
-    const totalEvents = await IntrusiLog.count({ where: whereClause });
-
-    const intrusions = await IntrusiLog.count({
-      where: { ...whereClause, event_class: "Intrusion" },
-    });
-
-    const disturbances = await IntrusiLog.count({
-      where: { ...whereClause, event_class: "Disturbance" },
-    });
-
-    const normals = await IntrusiLog.count({
-      where: { ...whereClause, event_class: "Normal" },
-    });
-
-    // Get latest event
-    const latestEvent = await IntrusiLog.findOne({
-      where: { device_id: deviceId },
-      order: [["timestamp", "DESC"]],
-    });
-
-    return {
-      total_events: totalEvents,
-      intrusions,
-      disturbances,
-      normals,
-      latest_event: latestEvent,
-    };
-  } catch (error) {
-    console.error("[IntrusiService] ❌ Error fetching summary:", error);
-    return {
-      total_events: 0,
-      intrusions: 0,
-      disturbances: 0,
-      normals: 0,
-      latest_event: null,
+    where.timestamp = {
+      ...(from && { $gte: new Date(from) }),
+      ...(to && { $lte: new Date(to) })
     };
   }
+
+  const total_events = await IntrusiLog.count({ where });
+
+  const alarm_events = await IntrusiLog.count({
+    where: {
+      ...where,
+      event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
+    }
+  });
+
+  const impact_warnings = await IntrusiLog.count({
+    where: { ...where, event_type: 'IMPACT_WARNING' }
+  });
+
+  const unacknowledged = await IntrusiLog.count({
+    where: { ...where, status: 'unacknowledged' }
+  });
+
+  const latest_event = await IntrusiLog.findOne({
+    where: { device_id },
+    order: [['timestamp', 'DESC']]
+  });
+
+  return {
+    total_events,
+    alarm_events,
+    impact_warnings,
+    unacknowledged,
+    latest_event
+  };
 };
 
-// Check if device is in alert state (recent intrusion)
-export const isDeviceInAlertState = async (
-  deviceId: string,
-  minutesThreshold: number = 5
-): Promise<boolean> => {
-  try {
-    const thresholdTime = new Date(Date.now() - minutesThreshold * 60 * 1000);
+/**
+ * Get current door security status for a device.
+ */
+export const getIntrusiStatus = async (device_id: string) => {
+  // Get the latest event to determine current state
+  const latestEvent = await IntrusiLog.findOne({
+    where: { device_id },
+    order: [['timestamp', 'DESC']]
+  });
 
-    const recentIntrusion = await IntrusiLog.findOne({
-      where: {
-        device_id: deviceId,
-        event_class: "Intrusion",
-        timestamp: { [Op.gte]: thresholdTime },
-      },
-    });
+  // Get the latest alarm event (if any)
+  const latestAlarm = await IntrusiLog.findOne({
+    where: {
+      device_id,
+      event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
+    },
+    order: [['timestamp', 'DESC']]
+  });
 
-    return recentIntrusion !== null;
-  } catch (error) {
-    console.error("[IntrusiService] ❌ Error checking alert state:", error);
-    return false;
+  // Determine overall status
+  let status: 'AMAN' | 'WASPADA' | 'BAHAYA' = 'AMAN';
+
+  if (latestAlarm) {
+    if (latestAlarm.status === 'unacknowledged') {
+      status = 'BAHAYA';
+    }
+    // Once acknowledged/resolved/false_alarm → AMAN (no lingering WASPADA)
   }
+
+  // Get latest impact warning
+  const latestImpact = await IntrusiLog.findOne({
+    where: { device_id, event_type: 'IMPACT_WARNING' },
+    order: [['timestamp', 'DESC']]
+  });
+
+  if (
+    status === 'AMAN' &&
+    latestImpact &&
+    latestImpact.status === 'unacknowledged'
+  ) {
+    status = 'WASPADA';
+  }
+
+  return {
+    status,
+    system_state: latestEvent?.system_state ?? 'DISARMED',
+    door_state: latestEvent?.door_state ?? 'CLOSED',
+    latest_event: latestEvent,
+    latest_alarm: latestAlarm
+  };
+};
+
+/**
+ * Update the acknowledgement status of an intrusion log.
+ */
+export const updateIntrusiLogStatus = async (
+  logId: string,
+  userId: string,
+  status: AcknowledgeStatus,
+  notes?: string
+) => {
+  const log = await IntrusiLog.findByPk(logId);
+  if (!log) throw new ApiError(404, 'Log intrusi tidak ditemukan.');
+
+  log.status = status;
+  log.notes = notes || log.notes;
+  log.acknowledged_by = userId;
+  log.acknowledged_at = new Date();
+
+  await log.save();
+  return log;
 };

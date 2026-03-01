@@ -1,20 +1,29 @@
 // backend/src/db/models/device.ts
 
-import { Model, DataTypes, UUIDV4, CreationOptional } from "sequelize"; // <-- IMPORT CreationOptional
-import { sequelize } from "../config";
+import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize'; // <-- IMPORT CreationOptional
+import { sequelize } from '../config';
 
-export type DeviceStatus = "Online" | "Offline";
-export type FanStatus = "On" | "Off"; // <-- TAMBAHKAN TIPE INI
+export type DeviceStatus = 'Online' | 'Offline';
+export type FanStatus = 'On' | 'Off';
+export type DoorState = 'OPEN' | 'CLOSED';
+export type IntrusiSystemState = 'ARMED' | 'DISARMED';
+export type SirenState = 'ON' | 'COOLDOWN' | 'OFF';
+export type PowerSource = 'MAINS' | 'BATTERY';
 
-// Interface ini sekarang secara akurat merefleksikan model kita
 export interface DeviceAttributes {
-  id: CreationOptional<string>; // <-- Tandai sebagai CreationOptional
+  id: CreationOptional<string>;
   area_id: string;
   name: string;
   system_type: string;
-  status: CreationOptional<DeviceStatus>; // <-- Tandai sebagai CreationOptional
-  last_heartbeat?: Date | null; // Bisa null atau undefined
-  fan_status: CreationOptional<FanStatus>; // <-- TAMBAHKAN INI
+  status: CreationOptional<DeviceStatus>;
+  last_heartbeat?: Date | null;
+  fan_status: CreationOptional<FanStatus>;
+  door_state?: DoorState | null;
+  intrusi_system_state?: IntrusiSystemState | null;
+  siren_state?: SirenState | null;
+  power_source?: PowerSource | null;
+  vbat_voltage?: number | null;
+  vbat_pct?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -22,7 +31,7 @@ export interface DeviceAttributes {
 // Definisikan tipe untuk pembuaatan, yang digunakan oleh method .create()
 export type DeviceCreationAttributes = Omit<
   DeviceAttributes,
-  "id" | "status" | "createdAt" | "updatedAt"
+  'id' | 'status' | 'createdAt' | 'updatedAt'
 >;
 
 class Device
@@ -35,7 +44,13 @@ class Device
   public system_type!: string;
   public status!: CreationOptional<DeviceStatus>;
   public last_heartbeat!: Date | null;
-  public fan_status!: CreationOptional<FanStatus>; // <-- TAMBAHKAN INI
+  public fan_status!: CreationOptional<FanStatus>;
+  public door_state!: DoorState | null;
+  public intrusi_system_state!: IntrusiSystemState | null;
+  public siren_state!: SirenState | null;
+  public power_source!: PowerSource | null;
+  public vbat_voltage!: number | null;
+  public vbat_pct!: number | null;
 
   // Timestamps
   public readonly createdAt!: Date;
@@ -47,41 +62,70 @@ Device.init(
     id: {
       type: DataTypes.UUID,
       defaultValue: UUIDV4,
-      primaryKey: true,
+      primaryKey: true
     },
     area_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: false
     },
     name: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: false
     },
     system_type: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: false
     },
     status: {
-      type: DataTypes.ENUM("Online", "Offline"),
+      type: DataTypes.ENUM('Online', 'Offline'),
       allowNull: false,
-      defaultValue: "Offline",
+      defaultValue: 'Offline'
     },
     last_heartbeat: {
       type: DataTypes.DATE,
-      allowNull: true,
+      allowNull: true
     },
     fan_status: {
-      // <-- TAMBAHKAN BLOK INI
-      type: DataTypes.ENUM("On", "Off"),
+      type: DataTypes.ENUM('On', 'Off'),
       allowNull: false,
-      defaultValue: "Off",
+      defaultValue: 'Off'
     },
+    door_state: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null
+    },
+    intrusi_system_state: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null
+    },
+    siren_state: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null
+    },
+    power_source: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null
+    },
+    vbat_voltage: {
+      type: DataTypes.REAL,
+      allowNull: true,
+      defaultValue: null
+    },
+    vbat_pct: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null
+    }
   },
   {
     sequelize,
-    tableName: "devices",
+    tableName: 'devices',
     timestamps: true,
-    underscored: true,
+    underscored: true
   }
 );
 

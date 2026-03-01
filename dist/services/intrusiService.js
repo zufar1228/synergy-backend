@@ -1,161 +1,154 @@
 "use strict";
-// backend/src/services/intrusiService.ts
-// Service untuk menangani operasi terkait Intrusion Detection (TinyML)
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isDeviceInAlertState = exports.getIntrusiSummary = exports.getIntrusiLogs = exports.getDeviceWithRelations = exports.saveIntrusiLog = exports.validateTinyMLPayload = void 0;
+exports.updateIntrusiLogStatus = exports.getIntrusiStatus = exports.getIntrusiSummary = exports.getIntrusiLogs = exports.ingestIntrusiEvent = void 0;
+// backend/src/services/intrusiService.ts
 const models_1 = require("../db/models");
-const sequelize_1 = require("sequelize");
-// Validate incoming TinyML payload
-const validateTinyMLPayload = (data) => {
-    // Validate event class
-    const validEvents = ["Normal", "Disturbance", "Intrusion"];
-    if (!data.event || !validEvents.includes(data.event)) {
-        console.error(`[IntrusiService] Invalid event class: ${data.event}`);
-        return null;
-    }
-    // Validate confidence (0.0 - 1.0)
-    const conf = parseFloat(data.conf);
-    if (isNaN(conf) || conf < 0 || conf > 1) {
-        console.error(`[IntrusiService] Invalid confidence: ${data.conf}`);
-        return null;
-    }
-    return {
-        event: data.event,
-        conf: conf,
-        ts: data.ts,
-    };
+const apiError_1 = __importDefault(require("../utils/apiError"));
+/**
+ * Ingest a door-security event from MQTT into the database.
+ */
+const ingestIntrusiEvent = async (data) => {
+    const log = await models_1.IntrusiLog.create({
+        device_id: data.device_id,
+        event_type: data.event_type,
+        system_state: data.system_state,
+        door_state: data.door_state,
+        peak_delta_g: data.peak_delta_g ?? null,
+        hit_count: data.hit_count ?? null,
+        payload: data.payload
+    });
+    console.log(`[IntrusiService] Ingested ${data.event_type} event for device ${data.device_id}`);
+    return log;
 };
-exports.validateTinyMLPayload = validateTinyMLPayload;
-// Save intrusion log to database
-const saveIntrusiLog = async (deviceId, payload) => {
-    try {
-        const log = await models_1.IntrusiLog.create({
-            device_id: deviceId,
-            event_class: payload.event,
-            confidence: payload.conf,
-            payload: payload,
-            timestamp: payload.ts ? new Date(payload.ts) : new Date(),
-        });
-        console.log(`[IntrusiService] ✅ Saved: ${payload.event} (${(payload.conf * 100).toFixed(1)}%)`);
-        return log;
-    }
-    catch (error) {
-        console.error("[IntrusiService] ❌ Error saving log:", error);
-        return null;
-    }
-};
-exports.saveIntrusiLog = saveIntrusiLog;
-// Get device with relations for alerting
-const getDeviceWithRelations = async (deviceId) => {
-    try {
-        const device = await models_1.Device.findByPk(deviceId, {
-            include: [
-                {
-                    model: models_1.Area,
-                    as: "area",
-                    include: [{ model: models_1.Warehouse, as: "warehouse" }],
-                },
-            ],
-        });
-        return device;
-    }
-    catch (error) {
-        console.error("[IntrusiService] ❌ Error fetching device:", error);
-        return null;
-    }
-};
-exports.getDeviceWithRelations = getDeviceWithRelations;
-// Get intrusion logs for a device with pagination
-const getIntrusiLogs = async (deviceId, options = {}) => {
-    const { limit = 50, offset = 0, from, to, eventClass } = options;
-    const whereClause = { device_id: deviceId };
+exports.ingestIntrusiEvent = ingestIntrusiEvent;
+/**
+ * Get intrusion logs for a device with pagination and filters.
+ */
+const getIntrusiLogs = async (options) => {
+    const { device_id, limit = 50, offset = 0, from, to, event_type } = options;
+    const where = { device_id };
     if (from || to) {
-        whereClause.timestamp = {};
-        if (from)
-            whereClause.timestamp[sequelize_1.Op.gte] = from;
-        if (to)
-            whereClause.timestamp[sequelize_1.Op.lte] = to;
+        where.timestamp = {
+            ...(from && { $gte: new Date(from) }),
+            ...(to && { $lte: new Date(to) })
+        };
     }
-    if (eventClass) {
-        whereClause.event_class = eventClass;
+    if (event_type) {
+        where.event_type = event_type;
     }
-    try {
-        const { rows: logs, count: total } = await models_1.IntrusiLog.findAndCountAll({
-            where: whereClause,
-            order: [["timestamp", "DESC"]],
+    const { count, rows } = await models_1.IntrusiLog.findAndCountAll({
+        where,
+        limit,
+        offset,
+        order: [['timestamp', 'DESC']]
+    });
+    return {
+        data: rows,
+        pagination: {
+            total: count,
             limit,
             offset,
-        });
-        return { logs, total, limit, offset };
-    }
-    catch (error) {
-        console.error("[IntrusiService] ❌ Error fetching logs:", error);
-        return { logs: [], total: 0, limit, offset };
-    }
+            hasMore: offset + limit < count
+        }
+    };
 };
 exports.getIntrusiLogs = getIntrusiLogs;
-// Get summary statistics for a device
-const getIntrusiSummary = async (deviceId, from, to) => {
-    const whereClause = { device_id: deviceId };
+/**
+ * Get summary statistics for a device's intrusion events.
+ */
+const getIntrusiSummary = async (device_id, from, to) => {
+    const where = { device_id };
     if (from || to) {
-        whereClause.timestamp = {};
-        if (from)
-            whereClause.timestamp[sequelize_1.Op.gte] = from;
-        if (to)
-            whereClause.timestamp[sequelize_1.Op.lte] = to;
-    }
-    try {
-        const totalEvents = await models_1.IntrusiLog.count({ where: whereClause });
-        const intrusions = await models_1.IntrusiLog.count({
-            where: { ...whereClause, event_class: "Intrusion" },
-        });
-        const disturbances = await models_1.IntrusiLog.count({
-            where: { ...whereClause, event_class: "Disturbance" },
-        });
-        const normals = await models_1.IntrusiLog.count({
-            where: { ...whereClause, event_class: "Normal" },
-        });
-        // Get latest event
-        const latestEvent = await models_1.IntrusiLog.findOne({
-            where: { device_id: deviceId },
-            order: [["timestamp", "DESC"]],
-        });
-        return {
-            total_events: totalEvents,
-            intrusions,
-            disturbances,
-            normals,
-            latest_event: latestEvent,
+        where.timestamp = {
+            ...(from && { $gte: new Date(from) }),
+            ...(to && { $lte: new Date(to) })
         };
     }
-    catch (error) {
-        console.error("[IntrusiService] ❌ Error fetching summary:", error);
-        return {
-            total_events: 0,
-            intrusions: 0,
-            disturbances: 0,
-            normals: 0,
-            latest_event: null,
-        };
-    }
+    const total_events = await models_1.IntrusiLog.count({ where });
+    const alarm_events = await models_1.IntrusiLog.count({
+        where: {
+            ...where,
+            event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
+        }
+    });
+    const impact_warnings = await models_1.IntrusiLog.count({
+        where: { ...where, event_type: 'IMPACT_WARNING' }
+    });
+    const unacknowledged = await models_1.IntrusiLog.count({
+        where: { ...where, status: 'unacknowledged' }
+    });
+    const latest_event = await models_1.IntrusiLog.findOne({
+        where: { device_id },
+        order: [['timestamp', 'DESC']]
+    });
+    return {
+        total_events,
+        alarm_events,
+        impact_warnings,
+        unacknowledged,
+        latest_event
+    };
 };
 exports.getIntrusiSummary = getIntrusiSummary;
-// Check if device is in alert state (recent intrusion)
-const isDeviceInAlertState = async (deviceId, minutesThreshold = 5) => {
-    try {
-        const thresholdTime = new Date(Date.now() - minutesThreshold * 60 * 1000);
-        const recentIntrusion = await models_1.IntrusiLog.findOne({
-            where: {
-                device_id: deviceId,
-                event_class: "Intrusion",
-                timestamp: { [sequelize_1.Op.gte]: thresholdTime },
-            },
-        });
-        return recentIntrusion !== null;
+/**
+ * Get current door security status for a device.
+ */
+const getIntrusiStatus = async (device_id) => {
+    // Get the latest event to determine current state
+    const latestEvent = await models_1.IntrusiLog.findOne({
+        where: { device_id },
+        order: [['timestamp', 'DESC']]
+    });
+    // Get the latest alarm event (if any)
+    const latestAlarm = await models_1.IntrusiLog.findOne({
+        where: {
+            device_id,
+            event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
+        },
+        order: [['timestamp', 'DESC']]
+    });
+    // Determine overall status
+    let status = 'AMAN';
+    if (latestAlarm) {
+        if (latestAlarm.status === 'unacknowledged') {
+            status = 'BAHAYA';
+        }
+        // Once acknowledged/resolved/false_alarm → AMAN (no lingering WASPADA)
     }
-    catch (error) {
-        console.error("[IntrusiService] ❌ Error checking alert state:", error);
-        return false;
+    // Get latest impact warning
+    const latestImpact = await models_1.IntrusiLog.findOne({
+        where: { device_id, event_type: 'IMPACT_WARNING' },
+        order: [['timestamp', 'DESC']]
+    });
+    if (status === 'AMAN' &&
+        latestImpact &&
+        latestImpact.status === 'unacknowledged') {
+        status = 'WASPADA';
     }
+    return {
+        status,
+        system_state: latestEvent?.system_state ?? 'DISARMED',
+        door_state: latestEvent?.door_state ?? 'CLOSED',
+        latest_event: latestEvent,
+        latest_alarm: latestAlarm
+    };
 };
-exports.isDeviceInAlertState = isDeviceInAlertState;
+exports.getIntrusiStatus = getIntrusiStatus;
+/**
+ * Update the acknowledgement status of an intrusion log.
+ */
+const updateIntrusiLogStatus = async (logId, userId, status, notes) => {
+    const log = await models_1.IntrusiLog.findByPk(logId);
+    if (!log)
+        throw new apiError_1.default(404, 'Log intrusi tidak ditemukan.');
+    log.status = status;
+    log.notes = notes || log.notes;
+    log.acknowledged_by = userId;
+    log.acknowledged_at = new Date();
+    await log.save();
+    return log;
+};
+exports.updateIntrusiLogStatus = updateIntrusiLogStatus;

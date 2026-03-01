@@ -1,0 +1,939 @@
+/*
+ * ============================================================================
+ *  Warehouse Door Security System — Firmware v2.0
+ * ============================================================================
+ *  Project : warehouse-door-security
+ *  Board   : XIAO ESP32-S3 (Arduino IDE)
+ *  Spec    : SECURITY_SYSTEM_SPEC v18
+ *  Sensors : MPU6050 (I2C) + Reed Switch (digital)
+ *  Actuator: Sirine (digital output via MOSFET)
+ *  Network : Wi-Fi + MQTT (TLS)
+ *  Power   : Adaptor 5V + Li-ion 1S backup (UPS mini)
+ *
+ *  Pin Mapping (XIAO ESP32-S3):
+ *    D0 (GPIO 1)  = MPU6050 INT
+ *    D1 (GPIO 2)  = VBAT_SENSE (analog, divider 200k/200k)
+ *    D2 (GPIO 3)  = ADAPTER_PRESENT (digital, divider 100k/100k)
+ *    D3 (GPIO 4)  = DOOR SWITCH (reed, INPUT_PULLUP)
+ *    D4 (GPIO 5)  = SDA (MPU6050 I2C)
+ *    D5 (GPIO 6)  = SCL (MPU6050 I2C)
+ *    D8 (GPIO 7)  = SIRINE (digital output)
+ *
+ *  Changes from v1.0 (Spec v17 → v18):
+ *    - Renamed TH_HIT_LOW → TH_HIT (single threshold, no high/low)
+ *    - COUNT_LIMIT: 3 → 2 (2-hit rule per spec §6.2)
+ *    - COUNT_WINDOW_MS: 10000 → 60000 (60s fixed window per spec §6.2.2)
+ *    - Fixed pin mapping: VBAT=D1/GPIO2, ADAPTER=D2/GPIO3 (spec §2.5)
+ *    - MQTT topics now use Synergy IOT convention:
+ *        warehouses/{wId}/areas/{aId}/devices/{dId}/sensors/intrusi
+ *    - WiFiClientSecure for TLS (mqtts:8883 to EMQX Cloud)
+ *    - Proper ISO timestamps via NTP
+ *    - CALIB_SAVED payload uses "th_hit" (not "th_hit_low")
+ *    - ARM/DISARM events published per spec event types
+ * ============================================================================
+ */
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Preferences.h>
+#include <math.h>
+#include <time.h>
+
+// ============================================================================
+//  PIN MAPPING (XIAO ESP32-S3) — per Spec v18 §2.5
+// ============================================================================
+#define PIN_SDA             5   // D4
+#define PIN_SCL             6   // D5
+#define PIN_MPU_INT         1   // D0
+#define PIN_VBAT_SENSE      2   // D1 (ADC) — Spec §2.5.2
+#define PIN_ADAPTER_PRESENT 3   // D2 (digital) — Spec §2.5.1
+#define PIN_DOOR_SWITCH     4   // D3 (reed switch, INPUT_PULLUP)
+#define PIN_SIREN           7   // D8 (output)
+
+// ============================================================================
+//  WIFI CONFIG — EDIT SESUAI JARINGAN ANDA
+// ============================================================================
+static const char* WIFI_SSID = "YOUR_WIFI_SSID";
+static const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+
+// ============================================================================
+//  MQTT CONFIG — EDIT SESUAI BROKER / EMQX PROVISIONING
+// ============================================================================
+// Hostname saja (tanpa https:// — PubSubClient menggunakan raw TCP+TLS)
+static const char* MQTT_BROKER   = "mfe19520.ala.asia-southeast1.emqxsl.com";
+static const int   MQTT_PORT     = 8883;  // MQTT over TLS
+static const char* MQTT_USER     = "device-YOUR_DEVICE_UUID";
+static const char* MQTT_PASS     = "pwd-YOUR_DEVICE_UUID-TIMESTAMP";
+
+// ============================================================================
+//  DEVICE & TOPOLOGY CONFIG — dari provisioning dashboard
+// ============================================================================
+static const char* DEVICE_ID     = "YOUR_DEVICE_UUID";
+static const char* WAREHOUSE_ID  = "YOUR_WAREHOUSE_UUID";
+static const char* AREA_ID       = "YOUR_AREA_UUID";
+
+// MQTT Topics — built in setup() from topology config
+static char TOPIC_SENSOR[160];   // publish: .../sensors/intrusi
+static char TOPIC_STATUS[160];   // publish: .../status
+static char TOPIC_CMD[160];      // subscribe: .../commands
+
+// ============================================================================
+//  SYSTEM PARAMETERS (defaults dari Spec v18 §13)
+// ============================================================================
+
+// Hit counting (Spec §6.2.2)
+static uint32_t COUNT_LIMIT       = 2;       // 2-hit rule
+static uint32_t COUNT_WINDOW_MS   = 60000;   // 60s fixed window
+static uint32_t MIN_INTERHIT_MS   = 300;
+
+// Siren & cooldown (Spec §8)
+static uint32_t SIREN_ON_MS       = 30000;
+static uint32_t ALARM_COOLDOWN_MS = 30000;
+
+// Calibration defaults (Spec §7, §13)
+static uint32_t N_CALIB_HITS      = 5;
+static float    ALPHA             = 0.75f;
+static uint32_t CALIB_TIMEOUT_MS  = 60000;
+
+// IMU sampling (Spec §5.1)
+static const int IMU_SAMPLE_HZ    = 100;
+static const int IMU_SAMPLE_MS    = 1000 / IMU_SAMPLE_HZ;  // 10ms
+
+// Battery monitoring
+static const uint32_t VBAT_READ_INTERVAL_MS  = 300000;  // 5 minutes
+static const float    VBAT_LOW_V             = 3.3f;
+static const float    VBAT_CRITICAL_V        = 3.0f;
+
+// Status publish interval
+static const uint32_t STATUS_INTERVAL_MS     = 60000;  // 1 minute heartbeat
+
+// ============================================================================
+//  ENUMS & STATE
+// ============================================================================
+enum SystemState {
+  STATE_DISARMED,
+  STATE_ARMED
+};
+
+enum SirenState {
+  SIREN_OFF,
+  SIREN_ON_ACTIVE,
+  SIREN_COOLDOWN
+};
+
+enum CalibState {
+  CALIB_IDLE,
+  CALIB_RUNNING
+};
+
+// ============================================================================
+//  GLOBALS
+// ============================================================================
+Adafruit_MPU6050 mpu;
+WiFiClientSecure wifiSecureClient;
+PubSubClient mqtt(wifiSecureClient);
+Preferences prefs;
+
+// System state
+static volatile SystemState systemState = STATE_DISARMED;
+
+// Door state
+static bool doorClosed       = true;
+static bool doorClosedPrev   = true;
+
+// Hit counting (Spec §6.2.4 — single threshold TH_HIT)
+static float    TH_HIT       = 1.0f;  // default, overridden by calibration
+static uint32_t hitCount     = 0;
+static uint32_t t0Hit        = 0;
+static uint32_t lastHitTs    = 0;
+
+// Siren state machine (Spec §8)
+static SirenState sirenState       = SIREN_OFF;
+static uint32_t   sirenOnStartMs   = 0;
+static uint32_t   cooldownStartMs  = 0;
+
+// Calibration (Spec §7)
+static CalibState calibState       = CALIB_IDLE;
+static uint32_t   calibStartMs     = 0;
+static uint32_t   calibHitCount    = 0;
+static uint32_t   calibTargetHits  = N_CALIB_HITS;
+static float      calibPeaks[15];  // max 15 hits for calibration
+
+// IMU timing
+static uint32_t nextImuTick = 0;
+
+// Power monitoring (Spec §9)
+static bool     adapterPresent     = true;
+static bool     adapterPresentPrev = true;
+static uint32_t lastVbatReadMs     = 0;
+static float    lastVbatV          = 0.0f;
+static int      lastVbatPct        = 0;
+
+// WiFi & MQTT reconnect
+static uint32_t lastMqttReconnectAttempt = 0;
+
+// Status heartbeat
+static uint32_t lastStatusPublish = 0;
+
+// NTP synced flag
+static bool ntpSynced = false;
+
+// ============================================================================
+//  LOG (Serial)
+// ============================================================================
+static void logMsg(const String &msg) {
+  Serial.print("[");
+  Serial.print(millis());
+  Serial.print("] ");
+  Serial.println(msg);
+}
+
+// ============================================================================
+//  NVS: SAVE & LOAD PARAMETERS
+// ============================================================================
+static void saveParamsToNVS() {
+  prefs.begin("security", false);
+  prefs.putFloat("th_hit", TH_HIT);
+  prefs.putFloat("alpha", ALPHA);
+  prefs.putUInt("n_calib", N_CALIB_HITS);
+  prefs.putUInt("cnt_limit", COUNT_LIMIT);
+  prefs.putUInt("cnt_win_ms", COUNT_WINDOW_MS);
+  prefs.putUInt("interhit_ms", MIN_INTERHIT_MS);
+  prefs.putUInt("siren_on_ms", SIREN_ON_MS);
+  prefs.putUInt("cooldown_ms", ALARM_COOLDOWN_MS);
+  prefs.putUInt("cal_tout_ms", CALIB_TIMEOUT_MS);
+  prefs.end();
+  logMsg("[NVS] Parameters saved.");
+}
+
+static void loadParamsFromNVS() {
+  prefs.begin("security", true);
+  TH_HIT            = prefs.getFloat("th_hit", TH_HIT);
+  ALPHA             = prefs.getFloat("alpha", ALPHA);
+  N_CALIB_HITS      = prefs.getUInt("n_calib", N_CALIB_HITS);
+  COUNT_LIMIT       = prefs.getUInt("cnt_limit", COUNT_LIMIT);
+  COUNT_WINDOW_MS   = prefs.getUInt("cnt_win_ms", COUNT_WINDOW_MS);
+  MIN_INTERHIT_MS   = prefs.getUInt("interhit_ms", MIN_INTERHIT_MS);
+  SIREN_ON_MS       = prefs.getUInt("siren_on_ms", SIREN_ON_MS);
+  ALARM_COOLDOWN_MS = prefs.getUInt("cooldown_ms", ALARM_COOLDOWN_MS);
+  CALIB_TIMEOUT_MS  = prefs.getUInt("cal_tout_ms", CALIB_TIMEOUT_MS);
+  prefs.end();
+  logMsg("[NVS] Parameters loaded. TH_HIT=" + String(TH_HIT, 4));
+}
+
+// ============================================================================
+//  NTP & TIMESTAMP
+// ============================================================================
+static void ntpSync() {
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  logMsg("[NTP] Syncing time...");
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 10000)) {
+    ntpSynced = true;
+    logMsg("[NTP] Time synced.");
+  } else {
+    logMsg("[NTP] Sync failed — using millis fallback.");
+  }
+}
+
+static String isoTimestamp() {
+  if (ntpSynced) {
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    gmtime_r(&now, &timeinfo);
+    char buf[30];
+    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    return String("\"ts\":\"") + buf + "\"";
+  }
+  // Fallback: millis-based
+  return String("\"ts_ms\":") + String((unsigned long)millis());
+}
+
+// ============================================================================
+//  WIFI
+// ============================================================================
+static void wifiConnect() {
+  logMsg("[WiFi] Connecting to " + String(WIFI_SSID));
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  uint32_t t0 = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(200);
+    Serial.print(".");
+    if (millis() - t0 > 20000) {
+      logMsg("[WiFi] Connection timeout!");
+      return;
+    }
+  }
+  logMsg("[WiFi] Connected. IP=" + WiFi.localIP().toString()
+       + " RSSI=" + String(WiFi.RSSI()) + "dBm");
+}
+
+// ============================================================================
+//  MQTT
+// ============================================================================
+static void buildTopics() {
+  // Synergy IOT topic convention:
+  //   publish:    warehouses/{wId}/areas/{aId}/devices/{dId}/sensors/intrusi
+  //   publish:    warehouses/{wId}/areas/{aId}/devices/{dId}/status
+  //   subscribe:  warehouses/{wId}/areas/{aId}/devices/{dId}/commands
+  snprintf(TOPIC_SENSOR, sizeof(TOPIC_SENSOR),
+    "warehouses/%s/areas/%s/devices/%s/sensors/intrusi",
+    WAREHOUSE_ID, AREA_ID, DEVICE_ID);
+  snprintf(TOPIC_STATUS, sizeof(TOPIC_STATUS),
+    "warehouses/%s/areas/%s/devices/%s/status",
+    WAREHOUSE_ID, AREA_ID, DEVICE_ID);
+  snprintf(TOPIC_CMD, sizeof(TOPIC_CMD),
+    "warehouses/%s/areas/%s/devices/%s/commands",
+    WAREHOUSE_ID, AREA_ID, DEVICE_ID);
+}
+
+static void mqttPublish(const char* topic, const String &payload) {
+  if (mqtt.connected()) {
+    mqtt.publish(topic, payload.c_str(), false);
+    logMsg("[MQTT] PUB " + String(topic) + " → " + payload.substring(0, 120));
+  } else {
+    logMsg("[MQTT] Not connected. Event lost: " + payload.substring(0, 80));
+  }
+}
+
+// ============================================================================
+//  JSON HELPERS
+// ============================================================================
+static String baseJson(const char* eventType) {
+  String j = "{";
+  j += isoTimestamp();
+  j += ",\"device_id\":\"" + String(DEVICE_ID) + "\"";
+  j += ",\"state\":\"" + String(systemState == STATE_ARMED ? "ARMED" : "DISARMED") + "\"";
+  j += ",\"door\":\"" + String(doorClosed ? "CLOSED" : "OPEN") + "\"";
+  j += ",\"type\":\"" + String(eventType) + "\"";
+  return j;
+}
+
+// ============================================================================
+//  EVENT PUBLISHERS (Spec v18 §10.2)
+// ============================================================================
+static void publishImpactWarning(float peakDelta) {
+  String j = baseJson("IMPACT_WARNING");
+  j += ",\"peak_delta_g\":" + String(peakDelta, 4);
+  j += ",\"hit_count\":" + String(hitCount);
+  j += ",\"t0_ms\":" + String((unsigned long)t0Hit);
+  j += ",\"count_window_ms\":" + String(COUNT_WINDOW_MS);
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishForcedEntryAlarm(float peakDelta) {
+  String j = baseJson("FORCED_ENTRY_ALARM");
+  j += ",\"peak_delta_g\":" + String(peakDelta, 4);
+  j += ",\"hit_count\":" + String(hitCount);
+  j += ",\"t0_ms\":" + String((unsigned long)t0Hit);
+  j += ",\"count_window_ms\":" + String(COUNT_WINDOW_MS);
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishUnauthorizedOpen() {
+  String j = baseJson("UNAUTHORIZED_OPEN");
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishPowerSourceChanged(bool adapterNow) {
+  String j = baseJson("POWER_SOURCE_CHANGED");
+  j += ",\"power_source\":\"" + String(adapterNow ? "MAINS" : "BATTERY") + "\"";
+  j += ",\"vbat_v\":" + String(lastVbatV, 2);
+  j += ",\"vbat_pct\":" + String(lastVbatPct);
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishCalibSaved(float pmed) {
+  String j = baseJson("CALIB_SAVED");
+  j += ",\"th_hit\":" + String(TH_HIT, 4);
+  j += ",\"pmed\":" + String(pmed, 4);
+  j += ",\"alpha\":" + String(ALPHA, 4);
+  j += ",\"n_hits\":" + String(calibTargetHits);
+  j += ",\"calib_timeout_ms\":" + String(CALIB_TIMEOUT_MS);
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishCalibAborted() {
+  String j = baseJson("CALIB_ABORTED");
+  j += ",\"hits_received\":" + String(calibHitCount);
+  j += ",\"n_hits_expected\":" + String(calibTargetHits);
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishSirenSilenced(const String &issuedBy) {
+  String j = baseJson("SIREN_SILENCED");
+  j += ",\"issued_by\":\"" + issuedBy + "\"";
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishArmEvent() {
+  String j = baseJson("ARM");
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishDisarmEvent() {
+  String j = baseJson("DISARM");
+  j += "}";
+  mqttPublish(TOPIC_SENSOR, j);
+}
+
+static void publishStatus() {
+  String j = "{";
+  j += isoTimestamp();
+  j += ",\"device_id\":\"" + String(DEVICE_ID) + "\"";
+  j += ",\"state\":\"" + String(systemState == STATE_ARMED ? "ARMED" : "DISARMED") + "\"";
+  j += ",\"door\":\"" + String(doorClosed ? "CLOSED" : "OPEN") + "\"";
+  j += ",\"th_hit\":" + String(TH_HIT, 4);
+  j += ",\"hit_count\":" + String(hitCount);
+  j += ",\"siren\":\"" + String(sirenState == SIREN_ON_ACTIVE ? "ON" :
+                                 (sirenState == SIREN_COOLDOWN ? "COOLDOWN" : "OFF")) + "\"";
+  j += ",\"power\":\"" + String(adapterPresent ? "MAINS" : "BATTERY") + "\"";
+  j += ",\"vbat_v\":" + String(lastVbatV, 2);
+  j += ",\"vbat_pct\":" + String(lastVbatPct);
+  j += ",\"calib\":\"" + String(calibState == CALIB_RUNNING ? "RUNNING" : "IDLE") + "\"";
+  j += "}";
+  mqttPublish(TOPIC_STATUS, j);
+}
+
+// ============================================================================
+//  SIREN CONTROL (Spec v18 §8)
+// ============================================================================
+static void sirenOn() {
+  digitalWrite(PIN_SIREN, HIGH);
+}
+
+static void sirenOff() {
+  digitalWrite(PIN_SIREN, LOW);
+}
+
+static void triggerAlarm() {
+  if (sirenState == SIREN_COOLDOWN) {
+    // Spec §8.2: saat cooldown, sirine tidak menyala tapi event tetap dipublish
+    logMsg("[SIREN] Cooldown active — siren suppressed, event still published.");
+    return;
+  }
+  if (sirenState == SIREN_ON_ACTIVE) {
+    logMsg("[SIREN] Already ON.");
+    return;
+  }
+
+  sirenOn();
+  sirenState     = SIREN_ON_ACTIVE;
+  sirenOnStartMs = millis();
+  logMsg("[SIREN] ON for " + String(SIREN_ON_MS) + "ms");
+}
+
+static void sirenSilence(const String &issuedBy) {
+  if (sirenState == SIREN_ON_ACTIVE) {
+    sirenOff();
+    // Spec §8.3: cooldown dimulai sejak sirine OFF (termasuk karena silence)
+    sirenState      = SIREN_COOLDOWN;
+    cooldownStartMs = millis();
+    logMsg("[SIREN] Silenced by " + issuedBy + ". Cooldown started.");
+    publishSirenSilenced(issuedBy);
+    publishStatus();  // Immediately update backend so UI reflects siren state
+  } else {
+    logMsg("[SIREN] Silence requested but siren not active.");
+  }
+}
+
+static void sirenUpdate() {
+  uint32_t now = millis();
+
+  if (sirenState == SIREN_ON_ACTIVE) {
+    if (now - sirenOnStartMs >= SIREN_ON_MS) {
+      sirenOff();
+      sirenState      = SIREN_COOLDOWN;
+      cooldownStartMs = now;
+      logMsg("[SIREN] OFF (duration elapsed). Cooldown started.");
+    }
+  }
+  else if (sirenState == SIREN_COOLDOWN) {
+    if (now - cooldownStartMs >= ALARM_COOLDOWN_MS) {
+      sirenState = SIREN_OFF;
+      logMsg("[SIREN] Cooldown finished. Ready.");
+    }
+  }
+}
+
+// ============================================================================
+//  IMU READING (Spec v18 §5)
+// ============================================================================
+static float readDeltaG() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  const float G = 9.80665f;
+  float ax_g = a.acceleration.x / G;
+  float ay_g = a.acceleration.y / G;
+  float az_g = a.acceleration.z / G;
+
+  float a_mag = sqrtf(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
+  float delta = fabsf(a_mag - 1.0f);
+
+  return delta;
+}
+
+// ============================================================================
+//  HIT COUNTING ALGORITHM (Spec v18 §6.2.4 — 2-hit, 60s window)
+// ============================================================================
+static void processHit(float peakDelta) {
+  // Only active when ARMED and door CLOSED
+  if (systemState != STATE_ARMED || !doorClosed) return;
+
+  // Don't process hits during calibration
+  if (calibState == CALIB_RUNNING) return;
+
+  uint32_t now = millis();
+  bool hitIncremented = false;
+
+  // Step 2: check threshold and interhit (Spec §6.2.4)
+  if (peakDelta >= TH_HIT
+      && (now - lastHitTs) >= MIN_INTERHIT_MS) {
+
+    lastHitTs = now;
+
+    if (hitCount == 0) {
+      // Step 2.2: first hit of series
+      t0Hit    = now;
+      hitCount = 1;
+      hitIncremented = true;
+    }
+    else if (now <= (t0Hit + COUNT_WINDOW_MS)) {
+      // Step 2.3: within window (inclusive boundary per spec)
+      hitCount++;
+      hitIncremented = true;
+    }
+    else {
+      // Step 2.4: outside window → new series
+      t0Hit    = now;
+      hitCount = 1;
+      hitIncremented = true;
+    }
+  }
+
+  // Step 3: IMPACT_WARNING for each valid hit when hit_count < COUNT_LIMIT
+  if (hitIncremented && hitCount < COUNT_LIMIT) {
+    logMsg("[HIT] IMPACT_WARNING hit_count=" + String(hitCount)
+         + " peak=" + String(peakDelta, 4) + "g");
+    publishImpactWarning(peakDelta);
+  }
+
+  // Step 4: FORCED_ENTRY_ALARM when hit_count >= COUNT_LIMIT (2)
+  if (hitCount >= COUNT_LIMIT) {
+    logMsg("[HIT] FORCED_ENTRY_ALARM! hit_count=" + String(hitCount)
+         + " peak=" + String(peakDelta, 4) + "g");
+    publishForcedEntryAlarm(peakDelta);
+    triggerAlarm();
+    // Reset tegas (Spec §6.2.4 step 4)
+    hitCount = 0;
+    // t0Hit invalidated implicitly (hit_count=0)
+  }
+}
+
+// ============================================================================
+//  CALIBRATION (Spec v18 §7 — Knock Calibration)
+// ============================================================================
+static float medianOfArray(float* arr, int n) {
+  // Simple bubble sort for small n
+  for (int i = 0; i < n - 1; i++) {
+    for (int j = 0; j < n - i - 1; j++) {
+      if (arr[j] > arr[j + 1]) {
+        float tmp  = arr[j];
+        arr[j]     = arr[j + 1];
+        arr[j + 1] = tmp;
+      }
+    }
+  }
+  if (n % 2 == 1) return arr[n / 2];
+  return (arr[n / 2 - 1] + arr[n / 2]) / 2.0f;
+}
+
+static void calibStart(uint32_t nHits, uint32_t timeoutMs) {
+  if (calibState == CALIB_RUNNING) {
+    logMsg("[CALIB] Already running.");
+    return;
+  }
+
+  calibTargetHits = (nHits > 0 && nHits <= 15) ? nHits : N_CALIB_HITS;
+  CALIB_TIMEOUT_MS = (timeoutMs >= 10000) ? timeoutMs : 60000;
+  calibHitCount   = 0;
+  calibStartMs    = millis();
+  calibState      = CALIB_RUNNING;
+
+  logMsg("[CALIB] Started. n=" + String(calibTargetHits)
+       + " timeout=" + String(CALIB_TIMEOUT_MS) + "ms. Hit the door from OUTSIDE!");
+}
+
+static void calibProcessSample(float peakDelta) {
+  if (calibState != CALIB_RUNNING) return;
+
+  uint32_t now = millis();
+
+  // Timeout check (Spec §7.5)
+  if (now - calibStartMs >= CALIB_TIMEOUT_MS) {
+    calibState = CALIB_IDLE;
+    logMsg("[CALIB] TIMEOUT — aborted. Hits received: " + String(calibHitCount));
+    publishCalibAborted();
+    return;
+  }
+
+  // Detect hit (reuse MIN_INTERHIT_MS to prevent double-count)
+  if (peakDelta >= 0.1f  // minimal threshold so noise doesn't enter calibration
+      && (now - lastHitTs) >= MIN_INTERHIT_MS) {
+
+    lastHitTs = now;
+    calibPeaks[calibHitCount] = peakDelta;
+    calibHitCount++;
+
+    logMsg("[CALIB] Hit " + String(calibHitCount) + "/" + String(calibTargetHits)
+         + " peak=" + String(peakDelta, 4) + "g");
+
+    // All hits received → compute threshold (Spec §7.3)
+    if (calibHitCount >= calibTargetHits) {
+      float pmed = medianOfArray(calibPeaks, calibHitCount);
+      TH_HIT = ALPHA * pmed;
+
+      logMsg("[CALIB] DONE. Pmed=" + String(pmed, 4)
+           + " alpha=" + String(ALPHA, 4)
+           + " → TH_HIT=" + String(TH_HIT, 4));
+
+      saveParamsToNVS();
+      publishCalibSaved(pmed);
+
+      calibState = CALIB_IDLE;
+    }
+  }
+}
+
+// ============================================================================
+//  DOOR SWITCH (Reed) — Spec v18 §6.1
+// ============================================================================
+static void doorUpdate() {
+  // Reed switch: LOW = closed (magnet near), HIGH = open (magnet away)
+  // INPUT_PULLUP: LOW → CLOSED, HIGH → OPEN
+  doorClosed = (digitalRead(PIN_DOOR_SWITCH) == LOW);
+
+  if (doorClosed != doorClosedPrev) {
+    doorClosedPrev = doorClosed;
+
+    // ALWAYS publish status on door state change (so app gets real-time updates)
+    publishStatus();
+
+    if (!doorClosed && systemState == STATE_ARMED) {
+      // Skip alarm log if siren already active or in cooldown
+      if (sirenState == SIREN_ON_ACTIVE || sirenState == SIREN_COOLDOWN) {
+        logMsg("[DOOR] Opened while alarm active — no duplicate alarm log.");
+      } else {
+        // Spec §6.1: UNAUTHORIZED_OPEN
+        logMsg("[DOOR] UNAUTHORIZED_OPEN detected!");
+        publishUnauthorizedOpen();
+        triggerAlarm();
+      }
+    } else {
+      logMsg("[DOOR] State changed → " + String(doorClosed ? "CLOSED" : "OPEN"));
+    }
+  }
+}
+
+// ============================================================================
+//  BATTERY HELPERS
+// ============================================================================
+// Piecewise-linear Li-Ion 1S discharge curve (3.0V→4.2V → 0%→100%)
+static int vbatToPercent(float v) {
+  if (v >= 4.15f) return 100;
+  if (v >= 4.00f) return 90  + (int)((v - 4.00f) / 0.15f * 10.0f);
+  if (v >= 3.85f) return 70  + (int)((v - 3.85f) / 0.15f * 20.0f);
+  if (v >= 3.70f) return 40  + (int)((v - 3.70f) / 0.15f * 30.0f);
+  if (v >= 3.50f) return 15  + (int)((v - 3.50f) / 0.20f * 25.0f);
+  if (v >= 3.30f) return 5   + (int)((v - 3.30f) / 0.20f * 10.0f);
+  if (v >= 3.00f) return       (int)((v - 3.00f) / 0.30f * 5.0f);
+  return 0;
+}
+
+static void readBatteryVoltage() {
+  // XIAO ESP32-S3: 12-bit ADC, Vref≈3.3V, 1:2 resistor divider
+  int raw = analogRead(PIN_VBAT_SENSE);
+  lastVbatV   = (raw / 4095.0f) * 3.3f * 2.0f;  // adjust multiplier for your divider
+  lastVbatPct = vbatToPercent(lastVbatV);
+  lastVbatPct = constrain(lastVbatPct, 0, 100);
+}
+
+// ============================================================================
+//  POWER MONITORING (Spec v18 §9)
+// ============================================================================
+static void powerUpdate() {
+  // Adapter present (Spec §9.1) — D2=GPIO3
+  adapterPresent = (digitalRead(PIN_ADAPTER_PRESENT) == HIGH);
+
+  if (adapterPresent != adapterPresentPrev) {
+    adapterPresentPrev = adapterPresent;
+    readBatteryVoltage();  // Read fresh battery voltage on power change
+    logMsg("[POWER] Source changed → " + String(adapterPresent ? "MAINS" : "BATTERY"));
+    publishPowerSourceChanged(adapterPresent);
+    publishStatus();  // Update status so app gets power change immediately
+  }
+
+  // Battery voltage (Spec §9.2) — D1=GPIO2
+  uint32_t now = millis();
+  if (now - lastVbatReadMs >= VBAT_READ_INTERVAL_MS) {
+    lastVbatReadMs = now;
+    readBatteryVoltage();
+
+    if (lastVbatV <= VBAT_CRITICAL_V) {
+      logMsg("[POWER] BATTERY CRITICAL: " + String(lastVbatV, 2) + "V (" + String(lastVbatPct) + "%)");
+      publishStatus();  // Publish status so backend can trigger alert
+    } else if (lastVbatV <= VBAT_LOW_V) {
+      logMsg("[POWER] BATTERY LOW: " + String(lastVbatV, 2) + "V (" + String(lastVbatPct) + "%)");
+    }
+  }
+}
+
+// ============================================================================
+//  MQTT COMMAND HANDLER
+// ============================================================================
+//  Commands from dashboard arrive on .../commands topic
+//  Format: {"cmd":"ARM"}, {"cmd":"DISARM"}, {"cmd":"CALIB_KNOCK_START",...},
+//          {"cmd":"SIREN_SILENCE",...}, {"cmd":"STATUS"}
+// ============================================================================
+static void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String msg;
+  msg.reserve(length + 1);
+  for (unsigned int i = 0; i < length; i++) {
+    msg += (char)payload[i];
+  }
+  msg.trim();
+
+  logMsg("[MQTT] CMD received: " + msg);
+
+  // ---- ARM ----
+  if (msg.indexOf("\"ARM\"") >= 0 && msg.indexOf("\"DISARM\"") < 0) {
+    systemState = STATE_ARMED;
+    hitCount    = 0;
+    logMsg("[STATE] ARMED");
+    publishArmEvent();
+    publishStatus();
+  }
+  // ---- DISARM ----
+  else if (msg.indexOf("\"DISARM\"") >= 0) {
+    systemState = STATE_DISARMED;
+    hitCount    = 0;
+    // Turn off siren if active
+    if (sirenState == SIREN_ON_ACTIVE) {
+      sirenOff();
+      sirenState = SIREN_OFF;
+    }
+    logMsg("[STATE] DISARMED");
+    publishDisarmEvent();
+    publishStatus();
+  }
+  // ---- CALIB_KNOCK_START (Spec §7) ----
+  else if (msg.indexOf("\"CALIB_KNOCK_START\"") >= 0) {
+    uint32_t nHits   = N_CALIB_HITS;
+    uint32_t timeout = CALIB_TIMEOUT_MS;
+
+    // Parse optional n_hits
+    int nIdx = msg.indexOf("\"n_hits\"");
+    if (nIdx >= 0) {
+      int colonIdx = msg.indexOf(':', nIdx);
+      if (colonIdx >= 0) {
+        nHits = (uint32_t)msg.substring(colonIdx + 1).toInt();
+      }
+    }
+
+    // Parse optional timeout_ms
+    int tIdx = msg.indexOf("\"timeout_ms\"");
+    if (tIdx >= 0) {
+      int colonIdx = msg.indexOf(':', tIdx);
+      if (colonIdx >= 0) {
+        timeout = (uint32_t)msg.substring(colonIdx + 1).toInt();
+      }
+    }
+
+    calibStart(nHits, timeout);
+  }
+  // ---- SIREN_SILENCE (Spec §8.3) ----
+  else if (msg.indexOf("\"SIREN_SILENCE\"") >= 0) {
+    String issuedBy = "dashboard";
+    int byIdx = msg.indexOf("\"issued_by\"");
+    if (byIdx >= 0) {
+      int q1 = msg.indexOf(':', byIdx);
+      int q2 = msg.indexOf('"', q1 + 1);
+      int q3 = msg.indexOf('"', q2 + 1);
+      if (q2 >= 0 && q3 > q2) {
+        issuedBy = msg.substring(q2 + 1, q3);
+      }
+    }
+    sirenSilence(issuedBy);
+  }
+  // ---- STATUS ----
+  else if (msg.indexOf("\"STATUS\"") >= 0) {
+    publishStatus();
+  }
+  else {
+    logMsg("[MQTT] Unknown command: " + msg);
+  }
+}
+
+static void mqttReconnect() {
+  if (mqtt.connected()) return;
+
+  uint32_t now = millis();
+  if (now - lastMqttReconnectAttempt < 5000) return;
+  lastMqttReconnectAttempt = now;
+
+  logMsg("[MQTT] Connecting to " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
+
+  String clientId = "door-" + String(DEVICE_ID) + "-" + String(random(1000));
+
+  bool connected;
+  if (strlen(MQTT_USER) > 0) {
+    connected = mqtt.connect(clientId.c_str(), MQTT_USER, MQTT_PASS);
+  } else {
+    connected = mqtt.connect(clientId.c_str());
+  }
+
+  if (connected) {
+    logMsg("[MQTT] Connected.");
+    mqtt.subscribe(TOPIC_CMD);
+    logMsg("[MQTT] Subscribed to " + String(TOPIC_CMD));
+    publishStatus();
+  } else {
+    logMsg("[MQTT] Connect failed, rc=" + String(mqtt.state()));
+  }
+}
+
+// ============================================================================
+//  SETUP
+// ============================================================================
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+
+  Serial.println("============================================");
+  Serial.println(" Warehouse Door Security System v2.0");
+  Serial.println(" XIAO ESP32-S3 + MPU6050 + Reed Switch");
+  Serial.println(" Spec: SECURITY_SYSTEM_SPEC v18");
+  Serial.println("============================================");
+
+  // --- Pin Setup ---
+  pinMode(PIN_SIREN, OUTPUT);
+  digitalWrite(PIN_SIREN, LOW);
+
+  pinMode(PIN_DOOR_SWITCH, INPUT_PULLUP);
+  pinMode(PIN_ADAPTER_PRESENT, INPUT);
+  pinMode(PIN_VBAT_SENSE, INPUT);
+
+  // --- Load parameters from NVS ---
+  loadParamsFromNVS();
+
+  // --- I2C + MPU6050 ---
+  Wire.begin(PIN_SDA, PIN_SCL);
+  if (!mpu.begin()) {
+    logMsg("[MPU] NOT FOUND! Check wiring (SDA=D4, SCL=D5).");
+  } else {
+    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+    mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+    logMsg("[MPU] Initialized. Range=+-8g");
+  }
+
+  // --- Initial door state ---
+  doorClosed     = (digitalRead(PIN_DOOR_SWITCH) == LOW);
+  doorClosedPrev = doorClosed;
+  logMsg("[DOOR] Initial state: " + String(doorClosed ? "CLOSED" : "OPEN"));
+
+  // --- Initial power state ---
+  adapterPresent     = (digitalRead(PIN_ADAPTER_PRESENT) == HIGH);
+  adapterPresentPrev = adapterPresent;
+  readBatteryVoltage();  // Read battery immediately on startup
+  logMsg("[POWER] Initial: " + String(adapterPresent ? "MAINS" : "BATTERY")
+       + " Vbat=" + String(lastVbatV, 2) + "V (" + String(lastVbatPct) + "%)");
+
+  // --- WiFi ---
+  wifiConnect();
+
+  // --- NTP time sync ---
+  ntpSync();
+
+  // --- MQTT (TLS) ---
+  wifiSecureClient.setInsecure();  // Accept any certificate (EMQX Cloud)
+  buildTopics();
+  mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+  mqtt.setCallback(mqttCallback);
+  mqtt.setBufferSize(512);
+
+  // --- Init timing ---
+  nextImuTick      = millis();
+  lastVbatReadMs   = millis();
+  lastStatusPublish = millis();
+  lastHitTs        = 0;
+
+  logMsg("[SYS] System ready. State=DISARMED. Send ARM command to activate.");
+  logMsg("[SYS] TH_HIT=" + String(TH_HIT, 4) + " COUNT_LIMIT=" + String(COUNT_LIMIT)
+       + " WINDOW=" + String(COUNT_WINDOW_MS) + "ms");
+}
+
+// ============================================================================
+//  MAIN LOOP
+// ============================================================================
+void loop() {
+  // --- WiFi reconnect ---
+  if (WiFi.status() != WL_CONNECTED) {
+    wifiConnect();
+    if (WiFi.status() == WL_CONNECTED && !ntpSynced) {
+      ntpSync();
+    }
+  }
+
+  // --- MQTT ---
+  if (!mqtt.connected()) {
+    mqttReconnect();
+  }
+  mqtt.loop();
+
+  // --- Siren state machine ---
+  sirenUpdate();
+
+  // --- Door switch ---
+  doorUpdate();
+
+  // --- Power monitoring ---
+  powerUpdate();
+
+  // --- IMU sampling @100Hz (Spec §5.1) ---
+  if ((int32_t)(millis() - nextImuTick) >= 0) {
+    nextImuTick += IMU_SAMPLE_MS;
+
+    float delta = readDeltaG();
+
+    // Calibration mode
+    if (calibState == CALIB_RUNNING) {
+      calibProcessSample(delta);
+    }
+
+    // Hit detection (only when ARMED + CLOSED + not calibrating)
+    processHit(delta);
+  }
+
+  // --- Periodic status heartbeat ---
+  if (millis() - lastStatusPublish >= STATUS_INTERVAL_MS) {
+    lastStatusPublish = millis();
+    publishStatus();
+  }
+}
