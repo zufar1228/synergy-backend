@@ -36,11 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.processPowerAlert = exports.processIntrusiAlert = exports.processSensorDataForAlerts = void 0;
 // backend/src/services/alertingService.ts
 const models_1 = require("../db/models");
-const supabaseAdmin_1 = require("../config/supabaseAdmin");
-const notificationService_1 = require("./notificationService"); // <-- IMPORT BARU
-const actuationService = __importStar(require("./actuationService")); // <-- IMPORT BARU
-const webPushService = __importStar(require("./webPushService")); // <-- IMPORT PUSH
-const telegramService = __importStar(require("./telegramService")); // <-- IMPORT TELEGRAM
+const actuationService = __importStar(require("./actuationService"));
+const webPushService = __importStar(require("./webPushService"));
+const telegramService = __importStar(require("./telegramService"));
 const date_fns_1 = require("date-fns");
 const locale_1 = require("date-fns/locale");
 const THRESHOLDS = {
@@ -55,10 +53,10 @@ const THRESHOLDS = {
 // ============================================================================
 const deviceAlertState = new Map();
 /**
- * Mengirim notifikasi (email, push, dan Telegram) ke semua pengguna yang berlangganan
+ * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
  */
-const notifySubscribers = async (systemType, subject, emailProps, emailFunction) => {
+const notifySubscribers = async (systemType, subject, emailProps) => {
     // 1. Ambil User ID yang subscribe
     const userIds = (await models_1.UserNotificationPreference.findAll({
         where: { system_type: systemType, is_enabled: true },
@@ -121,24 +119,9 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
         await Promise.all(pushPromises);
         console.log('[Alerting] All push notifications processed.');
     })();
-    // === TASK 2: SIAPKAN EMAIL ===
-    const emailTask = (async () => {
-        try {
-            const { data: { users } } = await supabaseAdmin_1.supabaseAdmin.auth.admin.listUsers();
-            const subscribedUsers = users
-                .filter((user) => userIds.includes(user.id))
-                .map((user) => ({ email: user.email }));
-            const emailPromises = subscribedUsers.map((user) => emailFunction({ to: user.email, subject, emailProps }));
-            await Promise.all(emailPromises);
-            console.log('[Alerting] All emails processed.');
-        }
-        catch (error) {
-            console.error('[Alerting] Email processing failed:', error);
-        }
-    })();
     // === EKSEKUSI SEMUANYA BERSAMAAN ===
-    // Push, Email, dan Telegram jalan paralel
-    await Promise.all([pushTask, emailTask, telegramTask]);
+    // Push dan Telegram jalan paralel
+    await Promise.all([pushTask, telegramTask]);
 };
 /**
  * Memproses data sensor, membandingkan dengan ambang batas, dan mengontrol aktuator
@@ -230,7 +213,7 @@ const processSensorDataForAlerts = async (deviceId, systemType, data) => {
         const subject = `[PERINGATAN Kritis] Terdeteksi ${incidentType} di ${warehouse.name}`;
         try {
             console.log(`[Alerting] 🚨 Calling notifySubscribers for ALERT...`);
-            await notifySubscribers('lingkungan', subject, emailProps, notificationService_1.sendAlertEmail);
+            await notifySubscribers('lingkungan', subject, emailProps);
             console.log(`[Alerting] 🚨 notifySubscribers for ALERT completed!`);
         }
         catch (err) {
@@ -262,7 +245,7 @@ const processSensorDataForAlerts = async (deviceId, systemType, data) => {
         const subject = `[Info] Sistem Lingkungan di ${warehouse.name} Kembali Normal`;
         try {
             console.log(`[Alerting] ✅ Calling notifySubscribers for NORMAL...`);
-            await notifySubscribers('lingkungan', subject, emailProps, notificationService_1.sendAllClearEmail);
+            await notifySubscribers('lingkungan', subject, emailProps);
             console.log(`[Alerting] ✅ notifySubscribers for NORMAL completed!`);
         }
         catch (err) {
@@ -338,7 +321,7 @@ const processIntrusiAlert = async (deviceId, data) => {
     };
     const subject = `🚨 [ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
     try {
-        await notifySubscribers('intrusi', subject, emailProps, notificationService_1.sendAlertEmail);
+        await notifySubscribers('intrusi', subject, emailProps);
         console.log('[Alerting] Intrusi alert notifications sent.');
     }
     catch (err) {
@@ -450,7 +433,7 @@ const processPowerAlert = async (deviceId, data) => {
         details
     };
     try {
-        await notifySubscribers('intrusi', subject, emailProps, notificationService_1.sendAlertEmail);
+        await notifySubscribers('intrusi', subject, emailProps);
         console.log(`[Alerting] Power/battery alert sent for ${deviceId}.`);
     }
     catch (err) {

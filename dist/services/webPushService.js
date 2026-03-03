@@ -24,14 +24,16 @@ const saveSubscription = async (userId, sub) => {
         user_id: userId,
         endpoint: sub.endpoint,
         p256dh: sub.keys.p256dh,
-        auth: sub.keys.auth,
+        auth: sub.keys.auth
     });
 };
 exports.saveSubscription = saveSubscription;
 const sendPushNotification = async (userId, payload) => {
     console.log(`[WebPush] sendPushNotification called for user: ${userId}`);
     console.log(`[WebPush] Payload:`, JSON.stringify(payload));
-    const subscriptions = await models_1.PushSubscription.findAll({ where: { user_id: userId } });
+    const subscriptions = await models_1.PushSubscription.findAll({
+        where: { user_id: userId }
+    });
     console.log(`[WebPush] Found ${subscriptions.length} subscriptions for user ${userId}`);
     if (subscriptions.length === 0) {
         console.log(`[WebPush] ⚠️ No subscriptions found for user ${userId}, skipping...`);
@@ -46,11 +48,14 @@ const sendPushNotification = async (userId, payload) => {
     // Jalankan pengiriman ke semua device user ini secara paralel
     const promises = subscriptions.map(async (sub) => {
         try {
-            // HAPUS HEADER 'Urgency' DULU UNTUK STABILITAS
+            // Set urgency: 'high' + short TTL so push services (FCM/Mozilla) deliver immediately
             await web_push_1.default.sendNotification({
                 endpoint: sub.endpoint,
                 keys: { p256dh: sub.p256dh, auth: sub.auth }
-            }, notificationPayload);
+            }, notificationPayload, {
+                urgency: 'high',
+                TTL: 60
+            });
             console.log(`[WebPush] ✅ Sent to user ${userId.slice(0, 4)}...`);
         }
         catch (error) {

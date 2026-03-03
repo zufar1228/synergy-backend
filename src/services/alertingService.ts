@@ -3,17 +3,13 @@ import {
   Device,
   Area,
   Warehouse,
-  UserNotificationPreference,
-  Profile
+  UserNotificationPreference
 } from '../db/models';
-import { supabaseAdmin } from '../config/supabaseAdmin';
-import { sendAlertEmail, sendAllClearEmail } from './notificationService'; // <-- IMPORT BARU
-import * as actuationService from './actuationService'; // <-- IMPORT BARU
-import * as webPushService from './webPushService'; // <-- IMPORT PUSH
-import * as telegramService from './telegramService'; // <-- IMPORT TELEGRAM
+import * as actuationService from './actuationService';
+import * as webPushService from './webPushService';
+import * as telegramService from './telegramService';
 import { format } from 'date-fns';
 import { id as localeID } from 'date-fns/locale';
-import ApiError from '../utils/apiError';
 
 // Definisikan tipe untuk hasil query eager-loading
 interface DeviceWithRelations extends Device {
@@ -41,14 +37,13 @@ const deviceAlertState: Map<
 > = new Map();
 
 /**
- * Mengirim notifikasi (email, push, dan Telegram) ke semua pengguna yang berlangganan
+ * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
  */
 const notifySubscribers = async (
   systemType: string,
   subject: string,
-  emailProps: any,
-  emailFunction: (params: any) => Promise<void>
+  emailProps: any
 ) => {
   // 1. Ambil User ID yang subscribe
   const userIds = (
@@ -133,29 +128,9 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
     console.log('[Alerting] All push notifications processed.');
   })();
 
-  // === TASK 2: SIAPKAN EMAIL ===
-  const emailTask = (async () => {
-    try {
-      const {
-        data: { users }
-      } = await supabaseAdmin.auth.admin.listUsers();
-      const subscribedUsers = users
-        .filter((user) => userIds.includes(user.id))
-        .map((user) => ({ email: user.email! }));
-
-      const emailPromises = subscribedUsers.map((user) =>
-        emailFunction({ to: user.email, subject, emailProps })
-      );
-      await Promise.all(emailPromises);
-      console.log('[Alerting] All emails processed.');
-    } catch (error) {
-      console.error('[Alerting] Email processing failed:', error);
-    }
-  })();
-
   // === EKSEKUSI SEMUANYA BERSAMAAN ===
-  // Push, Email, dan Telegram jalan paralel
-  await Promise.all([pushTask, emailTask, telegramTask]);
+  // Push dan Telegram jalan paralel
+  await Promise.all([pushTask, telegramTask]);
 };
 
 /**
@@ -286,12 +261,7 @@ export const processSensorDataForAlerts = async (
 
     try {
       console.log(`[Alerting] 🚨 Calling notifySubscribers for ALERT...`);
-      await notifySubscribers(
-        'lingkungan',
-        subject,
-        emailProps,
-        sendAlertEmail
-      );
+      await notifySubscribers('lingkungan', subject, emailProps);
       console.log(`[Alerting] 🚨 notifySubscribers for ALERT completed!`);
     } catch (err) {
       console.error(`[Alerting] ❌ Error in notifySubscribers for ALERT:`, err);
@@ -327,12 +297,7 @@ export const processSensorDataForAlerts = async (
 
     try {
       console.log(`[Alerting] ✅ Calling notifySubscribers for NORMAL...`);
-      await notifySubscribers(
-        'lingkungan',
-        subject,
-        emailProps,
-        sendAllClearEmail
-      );
+      await notifySubscribers('lingkungan', subject, emailProps);
       console.log(`[Alerting] ✅ notifySubscribers for NORMAL completed!`);
     } catch (err) {
       console.error(
@@ -431,7 +396,7 @@ export const processIntrusiAlert = async (
   const subject = `🚨 [ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
 
   try {
-    await notifySubscribers('intrusi', subject, emailProps, sendAlertEmail);
+    await notifySubscribers('intrusi', subject, emailProps);
     console.log('[Alerting] Intrusi alert notifications sent.');
   } catch (err) {
     console.error('[Alerting] Error sending intrusi alert notifications:', err);
@@ -579,7 +544,7 @@ export const processPowerAlert = async (
   };
 
   try {
-    await notifySubscribers('intrusi', subject, emailProps, sendAlertEmail);
+    await notifySubscribers('intrusi', subject, emailProps);
     console.log(`[Alerting] Power/battery alert sent for ${deviceId}.`);
   } catch (err) {
     console.error('[Alerting] Error sending power alert:', err);

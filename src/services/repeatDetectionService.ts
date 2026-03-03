@@ -1,18 +1,9 @@
 // backend/src/services/repeatDetectionService.ts
-import {
-  KeamananLog,
-  Device,
-  Area,
-  Warehouse,
-  UserNotificationPreference,
-  Profile,
-} from "../db/models";
-import { supabaseAdmin } from "../config/supabaseAdmin";
-import { sendRepeatAlertEmail } from "./notificationService";
-import * as telegramService from "./telegramService"; // <-- ADD TELEGRAM IMPORT
-import { Op, literal } from "sequelize";
-import { format, differenceInMinutes } from "date-fns";
-import { id as localeID } from "date-fns/locale";
+import { KeamananLog, Device, Area, Warehouse } from '../db/models';
+import * as telegramService from './telegramService';
+import { Op } from 'sequelize';
+import { format } from 'date-fns';
+import { id as localeID } from 'date-fns/locale';
 
 const REPEAT_WINDOW_MINUTES = 15;
 
@@ -22,7 +13,7 @@ const REPEAT_WINDOW_MINUTES = 15;
  * Output: "baju-biru_memakai-topi"
  */
 function getIdentityKey(attributes: any[] | null): string {
-  if (!attributes || attributes.length === 0) return "unknown";
+  if (!attributes || attributes.length === 0) return 'unknown';
 
   // Flatten attributes to handle both nested and flat structures
   const flatAttributes: any[] = [];
@@ -37,21 +28,21 @@ function getIdentityKey(attributes: any[] | null): string {
     }
   });
 
-  if (flatAttributes.length === 0) return "unknown";
+  if (flatAttributes.length === 0) return 'unknown';
 
   return flatAttributes
     .map((attr: any) => {
-      if (!attr.attribute) return "";
+      if (!attr.attribute) return '';
       return attr.attribute
-        .replace("person wearing a ", "baju-")
-        .replace("person not wearing a ", "tanpa-")
-        .replace(" shirt", "")
-        .replace(" hat", "-topi")
-        .replace(" glasses", "-kacamata");
+        .replace('person wearing a ', 'baju-')
+        .replace('person not wearing a ', 'tanpa-')
+        .replace(' shirt', '')
+        .replace(' hat', '-topi')
+        .replace(' glasses', '-kacamata');
     })
-    .filter(attr => attr.length > 0)
+    .filter((attr) => attr.length > 0)
     .sort()
-    .join("_");
+    .join('_');
 }
 
 /**
@@ -63,26 +54,26 @@ export const findAndNotifyRepeatDetections = async () => {
     where: {
       detected: true,
       notification_sent_at: null,
-      status: "unacknowledged",
+      status: 'unacknowledged'
     },
     include: [
       {
         model: Device,
-        as: "device",
+        as: 'device',
         include: [
           {
             model: Area,
-            as: "area",
-            include: [{ model: Warehouse, as: "warehouse" }],
-          },
-        ],
-      },
+            as: 'area',
+            include: [{ model: Warehouse, as: 'warehouse' }]
+          }
+        ]
+      }
     ],
-    order: [["created_at", "ASC"]],
+    order: [['created_at', 'ASC']]
   });
 
   if (newDetections.length === 0) {
-    console.log("[RepeatDetection] Tidak ada deteksi baru untuk diproses.");
+    console.log('[RepeatDetection] Tidak ada deteksi baru untuk diproses.');
     return;
   }
 
@@ -101,7 +92,6 @@ export const findAndNotifyRepeatDetections = async () => {
 
   // 2. Proses setiap grup identitas
   for (const [identityKey, detections] of detectionMap.entries()) {
-
     // 3. Cek apakah ada log LAMA (sudah dinotifikasi) dengan kunci yang sama dalam 15 DETIK terakhir
     // Ini untuk mencegah spam jika notifikasi baru saja dikirim
     const recentNotifiedCount = await KeamananLog.count({
@@ -111,9 +101,9 @@ export const findAndNotifyRepeatDetections = async () => {
         attributes: { [Op.eq]: detections[0].attributes }, // Mencocokkan atribut
         notification_sent_at: { [Op.ne]: null }, // Yang SUDAH dinotifikasi
         created_at: {
-          [Op.gt]: new Date(Date.now() - 15 * 1000), // 15 DETIK, bukan menit
-        },
-      },
+          [Op.gt]: new Date(Date.now() - 15 * 1000) // 15 DETIK, bukan menit
+        }
+      }
     });
 
     if (recentNotifiedCount > 0) {
@@ -131,7 +121,8 @@ export const findAndNotifyRepeatDetections = async () => {
     // 4. Jika tidak ada notifikasi baru, cek apakah log BARU ini memenuhi syarat (lebih dari 1x dalam 15 DETIK)
     const firstDetection = detections[0];
     const lastDetection = detections[detections.length - 1];
-    const durationMs = lastDetection.created_at.getTime() - firstDetection.created_at.getTime();
+    const durationMs =
+      lastDetection.created_at.getTime() - firstDetection.created_at.getTime();
     const durationSeconds = durationMs / 1000;
 
     if (detections.length >= 2 && durationSeconds <= 15) {
@@ -140,9 +131,9 @@ export const findAndNotifyRepeatDetections = async () => {
         `[RepeatDetection] Terdeteksi pengulangan untuk ${identityKey} dalam ${durationSeconds.toFixed(1)} detik! Mengirim notifikasi...`
       );
 
-      const device = firstDetection.get("device") as Device;
-      const area = device.get("area") as Area;
-      const warehouse = area.get("warehouse") as Warehouse;
+      const device = firstDetection.get('device') as Device;
+      const area = device.get('area') as Area;
+      const warehouse = area.get('warehouse') as Warehouse;
 
       // 5. Kirim notifikasi
       const emailProps = {
@@ -150,17 +141,17 @@ export const findAndNotifyRepeatDetections = async () => {
         areaName: area.name,
         attributes: getIdentityKey(firstDetection.attributes as any[]).replace(
           /_/g,
-          ", "
+          ', '
         ),
         detectionCount: detections.length,
         durationMinutes: durationSeconds / 60, // Convert to minutes for email
-        firstSeen: format(firstDetection.created_at, "dd MMM yyyy, HH:mm:ss", {
-          locale: localeID,
+        firstSeen: format(firstDetection.created_at, 'dd MMM yyyy, HH:mm:ss', {
+          locale: localeID
         }),
-        lastSeen: format(lastDetection.created_at, "dd MMM yyyy, HH:mm:ss", {
-          locale: localeID,
+        lastSeen: format(lastDetection.created_at, 'dd MMM yyyy, HH:mm:ss', {
+          locale: localeID
         }),
-        imageUrl: lastDetection.image_url,
+        imageUrl: lastDetection.image_url
       };
 
       const subject = `[PERINGATAN] Orang yang Sama Terdeteksi Berulang Kali di ${warehouse.name} - ${area.name}`;
@@ -173,11 +164,11 @@ export const findAndNotifyRepeatDetections = async () => {
 
 📍 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
 🔧 <b>Device:</b> ${device.name}
-👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes as any[]).replace(/_/g, ", ")}
+👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes as any[]).replace(/_/g, ', ')}
 
 📊 <b>Detail Deteksi:</b>
-   • Deteksi pertama: ${format(firstDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: localeID })}
-   • Deteksi terakhir: ${format(lastDetection.created_at, "dd MMM yyyy, HH:mm:ss", { locale: localeID })}
+   • Deteksi pertama: ${format(firstDetection.created_at, 'dd MMM yyyy, HH:mm:ss', { locale: localeID })}
+   • Deteksi terakhir: ${format(lastDetection.created_at, 'dd MMM yyyy, HH:mm:ss', { locale: localeID })}
 
 🖼️ <b>Gambar:</b> ${lastDetection.image_url}
 
@@ -185,32 +176,14 @@ export const findAndNotifyRepeatDetections = async () => {
 `.trim();
 
           await telegramService.sendGroupAlert(message);
-          console.log("[RepeatDetection] Telegram notification sent to group.");
+          console.log('[RepeatDetection] Telegram notification sent to group.');
         } catch (error) {
-          console.error("[RepeatDetection] Telegram notification failed:", error);
+          console.error(
+            '[RepeatDetection] Telegram notification failed:',
+            error
+          );
         }
       })();
-
-      // 6. Dapatkan daftar penerima notifikasi
-      // (Logika ini sudah kita buat di alertingService, kita pinjam di sini)
-      const userIds = (
-        await UserNotificationPreference.findAll({
-          where: { system_type: "keamanan", is_enabled: true },
-          attributes: ["user_id"],
-        })
-      ).map((sub) => sub.user_id);
-
-      const {
-        data: { users },
-      } = await supabaseAdmin.auth.admin.listUsers();
-      const subscribedUsers = users
-        .filter((user) => userIds.includes(user.id))
-        .map((user) => ({ email: user.email! }));
-
-      // 7. Kirim email ke semua pelanggan
-      for (const user of subscribedUsers) {
-        await sendRepeatAlertEmail({ to: user.email, subject, emailProps });
-      }
 
       // Wait for Telegram notification to complete
       await telegramTask;
