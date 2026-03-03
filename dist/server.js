@@ -13,6 +13,7 @@ const analyticsRoutes_1 = __importDefault(require("./api/routes/analyticsRoutes"
 const client_1 = require("./mqtt/client");
 const heartbeatChecker_1 = require("./jobs/heartbeatChecker");
 const repeatDetectionJob_1 = require("./jobs/repeatDetectionJob");
+const disarmReminderJob_1 = require("./jobs/disarmReminderJob");
 const areaRoutes_1 = __importDefault(require("./api/routes/areaRoutes"));
 const authMiddleware_1 = require("./api/middlewares/authMiddleware");
 const userRoutes_1 = __importDefault(require("./api/routes/userRoutes"));
@@ -119,6 +120,7 @@ app.listen(PORT, HOST, () => {
                 try {
                     (0, heartbeatChecker_1.startHeartbeatJob)();
                     (0, repeatDetectionJob_1.startRepeatDetectionJob)();
+                    (0, disarmReminderJob_1.startDisarmReminderJob)();
                     console.log('✅ Jobs started');
                 }
                 catch (err) {

@@ -3,13 +3,15 @@ import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize';
 import { sequelize } from '../config';
 
 /**
- * Event types from door security system (spec v18):
- * - IMPACT_WARNING: single hit detected (hit_count < COUNT_LIMIT)
- * - FORCED_ENTRY_ALARM: 2 hits within window → alarm
+ * Event types from door security system (spec v19):
+ * - IMPACT_WARNING: hit detected, threat_score increased (leaky bucket)
+ * - FORCED_ENTRY_ALARM: threat_score >= S_ALARM → alarm triggered
  * - UNAUTHORIZED_OPEN: reed switch detected door open while ARMED
  * - POWER_SOURCE_CHANGED: mains ↔ battery transition
+ * - BATTERY_LEVEL_CHANGED: battery hysteresis level transition (NORMAL/LOW/CRITICAL)
+ * - CALIB_NOISE_COMPLETE: calibration Stage A (noise baseline) completed
  * - CALIB_SAVED: calibration completed and parameters saved
- * - CALIB_ABORTED: calibration timed out
+ * - CALIB_ABORTED: calibration timed out or failed
  * - SIREN_SILENCED: siren silenced via remote command
  * - ARM: system armed
  * - DISARM: system disarmed
@@ -19,6 +21,8 @@ export type IntrusiEventType =
   | 'FORCED_ENTRY_ALARM'
   | 'UNAUTHORIZED_OPEN'
   | 'POWER_SOURCE_CHANGED'
+  | 'BATTERY_LEVEL_CHANGED'
+  | 'CALIB_NOISE_COMPLETE'
   | 'CALIB_SAVED'
   | 'CALIB_ABORTED'
   | 'SIREN_SILENCED'

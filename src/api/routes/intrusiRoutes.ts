@@ -12,6 +12,7 @@ const intrusiCommandSchema = z.object({
   body: z.discriminatedUnion('cmd', [
     z.object({ cmd: z.literal('ARM') }),
     z.object({ cmd: z.literal('DISARM') }),
+    z.object({ cmd: z.literal('CALIB_START') }),
     z.object({
       cmd: z.literal('CALIB_KNOCK_START'),
       n_hits: z.number().int().min(3).max(15).optional(),

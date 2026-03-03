@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateIntrusiLogStatus = exports.getIntrusiStatus = exports.getIntrusiSummary = exports.getIntrusiLogs = exports.ingestIntrusiEvent = void 0;
 // backend/src/services/intrusiService.ts
+const sequelize_1 = require("sequelize");
 const models_1 = require("../db/models");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 /**
@@ -112,18 +113,35 @@ const getIntrusiStatus = async (device_id) => {
     });
     // Determine overall status
     let status = 'AMAN';
-    if (latestAlarm) {
-        if (latestAlarm.status === 'unacknowledged') {
+    // Current system state from the latest event
+    const currentSystemState = latestEvent?.system_state ?? 'DISARMED';
+    if (latestAlarm && latestAlarm.status === 'unacknowledged') {
+        // Check if a DISARM or SIREN_SILENCED event occurred AFTER the alarm.
+        // If yes, the operator has responded — downgrade from BAHAYA.
+        const clearingEvent = await models_1.IntrusiLog.findOne({
+            where: {
+                device_id,
+                event_type: ['DISARM', 'SIREN_SILENCED'],
+                timestamp: { [sequelize_1.Op.gt]: latestAlarm.timestamp }
+            },
+            order: [['timestamp', 'DESC']]
+        });
+        if (clearingEvent || currentSystemState === 'DISARMED') {
+            // Operator responded (disarmed or silenced siren) → AMAN
+            status = 'AMAN';
+        }
+        else {
             status = 'BAHAYA';
         }
-        // Once acknowledged/resolved/false_alarm → AMAN (no lingering WASPADA)
     }
     // Get latest impact warning
     const latestImpact = await models_1.IntrusiLog.findOne({
         where: { device_id, event_type: 'IMPACT_WARNING' },
         order: [['timestamp', 'DESC']]
     });
+    // Only show WASPADA if system is ARMED and no clearing event after the warning
     if (status === 'AMAN' &&
+        currentSystemState === 'ARMED' &&
         latestImpact &&
         latestImpact.status === 'unacknowledged') {
         status = 'WASPADA';

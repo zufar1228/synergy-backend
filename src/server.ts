@@ -8,6 +8,7 @@ import analyticsRoutes from './api/routes/analyticsRoutes';
 import { initializeMqttClient } from './mqtt/client';
 import { startHeartbeatJob } from './jobs/heartbeatChecker';
 import { startRepeatDetectionJob } from './jobs/repeatDetectionJob';
+import { startDisarmReminderJob } from './jobs/disarmReminderJob';
 import areaRoutes from './api/routes/areaRoutes';
 import { authMiddleware } from './api/middlewares/authMiddleware';
 import userRoutes from './api/routes/userRoutes';
@@ -132,6 +133,7 @@ app.listen(PORT, HOST, () => {
         try {
           startHeartbeatJob();
           startRepeatDetectionJob();
+          startDisarmReminderJob();
           console.log('✅ Jobs started');
         } catch (err: any) {
           console.error('⚠️ Jobs failed:', err.message);

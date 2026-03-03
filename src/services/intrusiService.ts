@@ -1,4 +1,5 @@
 // backend/src/services/intrusiService.ts
+import { Op } from 'sequelize';
 import { IntrusiLog } from '../db/models';
 import {
   IntrusiEventType,
@@ -150,11 +151,27 @@ export const getIntrusiStatus = async (device_id: string) => {
   // Determine overall status
   let status: 'AMAN' | 'WASPADA' | 'BAHAYA' = 'AMAN';
 
-  if (latestAlarm) {
-    if (latestAlarm.status === 'unacknowledged') {
+  // Current system state from the latest event
+  const currentSystemState = latestEvent?.system_state ?? 'DISARMED';
+
+  if (latestAlarm && latestAlarm.status === 'unacknowledged') {
+    // Check if a DISARM or SIREN_SILENCED event occurred AFTER the alarm.
+    // If yes, the operator has responded — downgrade from BAHAYA.
+    const clearingEvent = await IntrusiLog.findOne({
+      where: {
+        device_id,
+        event_type: ['DISARM', 'SIREN_SILENCED'],
+        timestamp: { [Op.gt]: latestAlarm.timestamp }
+      },
+      order: [['timestamp', 'DESC']]
+    });
+
+    if (clearingEvent || currentSystemState === 'DISARMED') {
+      // Operator responded (disarmed or silenced siren) → AMAN
+      status = 'AMAN';
+    } else {
       status = 'BAHAYA';
     }
-    // Once acknowledged/resolved/false_alarm → AMAN (no lingering WASPADA)
   }
 
   // Get latest impact warning
@@ -163,8 +180,10 @@ export const getIntrusiStatus = async (device_id: string) => {
     order: [['timestamp', 'DESC']]
   });
 
+  // Only show WASPADA if system is ARMED and no clearing event after the warning
   if (
     status === 'AMAN' &&
+    currentSystemState === 'ARMED' &&
     latestImpact &&
     latestImpact.status === 'unacknowledged'
   ) {

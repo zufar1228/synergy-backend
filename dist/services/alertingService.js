@@ -317,7 +317,16 @@ const processIntrusiAlert = async (deviceId, data) => {
             key: 'Peak Impact (g)',
             value: data.peak_delta_g.toFixed(3)
         });
-        details.push({ key: 'Hit Count', value: String(data.hit_count ?? 'N/A') });
+        // v19: show threat_score (leaky bucket) instead of hit_count
+        if (data.threat_score != null) {
+            details.push({
+                key: 'Threat Score',
+                value: Number(data.threat_score).toFixed(2)
+            });
+        }
+        else if (data.hit_count != null) {
+            details.push({ key: 'Hit Count', value: String(data.hit_count) });
+        }
     }
     const emailProps = {
         incidentType,
