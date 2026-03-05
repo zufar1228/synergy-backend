@@ -69,7 +69,7 @@ const float SAFE_CO2_MAX        = 1200.0; // Turn OFF if below
 // Timing Constants
 // ============================================================================
 
-const unsigned long SENSOR_READ_INTERVAL_MS   = 30000;   // 30 seconds
+const unsigned long SENSOR_READ_INTERVAL_MS   = 60000;   // 1 minute (1 reading per minute for ML)
 const unsigned long HEARTBEAT_INTERVAL_MS     = 60000;   // 1 minute
 const unsigned long MANUAL_OVERRIDE_DURATION  = 300000;  // 5 minutes
 const unsigned long WIFI_RECONNECT_INTERVAL   = 10000;   // 10 seconds

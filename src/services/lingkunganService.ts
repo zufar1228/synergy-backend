@@ -72,16 +72,16 @@ export const ingestSensorData = async (data: {
  */
 const triggerPrediction = async (deviceId: string) => {
   try {
-    // Get the last 10 readings for the LSTM sequence
+    // Get the last 60 readings for the LSTM sequence (1 hour at 1‑min interval)
     const recentData = await LingkunganLog.findAll({
       where: { device_id: deviceId },
       order: [['timestamp', 'DESC']],
-      limit: 10
+      limit: 60
     });
 
-    if (recentData.length < 10) {
+    if (recentData.length < 60) {
       console.log(
-        `[LingkunganService] Not enough data for prediction (${recentData.length}/10). Skipping.`
+        `[LingkunganService] Not enough data for prediction (${recentData.length}/60). Skipping.`
       );
       return;
     }
