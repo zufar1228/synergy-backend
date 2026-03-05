@@ -203,6 +203,8 @@ export const initializeMqttClient = () => {
 
           try {
             const statusData = JSON.parse(message);
+
+            // detect intrusi-specific fields first
             if (
               statusData.door ||
               statusData.state ||
@@ -221,6 +223,23 @@ export const initializeMqttClient = () => {
               if (statusData.vbat_pct !== undefined)
                 extraFields.vbat_pct = parseInt(statusData.vbat_pct, 10);
               console.log('🚪 Intrusi status fields:', extraFields);
+            }
+
+            // also pull lingkungan-specific state fields if they exist
+            extraFields = extraFields || ({} as any);
+            if (statusData.fan !== undefined) {
+              extraFields!.fan_state = statusData.fan;
+              console.log('🌡️ LINGKUNGAN fan state:', statusData.fan);
+            }
+            if (statusData.dehumidifier !== undefined) {
+              extraFields!.dehumidifier_state = statusData.dehumidifier;
+              console.log(
+                '🌡️ LINGKUNGAN dehumidifier state:',
+                statusData.dehumidifier
+              );
+            }
+            if (statusData.mode !== undefined) {
+              extraFields!.control_mode = statusData.mode;
             }
 
             // Process power/battery alerts

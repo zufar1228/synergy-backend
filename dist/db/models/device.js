@@ -32,10 +32,10 @@ Device.init({
         type: sequelize_1.DataTypes.DATE,
         allowNull: true
     },
-    fan_status: {
-        type: sequelize_1.DataTypes.ENUM('On', 'Off'),
+    fan_state: {
+        type: sequelize_1.DataTypes.ENUM('ON', 'OFF'),
         allowNull: false,
-        defaultValue: 'Off'
+        defaultValue: 'OFF'
     },
     door_state: {
         type: sequelize_1.DataTypes.TEXT,

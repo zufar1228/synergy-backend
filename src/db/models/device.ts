@@ -4,7 +4,7 @@ import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize'; // <-- I
 import { sequelize } from '../config';
 
 export type DeviceStatus = 'Online' | 'Offline';
-export type FanStatus = 'On' | 'Off';
+export type FanState = 'ON' | 'OFF';
 export type DoorState = 'OPEN' | 'CLOSED';
 export type IntrusiSystemState = 'ARMED' | 'DISARMED';
 export type SirenState = 'ON' | 'COOLDOWN' | 'OFF';
@@ -17,7 +17,7 @@ export interface DeviceAttributes {
   system_type: string;
   status: CreationOptional<DeviceStatus>;
   last_heartbeat?: Date | null;
-  fan_status: CreationOptional<FanStatus>;
+  fan_state: CreationOptional<FanState>;
   door_state?: DoorState | null;
   intrusi_system_state?: IntrusiSystemState | null;
   siren_state?: SirenState | null;
@@ -44,7 +44,7 @@ class Device
   public system_type!: string;
   public status!: CreationOptional<DeviceStatus>;
   public last_heartbeat!: Date | null;
-  public fan_status!: CreationOptional<FanStatus>;
+  public fan_state!: CreationOptional<FanState>;
   public door_state!: DoorState | null;
   public intrusi_system_state!: IntrusiSystemState | null;
   public siren_state!: SirenState | null;
@@ -85,10 +85,10 @@ Device.init(
       type: DataTypes.DATE,
       allowNull: true
     },
-    fan_status: {
-      type: DataTypes.ENUM('On', 'Off'),
+    fan_state: {
+      type: DataTypes.ENUM('ON', 'OFF'),
       allowNull: false,
-      defaultValue: 'Off'
+      defaultValue: 'OFF'
     },
     door_state: {
       type: DataTypes.TEXT,
