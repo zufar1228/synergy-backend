@@ -39,8 +39,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.client = exports.initializeMqttClient = void 0;
 // backend/src/mqtt/client.ts
 const mqtt_1 = __importDefault(require("mqtt"));
-const logService = __importStar(require("../services/logService"));
 const intrusiService = __importStar(require("../services/intrusiService"));
+const lingkunganService = __importStar(require("../services/lingkunganService"));
 const deviceService_1 = require("../services/deviceService");
 const alertingService = __importStar(require("../services/alertingService"));
 console.log('\n' + '='.repeat(80));
@@ -97,10 +97,14 @@ const initializeMqttClient = () => {
             // Subscribe ke topic sensor dan status
             const sensorTopic = 'warehouses/+/areas/+/devices/+/sensors/#';
             const statusTopic = 'warehouses/+/areas/+/devices/+/status';
+            const mlResponseTopic = 'synergy/ml/predict/response/+';
+            const mlStatusTopic = 'synergy/ml/status';
             console.log('\n📥 [MQTT] Subscribing to topics:');
             console.log('   1.', sensorTopic);
             console.log('   2.', statusTopic);
-            client.subscribe([sensorTopic, statusTopic], { qos: 1 }, (err, granted) => {
+            console.log('   3.', mlResponseTopic);
+            console.log('   4.', mlStatusTopic);
+            client.subscribe([sensorTopic, statusTopic, mlResponseTopic, mlStatusTopic], { qos: 1 }, (err, granted) => {
                 if (err) {
                     console.error('\n❌ [MQTT] Subscription error:', err);
                     console.error('   Error message:', err.message);
@@ -125,6 +129,40 @@ const initializeMqttClient = () => {
             try {
                 const topicParts = topic.split('/');
                 const message = payload.toString();
+                // ============================================================
+                // Handle ML prediction responses: synergy/ml/predict/response/{deviceId}
+                // ============================================================
+                if (topic.startsWith('synergy/ml/predict/response/')) {
+                    const deviceId = topicParts[4]; // synergy/ml/predict/response/{deviceId}
+                    console.log('🧠 Processing ML prediction response for device:', deviceId);
+                    try {
+                        const prediction = JSON.parse(message);
+                        await lingkunganService.handlePredictionResult(deviceId, prediction);
+                        console.log('✅ ML prediction result processed successfully');
+                    }
+                    catch (parseErr) {
+                        console.error('❌ Failed to parse ML prediction response:', parseErr);
+                    }
+                    console.log('='.repeat(80) + '\n');
+                    return;
+                }
+                // ============================================================
+                // Handle ML server status: synergy/ml/status
+                // ============================================================
+                if (topic === 'synergy/ml/status') {
+                    try {
+                        const status = JSON.parse(message);
+                        console.log(`🤖 ML Server status: ${status.status} (model: ${status.model_loaded ? '✅' : '❌'}, scaler: ${status.scaler_loaded ? '✅' : '❌'})`);
+                    }
+                    catch {
+                        console.log('🤖 ML Server status:', message);
+                    }
+                    console.log('='.repeat(80) + '\n');
+                    return;
+                }
+                // ============================================================
+                // Handle device topics (sensor data, heartbeats)
+                // ============================================================
                 // Validasi format topic minimal
                 if (topicParts.length < 7) {
                     console.error('❌ Invalid topic format (too short):', topic);
@@ -196,22 +234,7 @@ const initializeMqttClient = () => {
                     console.log('   System Type:', systemType);
                     const data = JSON.parse(message);
                     console.log('   Parsed Data:', JSON.stringify(data, null, 2));
-                    if (systemType === 'lingkungan') {
-                        console.log('🌡️  Saving environment sensor data...');
-                        await logService.ingestLingkunganLog({
-                            device_id: deviceId,
-                            payload: data,
-                            temperature: data.temp,
-                            humidity: data.humidity,
-                            co2_ppm: data.co2_ppm
-                        });
-                        console.log('✅ Environment data saved to database');
-                        // Panggil service alerting setelah data disimpan
-                        console.log('🔔 Checking for alerts...');
-                        await alertingService.processSensorDataForAlerts(deviceId, systemType, data);
-                        console.log('✅ Alert processing completed');
-                    }
-                    else if (systemType === 'intrusi') {
+                    if (systemType === 'intrusi') {
                         console.log('🚪 Processing door security event...');
                         // Update heartbeat + device state fields
                         // Derive siren_state from event type so UI updates immediately
@@ -248,6 +271,21 @@ const initializeMqttClient = () => {
                             await alertingService.processIntrusiAlert(deviceId, data);
                             console.log('✅ Intrusi alert processing completed');
                         }
+                    }
+                    else if (systemType === 'lingkungan') {
+                        console.log('🌡️ Processing environmental sensor data...');
+                        await (0, deviceService_1.updateDeviceHeartbeat)(deviceId, {
+                            last_temperature: data.temperature,
+                            last_humidity: data.humidity,
+                            last_co2: data.co2
+                        });
+                        await lingkunganService.ingestSensorData({
+                            device_id: deviceId,
+                            temperature: data.temperature,
+                            humidity: data.humidity,
+                            co2: data.co2
+                        });
+                        console.log('✅ Environmental sensor data saved and prediction triggered');
                     }
                     else {
                         console.log(`⚠️  Unknown system type: ${systemType}`);

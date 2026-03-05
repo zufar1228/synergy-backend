@@ -519,7 +519,7 @@ static void decayThreatScore() {
   uint32_t now = millis();
   if (lastDecayMs == 0) { lastDecayMs = now; return; }
 
-  float dt_s = (now - lastDecayMs) / 1000.0f;
+  float dt_s = (float)(now - lastDecayMs) / 1000.0f;
   lastDecayMs = now;
 
   if (dt_s > 0.0f && threatScore > 0.0f) {
@@ -597,6 +597,13 @@ static void calibStart() {
   if (calibState != CALIB_IDLE) {
     logMsg("[CALIB] Already running.");
     return;
+  }
+
+  // Anti-leak protection: free any stale buffer from a previously interrupted calibration
+  if (noiseSamples != nullptr) {
+    free(noiseSamples);
+    noiseSamples = nullptr;
+    logMsg("[CALIB] Freed stale noise buffer from previous session.");
   }
 
   // Allocate noise sample buffer
@@ -1146,7 +1153,8 @@ void loop() {
   // --- Power / battery monitoring ---
   powerUpdate();
 
-  // --- Network power saving policy ---
+  // --- Network power saving policy (run BEFORE IMU/hit processing
+  //     so WiFi radio is awake before any alarm MQTT publish) ---
   updateNetPolicy();
 
   // --- IMU sampling @100Hz (Spec v19 §5.1) ---

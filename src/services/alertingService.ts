@@ -5,7 +5,6 @@ import {
   Warehouse,
   UserNotificationPreference
 } from '../db/models';
-import * as actuationService from './actuationService';
 import * as webPushService from './webPushService';
 import * as telegramService from './telegramService';
 import { format } from 'date-fns';
@@ -17,24 +16,6 @@ interface DeviceWithRelations extends Device {
     warehouse: Warehouse;
   };
 }
-const THRESHOLDS = {
-  lingkungan: {
-    temp: { max: 40 }, // Suhu maks 40°C
-    co2: { max: 1500 } // CO2 maks 1500 ppm
-  }
-};
-
-// ============================================================================
-// IN-MEMORY CACHE untuk melacak status alert terakhir per device
-// Ini membantu mengatasi race condition dengan simulator yang mengupdate DB langsung
-// ============================================================================
-const deviceAlertState: Map<
-  string,
-  {
-    wasAlertTriggered: boolean;
-    notificationSentAt?: Date;
-  }
-> = new Map();
 
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
@@ -134,188 +115,6 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
 };
 
 /**
- * Memproses data sensor, membandingkan dengan ambang batas, dan mengontrol aktuator
- */
-export const processSensorDataForAlerts = async (
-  deviceId: string,
-  systemType: string,
-  data: any
-) => {
-  if (systemType !== 'lingkungan') return;
-
-  const { temp, co2_ppm } = data;
-  console.log(
-    `[Alerting] Menerima data untuk ${deviceId}: Temp=${temp}, CO2=${co2_ppm}`
-  ); // <-- LOG 1
-
-  if (temp === undefined && co2_ppm === undefined) {
-    console.log('[Alerting] Data tidak lengkap (temp/co2 tidak ada). Keluar.');
-    return;
-  }
-
-  // 1. Dapatkan status perangkat saat ini (termasuk status kipas)
-  const device = (await Device.findByPk(deviceId, {
-    include: [
-      {
-        model: Area,
-        as: 'area',
-        include: [{ model: Warehouse, as: 'warehouse' }]
-      }
-    ]
-  })) as DeviceWithRelations | null;
-
-  if (!device) {
-    console.error(
-      `[Alerting] GAGAL: Perangkat dengan ID ${deviceId} tidak ditemukan.`
-    );
-    return;
-  }
-  if (!device.area || !device.area.warehouse) {
-    console.error(
-      `[Alerting] GAGAL: Relasi Area/Gudang untuk perangkat ${deviceId} tidak ditemukan.`
-    );
-    return;
-  }
-
-  const { area, fan_status } = device;
-  const { warehouse } = area;
-
-  // 2. Tentukan kondisi berdasarkan sensor values (BUKAN fan_status!)
-  const tempLimit = THRESHOLDS.lingkungan.temp.max;
-  const co2Limit = THRESHOLDS.lingkungan.co2.max;
-
-  const isAlertTriggered = temp > tempLimit || co2_ppm > co2Limit;
-
-  // Ambil state sebelumnya dari cache
-  const previousState = deviceAlertState.get(deviceId);
-  const wasAlertTriggered = previousState?.wasAlertTriggered ?? false;
-
-  console.log(
-    `[Alerting] Status saat ini: Alert=${isAlertTriggered}, WasAlert=${wasAlertTriggered}, DB fan_status=${device.fan_status}`
-  );
-
-  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-    locale: localeID
-  });
-
-  // 3. Terapkan Logika Kontrol berdasarkan TRANSISI state
-  // Kondisi ALERT: Sekarang alert terpicu DAN sebelumnya tidak alert
-  // Kondisi NORMAL: Sekarang tidak alert DAN sebelumnya alert
-  console.log(
-    `[Alerting] DEBUG: isAlertTriggered=${isAlertTriggered}, wasAlertTriggered=${wasAlertTriggered}`
-  );
-  console.log(
-    `[Alerting] DEBUG: Condition for ALERT: isAlertTriggered=${isAlertTriggered} && !wasAlertTriggered=${!wasAlertTriggered} → ${isAlertTriggered && !wasAlertTriggered}`
-  );
-  console.log(
-    `[Alerting] DEBUG: Condition for NORMAL: !isAlertTriggered=${!isAlertTriggered} && wasAlertTriggered=${wasAlertTriggered} → ${!isAlertTriggered && wasAlertTriggered}`
-  );
-
-  if (isAlertTriggered && !wasAlertTriggered) {
-    // --- KONDISI: TRANSISI KE ALERT (baru saja melewati threshold) ---
-    console.log(
-      `[Alerting] 🚨 PERINGATAN terpicu untuk ${device.name}. Menyalakan kipas...`
-    );
-
-    // Update cache DULU agar tidak double-trigger
-    deviceAlertState.set(deviceId, {
-      wasAlertTriggered: true,
-      notificationSentAt: new Date()
-    });
-
-    // Tentukan detail peringatan
-    let incidentType =
-      temp > tempLimit ? 'Suhu Terlalu Tinggi' : 'Kadar CO2 Tinggi';
-    let details =
-      temp > tempLimit
-        ? [
-            { key: 'Suhu', value: `${temp}°C` },
-            { key: 'Batas', value: `${tempLimit}°C` }
-          ]
-        : [
-            { key: 'CO2', value: `${co2_ppm} ppm` },
-            { key: 'Batas', value: `${co2Limit} ppm` }
-          ];
-
-    // a. Kirim Perintah 'On' (jika belum On)
-    if (device.fan_status !== 'On') {
-      console.log(`[Alerting] 🚨 Sending fan ON command...`);
-      await actuationService.controlFanRelay(deviceId, 'On');
-      console.log(`[Alerting] 🚨 Fan ON command sent!`);
-    } else {
-      console.log(`[Alerting] 🚨 Fan already ON in DB, skipping actuation.`);
-    }
-
-    console.log(`[Alerting] 🚨 Now sending ALERT notifications...`);
-
-    // b. Kirim Notifikasi Peringatan
-    const emailProps = {
-      incidentType,
-      warehouseName: warehouse.name,
-      areaName: area.name,
-      deviceName: device.name,
-      timestamp,
-      details
-    };
-    const subject = `[PERINGATAN Kritis] Terdeteksi ${incidentType} di ${warehouse.name}`;
-
-    try {
-      console.log(`[Alerting] 🚨 Calling notifySubscribers for ALERT...`);
-      await notifySubscribers('lingkungan', subject, emailProps);
-      console.log(`[Alerting] 🚨 notifySubscribers for ALERT completed!`);
-    } catch (err) {
-      console.error(`[Alerting] ❌ Error in notifySubscribers for ALERT:`, err);
-    }
-  } else if (!isAlertTriggered && wasAlertTriggered) {
-    // --- KONDISI: TRANSISI KE NORMAL (kembali di bawah threshold) ---
-    console.log(
-      `[Alerting] ✅ NORMAL kembali untuk ${device.name}. Mematikan kipas...`
-    );
-
-    // Update cache DULU
-    deviceAlertState.set(deviceId, { wasAlertTriggered: false });
-
-    // a. Kirim Perintah 'Off' (jika belum Off)
-    if (device.fan_status !== 'Off') {
-      console.log(`[Alerting] ✅ Sending fan OFF command...`);
-      await actuationService.controlFanRelay(deviceId, 'Off');
-      console.log(`[Alerting] ✅ Fan OFF command sent!`);
-    } else {
-      console.log(`[Alerting] ✅ Fan already OFF in DB, skipping actuation.`);
-    }
-
-    console.log(`[Alerting] ✅ Now sending NORMAL notifications...`);
-
-    // b. Kirim Notifikasi "Kembali Normal"
-    const emailProps = {
-      warehouseName: warehouse.name,
-      areaName: area.name,
-      deviceName: device.name,
-      timestamp
-    };
-    const subject = `[Info] Sistem Lingkungan di ${warehouse.name} Kembali Normal`;
-
-    try {
-      console.log(`[Alerting] ✅ Calling notifySubscribers for NORMAL...`);
-      await notifySubscribers('lingkungan', subject, emailProps);
-      console.log(`[Alerting] ✅ notifySubscribers for NORMAL completed!`);
-    } catch (err) {
-      console.error(
-        `[Alerting] ❌ Error in notifySubscribers for NORMAL:`,
-        err
-      );
-    }
-  } else {
-    // --- KONDISI STABIL ---
-    // Update cache to keep it in sync
-    if (isAlertTriggered !== wasAlertTriggered) {
-      deviceAlertState.set(deviceId, { wasAlertTriggered: isAlertTriggered });
-    }
-    console.log('[Alerting] Kondisi stabil. Tidak ada aksi diperlukan.');
-  }
-};
-
-/**
  * Process alarm events from the door security (intrusi) system.
  * Called for FORCED_ENTRY_ALARM and UNAUTHORIZED_OPEN events.
  */
@@ -400,6 +199,93 @@ export const processIntrusiAlert = async (
     console.log('[Alerting] Intrusi alert notifications sent.');
   } catch (err) {
     console.error('[Alerting] Error sending intrusi alert notifications:', err);
+  }
+};
+
+// ============================================================================
+// LINGKUNGAN (Environmental Monitoring) ALERTS
+// ============================================================================
+
+/**
+ * Process predictive alerts from the environmental monitoring (lingkungan) system.
+ * Called when ML predictions exceed safety thresholds.
+ */
+export const processLingkunganAlert = async (
+  deviceId: string,
+  alerts: string[],
+  prediction: {
+    predicted_temperature: number;
+    predicted_humidity: number;
+    predicted_co2: number;
+  }
+) => {
+  console.log(
+    `[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`
+  );
+
+  const device = (await Device.findByPk(deviceId, {
+    include: [
+      {
+        model: Area,
+        as: 'area',
+        include: [{ model: Warehouse, as: 'warehouse' }]
+      }
+    ]
+  })) as DeviceWithRelations | null;
+
+  if (!device || !device.area || !device.area.warehouse) {
+    console.error(
+      `[Alerting] GAGAL: Perangkat/relasi ${deviceId} tidak ditemukan.`
+    );
+    return;
+  }
+
+  const { area } = device;
+  const { warehouse } = area;
+
+  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
+    locale: localeID
+  });
+
+  const incidentType = 'Prediksi Kondisi Lingkungan Berbahaya (15 Menit)';
+
+  const details: { key: string; value: string }[] = [
+    {
+      key: 'Prediksi Suhu',
+      value: `${prediction.predicted_temperature.toFixed(1)}°C`
+    },
+    {
+      key: 'Prediksi Kelembapan',
+      value: `${prediction.predicted_humidity.toFixed(1)}%`
+    },
+    {
+      key: 'Prediksi CO2',
+      value: `${prediction.predicted_co2.toFixed(0)} ppm`
+    }
+  ];
+
+  alerts.forEach((alert) => {
+    details.push({ key: 'Peringatan', value: alert });
+  });
+
+  const emailProps = {
+    incidentType,
+    warehouseName: warehouse.name,
+    areaName: area.name,
+    deviceName: device.name,
+    timestamp,
+    details
+  };
+  const subject = `🌡️ [PERINGATAN LINGKUNGAN] ${incidentType} di ${warehouse.name} - ${area.name}`;
+
+  try {
+    await notifySubscribers('lingkungan', subject, emailProps);
+    console.log('[Alerting] Lingkungan alert notifications sent.');
+  } catch (err) {
+    console.error(
+      '[Alerting] Error sending lingkungan alert notifications:',
+      err
+    );
   }
 };
 

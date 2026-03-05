@@ -1,5 +1,4 @@
 "use strict";
-// backend/src/api/routes/deviceRoutes.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -34,36 +33,32 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+// backend/src/api/routes/lingkunganRoutes.ts
 const express_1 = require("express");
-const deviceController = __importStar(require("../controllers/deviceController"));
+const lingkunganController = __importStar(require("../controllers/lingkunganController"));
+const authMiddleware_1 = require("../middlewares/authMiddleware");
 const validateRequest_1 = require("../middlewares/validateRequest");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
-// Daftar tipe sistem yang kita izinkan
-const systemTypes = zod_1.z.enum(['keamanan', 'intrusi', 'lingkungan']);
-const createDeviceSchema = zod_1.z.object({
-    body: zod_1.z.object({
-        name: zod_1.z.string().min(1, { message: 'Nama wajib diisi.' }),
-        area_id: zod_1.z
-            .string()
-            .uuid({ message: 'Area ID harus berupa UUID yang valid.' }),
-        system_type: systemTypes // <-- PERUBAHAN DI SINI
+// === Zod Schema: Manual control command validation ===
+const controlCommandSchema = zod_1.z.object({
+    body: zod_1.z
+        .object({
+        fan: zod_1.z.enum(['ON', 'OFF']).optional(),
+        dehumidifier: zod_1.z.enum(['ON', 'OFF']).optional(),
+        mode: zod_1.z.enum(['AUTO', 'MANUAL']).optional()
+    })
+        .refine((data) => data.fan || data.dehumidifier || data.mode, {
+        message: 'Harus menyertakan setidaknya satu perintah (fan, dehumidifier, atau mode).'
     })
 });
-const updateDeviceSchema = zod_1.z.object({
-    body: zod_1.z.object({
-        name: zod_1.z.string().min(1).optional(),
-        area_id: zod_1.z.string().uuid().optional()
-        // Tipe sistem tidak boleh diubah saat update, jadi kita hapus dari skema update
-    })
-});
-// Daftarkan semua endpoint
-// Rute ini harus di atas rute '/:id' agar 'details' tidak dianggap sebagai ID
-router.get('/details', deviceController.getDeviceDetailsByArea);
-// Rute yang sudah ada
-router.get('/', deviceController.listDevices);
-router.post('/', (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
-router.get('/:id', deviceController.getDeviceById);
-router.put('/:id', (0, validateRequest_1.validate)(updateDeviceSchema), deviceController.updateDevice);
-router.delete('/:id', deviceController.deleteDevice);
+// Device-level endpoints
+router.get('/devices/:deviceId/logs', authMiddleware_1.authMiddleware, lingkunganController.getLogs);
+router.get('/devices/:deviceId/summary', authMiddleware_1.authMiddleware, lingkunganController.getSummary);
+router.get('/devices/:deviceId/status', authMiddleware_1.authMiddleware, lingkunganController.getStatus);
+router.get('/devices/:deviceId/chart', authMiddleware_1.authMiddleware, lingkunganController.getChartData);
+// POST /api/lingkungan/control — Manual control (fan, dehumidifier)
+router.post('/devices/:deviceId/control', authMiddleware_1.authMiddleware, (0, validateRequest_1.validate)(controlCommandSchema), lingkunganController.sendControlCommand);
+// Log acknowledgement
+router.put('/logs/:id/status', authMiddleware_1.authMiddleware, lingkunganController.updateStatus);
 exports.default = router;

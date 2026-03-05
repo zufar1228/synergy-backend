@@ -37,9 +37,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendManualCommand = exports.getDeviceDetailsByArea = exports.deleteDevice = exports.updateDevice = exports.createDevice = exports.getDeviceById = exports.listDevices = void 0;
+exports.getDeviceDetailsByArea = exports.deleteDevice = exports.updateDevice = exports.createDevice = exports.getDeviceById = exports.listDevices = void 0;
 const deviceService = __importStar(require("../../services/deviceService"));
-const actuationService = __importStar(require("../../services/actuationService")); // <-- IMPORT ACTUATION SERVICE
 const apiError_1 = __importDefault(require("../../utils/apiError"));
 const handleError = (res, error) => {
     if (error instanceof apiError_1.default) {
@@ -114,24 +113,3 @@ const getDeviceDetailsByArea = async (req, res) => {
     }
 };
 exports.getDeviceDetailsByArea = getDeviceDetailsByArea;
-// --- TAMBAHKAN FUNGSI BARU INI ---
-const sendManualCommand = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { action } = req.body; // Sudah divalidasi oleh Zod
-        // ❌ Hapus validasi manual ini (sudah ditangani Zod)
-        // if (!action || !['On', 'Off'].includes(action)) {
-        //   throw new ApiError(400, 'Aksi tidak valid. Kirim "On" atau "Off".');
-        // }
-        await actuationService.controlFanRelay(id, action);
-        res.status(200).json({
-            message: `Perintah manual '${action}' berhasil dikirim.`,
-            device_id: id,
-            action: action,
-        });
-    }
-    catch (error) {
-        handleError(res, error);
-    }
-};
-exports.sendManualCommand = sendManualCommand;

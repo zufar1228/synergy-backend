@@ -207,6 +207,25 @@ const updateDeviceHeartbeat = async (deviceId, extraFields) => {
         if (extraFields?.vbat_pct !== undefined && extraFields?.vbat_pct !== null) {
             updateData.vbat_pct = extraFields.vbat_pct;
         }
+        // Merge lingkungan-specific fields if provided
+        if (extraFields?.last_temperature !== undefined) {
+            updateData.last_temperature = extraFields.last_temperature;
+        }
+        if (extraFields?.last_humidity !== undefined) {
+            updateData.last_humidity = extraFields.last_humidity;
+        }
+        if (extraFields?.last_co2 !== undefined) {
+            updateData.last_co2 = extraFields.last_co2;
+        }
+        if (extraFields?.fan_state) {
+            updateData.fan_state = extraFields.fan_state;
+        }
+        if (extraFields?.dehumidifier_state) {
+            updateData.dehumidifier_state = extraFields.dehumidifier_state;
+        }
+        if (extraFields?.control_mode) {
+            updateData.control_mode = extraFields.control_mode;
+        }
         await models_1.Device.update(updateData, { where: { id: deviceId } });
         console.log(`[Device Service] Heartbeat updated for device ${deviceId}`);
     }

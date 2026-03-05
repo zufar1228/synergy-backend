@@ -2,12 +2,14 @@ import { sequelize } from '../config';
 import Warehouse from './warehouse';
 import Area from './area';
 import Device from './device';
-import LingkunganLog from './lingkunganLog';
+
 import Incident from './incident';
 import Profile from './profile';
 import UserNotificationPreference from './userNotificationPreference';
 import KeamananLog from './keamananLog'; // <-- IMPORT
 import IntrusiLog from './intrusiLog';
+import LingkunganLog from './lingkunganLog';
+import PredictionResult from './predictionResult';
 import PushSubscription from './pushSubscription';
 import UserRole from './userRole';
 import TelegramSubscriber from './telegramSubscriber';
@@ -19,12 +21,6 @@ Area.belongsTo(Warehouse, { foreignKey: 'warehouse_id', as: 'warehouse' });
 Area.hasMany(Device, { foreignKey: 'area_id', as: 'devices' });
 Device.belongsTo(Area, { foreignKey: 'area_id', as: 'area' });
 
-Device.hasMany(LingkunganLog, {
-  foreignKey: 'device_id',
-  as: 'lingkunganLogs'
-});
-LingkunganLog.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
-
 Device.hasMany(Incident, { foreignKey: 'device_id', as: 'incidents' });
 Incident.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
 
@@ -33,6 +29,18 @@ KeamananLog.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
 
 Device.hasMany(IntrusiLog, { foreignKey: 'device_id', as: 'intrusiLogs' });
 IntrusiLog.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
+
+Device.hasMany(LingkunganLog, {
+  foreignKey: 'device_id',
+  as: 'lingkunganLogs'
+});
+LingkunganLog.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
+
+Device.hasMany(PredictionResult, {
+  foreignKey: 'device_id',
+  as: 'predictionResults'
+});
+PredictionResult.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
 
 Profile.hasMany(UserNotificationPreference, {
   foreignKey: 'user_id',
@@ -81,12 +89,13 @@ export {
   Warehouse,
   Area,
   Device,
-  LingkunganLog,
   Profile,
   Incident,
   UserNotificationPreference,
   KeamananLog,
   IntrusiLog,
+  LingkunganLog,
+  PredictionResult,
   PushSubscription,
   UserRole,
   TelegramSubscriber

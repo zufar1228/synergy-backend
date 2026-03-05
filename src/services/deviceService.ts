@@ -181,6 +181,13 @@ export const updateDeviceHeartbeat = async (
     power_source?: string;
     vbat_voltage?: number;
     vbat_pct?: number;
+    // Lingkungan-specific
+    last_temperature?: number;
+    last_humidity?: number;
+    last_co2?: number;
+    fan_state?: string;
+    dehumidifier_state?: string;
+    control_mode?: string;
   }
 ): Promise<void> => {
   try {
@@ -210,6 +217,26 @@ export const updateDeviceHeartbeat = async (
     }
     if (extraFields?.vbat_pct !== undefined && extraFields?.vbat_pct !== null) {
       updateData.vbat_pct = extraFields.vbat_pct;
+    }
+
+    // Merge lingkungan-specific fields if provided
+    if (extraFields?.last_temperature !== undefined) {
+      updateData.last_temperature = extraFields.last_temperature;
+    }
+    if (extraFields?.last_humidity !== undefined) {
+      updateData.last_humidity = extraFields.last_humidity;
+    }
+    if (extraFields?.last_co2 !== undefined) {
+      updateData.last_co2 = extraFields.last_co2;
+    }
+    if (extraFields?.fan_state) {
+      updateData.fan_state = extraFields.fan_state;
+    }
+    if (extraFields?.dehumidifier_state) {
+      updateData.dehumidifier_state = extraFields.dehumidifier_state;
+    }
+    if (extraFields?.control_mode) {
+      updateData.control_mode = extraFields.control_mode;
     }
 
     await Device.update(updateData, { where: { id: deviceId } });

@@ -16,6 +16,7 @@ import navigationRoutes from './api/routes/navigationRoutes';
 import alertRoutes from './api/routes/alertRoutes';
 import keamananRoutes from './api/routes/keamananRoutes';
 import intrusiRoutes from './api/routes/intrusiRoutes';
+import lingkunganRoutes from './api/routes/lingkunganRoutes';
 import telegramRoutes from './api/routes/telegramRoutes';
 import { setWebhook as setupTelegramWebhook } from './services/telegramService';
 
@@ -80,6 +81,7 @@ app.use('/api/navigation', navigationRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/security-logs', authMiddleware, keamananRoutes);
 app.use('/api/intrusi', intrusiRoutes);
+app.use('/api/lingkungan', lingkunganRoutes);
 app.use('/api/telegram', telegramRoutes);
 
 // ✅ TAMBAHAN: Error handling untuk production

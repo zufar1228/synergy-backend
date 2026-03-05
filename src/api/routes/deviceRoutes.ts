@@ -8,7 +8,7 @@ import { z } from 'zod';
 const router = Router();
 
 // Daftar tipe sistem yang kita izinkan
-const systemTypes = z.enum(['lingkungan', 'keamanan', 'intrusi']);
+const systemTypes = z.enum(['keamanan', 'intrusi', 'lingkungan']);
 
 const createDeviceSchema = z.object({
   body: z.object({
@@ -28,28 +28,10 @@ const updateDeviceSchema = z.object({
   })
 });
 
-// Tambahkan schema untuk manual command
-const manualCommandSchema = z.object({
-  body: z.object({
-    action: z.enum(['On', 'Off'], {
-      message: 'Aksi harus "On" atau "Off"'
-    })
-  })
-});
-
 // Daftarkan semua endpoint
 
-// --- TAMBAHKAN RUTE BARU INI ---
 // Rute ini harus di atas rute '/:id' agar 'details' tidak dianggap sebagai ID
 router.get('/details', deviceController.getDeviceDetailsByArea);
-
-// Rute BARU untuk perintah manual
-router.post(
-  '/:id/command',
-  validate(manualCommandSchema), // ✅ Tambahkan ini
-  deviceController.sendManualCommand
-);
-// ---------------------------------
 
 // Rute yang sudah ada
 router.get('/', deviceController.listDevices);
