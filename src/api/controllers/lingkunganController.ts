@@ -77,12 +77,25 @@ export const getChartData = async (req: Request, res: Response) => {
     const { deviceId } = req.params;
     const { from, to, limit } = req.query;
 
+    console.log('[LingkunganController.getChartData]', {
+      deviceId,
+      from,
+      to,
+      limit,
+      limitType: typeof limit
+    });
+
     const data = await lingkunganService.getChartData(
       deviceId,
       from as string,
       to as string,
       limit ? parseInt(limit as string, 10) : undefined
     );
+
+    console.log('[LingkunganController.getChartData] Sending response:', {
+      actualCount: data.actual.length,
+      predictionCount: data.predictions.length
+    });
 
     res.status(200).json({ data });
   } catch (error) {

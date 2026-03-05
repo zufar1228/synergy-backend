@@ -481,10 +481,19 @@ export const getChartData = async (
     };
   }
 
+  console.log('[LingkunganService.getChartData]', {
+    device_id,
+    from,
+    to,
+    limit,
+    whereClause: where
+  });
+
   const actual = await LingkunganLog.findAll({
     where,
     attributes: ['timestamp', 'temperature', 'humidity', 'co2'],
-    order: [['timestamp', 'ASC']],
+    // Get newest first for efficient limiting, then reverse before returning.
+    order: [['timestamp', 'DESC']],
     limit
   });
 
@@ -496,11 +505,24 @@ export const getChartData = async (
       'predicted_humidity',
       'predicted_co2'
     ],
-    order: [['timestamp', 'ASC']],
+    // Get newest first for efficient limiting, then reverse before returning.
+    order: [['timestamp', 'DESC']],
     limit
   });
 
-  return { actual, predictions };
+  const result = {
+    actual: actual.reverse(),
+    predictions: predictions.reverse()
+  };
+
+  console.log('[LingkunganService.getChartData] Result:', {
+    actualCount: result.actual.length,
+    predictCount: result.predictions.length,
+    firstActual: result.actual[0]?.timestamp,
+    lastActual: result.actual[result.actual.length - 1]?.timestamp
+  });
+
+  return result;
 };
 
 /**
