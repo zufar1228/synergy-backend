@@ -376,10 +376,18 @@ const getChartData = async (device_id, from, to, limit = 100) => {
             ...(to && { [sequelize_1.Op.lte]: new Date(to) })
         };
     }
+    console.log('[LingkunganService.getChartData]', {
+        device_id,
+        from,
+        to,
+        limit,
+        whereClause: where
+    });
     const actual = await models_1.LingkunganLog.findAll({
         where,
         attributes: ['timestamp', 'temperature', 'humidity', 'co2'],
-        order: [['timestamp', 'ASC']],
+        // Get newest first for efficient limiting, then reverse before returning.
+        order: [['timestamp', 'DESC']],
         limit
     });
     const predictions = await models_1.PredictionResult.findAll({
@@ -390,10 +398,21 @@ const getChartData = async (device_id, from, to, limit = 100) => {
             'predicted_humidity',
             'predicted_co2'
         ],
-        order: [['timestamp', 'ASC']],
+        // Get newest first for efficient limiting, then reverse before returning.
+        order: [['timestamp', 'DESC']],
         limit
     });
-    return { actual, predictions };
+    const result = {
+        actual: actual.reverse(),
+        predictions: predictions.reverse()
+    };
+    console.log('[LingkunganService.getChartData] Result:', {
+        actualCount: result.actual.length,
+        predictCount: result.predictions.length,
+        firstActual: result.actual[0]?.timestamp,
+        lastActual: result.actual[result.actual.length - 1]?.timestamp
+    });
+    return result;
 };
 exports.getChartData = getChartData;
 /**

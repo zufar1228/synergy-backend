@@ -38,8 +38,20 @@ exports.processPowerAlert = exports.processLingkunganAlert = exports.processIntr
 const models_1 = require("../db/models");
 const webPushService = __importStar(require("./webPushService"));
 const telegramService = __importStar(require("./telegramService"));
-const date_fns_1 = require("date-fns");
-const locale_1 = require("date-fns/locale");
+const formatTimestampWIB = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).formatToParts(date);
+    const pick = (type) => parts.find((part) => part.type === type)?.value ?? '';
+    return `${pick('day')} ${pick('month')} ${pick('year')}, ${pick('hour')}:${pick('minute')}:${pick('second')} WIB`;
+};
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
@@ -132,9 +144,7 @@ const processIntrusiAlert = async (deviceId, data) => {
     }
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = (0, date_fns_1.format)(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-        locale: locale_1.id
-    });
+    const timestamp = formatTimestampWIB();
     const isUnauthorizedOpen = data.type === 'UNAUTHORIZED_OPEN';
     const incidentType = isUnauthorizedOpen
         ? 'Pembukaan Pintu Tidak Sah'
@@ -202,9 +212,7 @@ const processLingkunganAlert = async (deviceId, alerts, prediction) => {
     }
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = (0, date_fns_1.format)(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-        locale: locale_1.id
-    });
+    const timestamp = formatTimestampWIB();
     const incidentType = 'Prediksi Kondisi Lingkungan Berbahaya (15 Menit)';
     const details = [
         {
@@ -302,9 +310,7 @@ const processPowerAlert = async (deviceId, data) => {
     }
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = (0, date_fns_1.format)(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-        locale: locale_1.id
-    });
+    const timestamp = formatTimestampWIB();
     let incidentType;
     let subject;
     const details = [];
