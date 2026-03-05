@@ -7,8 +7,6 @@ import {
 } from '../db/models';
 import * as webPushService from './webPushService';
 import * as telegramService from './telegramService';
-import { format } from 'date-fns';
-import { id as localeID } from 'date-fns/locale';
 
 // Definisikan tipe untuk hasil query eager-loading
 interface DeviceWithRelations extends Device {
@@ -16,6 +14,26 @@ interface DeviceWithRelations extends Device {
     warehouse: Warehouse;
   };
 }
+
+const formatTimestampWIB = (date: Date = new Date()): string => {
+  const parts = new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${pick('day')} ${pick('month')} ${pick('year')}, ${pick(
+    'hour'
+  )}:${pick('minute')}:${pick('second')} WIB`;
+};
 
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
@@ -153,9 +171,7 @@ export const processIntrusiAlert = async (
   const { area } = device;
   const { warehouse } = area;
 
-  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-    locale: localeID
-  });
+  const timestamp = formatTimestampWIB();
 
   const isUnauthorizedOpen = data.type === 'UNAUTHORIZED_OPEN';
   const incidentType = isUnauthorizedOpen
@@ -243,9 +259,7 @@ export const processLingkunganAlert = async (
   const { area } = device;
   const { warehouse } = area;
 
-  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-    locale: localeID
-  });
+  const timestamp = formatTimestampWIB();
 
   const incidentType = 'Prediksi Kondisi Lingkungan Berbahaya (15 Menit)';
 
@@ -384,9 +398,7 @@ export const processPowerAlert = async (
 
   const { area } = device;
   const { warehouse } = area;
-  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-    locale: localeID
-  });
+  const timestamp = formatTimestampWIB();
 
   let incidentType: string;
   let subject: string;
