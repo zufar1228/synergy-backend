@@ -144,6 +144,7 @@ void setup() {
     Serial.println("[ERROR] SHT31 Failure!");
     while (1) delay(1);
   }
+  Serial.println("[SENSOR] SHT31 initialized");
 
   // Build MQTT topics
   snprintf(topicSensor, sizeof(topicSensor),
@@ -156,6 +157,9 @@ void setup() {
     "warehouses/%s/areas/%s/devices/%s/commands",
     WAREHOUSE_ID, AREA_ID, DEVICE_ID);
 
+  Serial.printf("[MQTT] Sensor topic: %s\n", topicSensor);
+  Serial.printf("[MQTT] Status topic: %s\n", topicStatus);
+  Serial.printf("[MQTT] Command topic: %s\n", topicCommand);
 
   // Connect WiFi
   connectWiFi();
@@ -174,6 +178,7 @@ void setup() {
   myServo.attach(SERVO_PIN, 500, 2400);
   myServo.write(0);
 
+  Serial.println("[SETUP] Initialization complete\n");
 }
 
 // ============================================================================
@@ -205,7 +210,8 @@ void loop() {
   // Check manual override expiry
   if (controlMode == MANUAL_MODE) {
     if (now - manualOverrideStartTime >= MANUAL_OVERRIDE_DURATION) {
-          controlMode = AUTO_MODE;
+      Serial.println("[CONTROL] Manual override expired. Switching to AUTO.");
+      controlMode = AUTO_MODE;
     }
   }
 
@@ -233,18 +239,22 @@ void loop() {
 // ============================================================================
 
 void connectWiFi() {
+  Serial.printf("[WIFI] Connecting to %s", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
+    Serial.print(".");
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
     digitalWrite(STATUS_LED_PIN, HIGH);
   } else {
+    Serial.println("\n[WIFI] Connection failed!");
     digitalWrite(STATUS_LED_PIN, LOW);
   }
 }
@@ -254,17 +264,21 @@ void connectWiFi() {
 // ============================================================================
 
 void connectMQTT() {
+  Serial.println("[MQTT] Connecting to broker...");
 
   String clientId = "esp32-lingkungan-" + String(DEVICE_ID).substring(0, 8);
 
   if (mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
+    Serial.println("[MQTT] Connected!");
 
     // Subscribe to command topic
     mqtt.subscribe(topicCommand, 1);
+    Serial.printf("[MQTT] Subscribed to: %s\n", topicCommand);
 
     // Publish initial heartbeat
     publishHeartbeat();
   } else {
+    Serial.printf("[MQTT] Failed, rc=%d. Retrying...\n", mqtt.state());
   }
 }
 
@@ -288,15 +302,18 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   DeserializationError err = deserializeJson(doc, payload, length);
 
   if (err) {
+    Serial.printf("[MQTT] JSON parse error: %s\n", err.c_str());
     return;
   }
 
+  Serial.printf("[MQTT] Command received on %s\n", topic);
 
   // Check if switching to AUTO mode
   if (doc.containsKey("mode")) {
     const char* mode = doc["mode"];
     if (strcmp(mode, "AUTO") == 0) {
       controlMode = AUTO_MODE;
+      Serial.println("[CONTROL] Switched to AUTO mode via command.");
       return;
     }
   }
@@ -310,8 +327,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     // Level 1: Manual control — highest priority, 5-minute override
     controlMode = MANUAL_MODE;
     manualOverrideStartTime = millis();
+    Serial.println("[CONTROL] Manual override activated (5 min).");
   } else if (isML && controlMode == MANUAL_MODE) {
     // ML commands are ignored during manual override
+    Serial.println("[CONTROL] ML command ignored — manual override active.");
     return;
   }
 

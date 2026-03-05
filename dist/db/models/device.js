@@ -37,6 +37,36 @@ Device.init({
         allowNull: false,
         defaultValue: 'OFF'
     },
+    dehumidifier_state: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: 'OFF'
+    },
+    control_mode: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: false,
+        defaultValue: 'AUTO'
+    },
+    manual_override_until: {
+        type: sequelize_1.DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null
+    },
+    last_temperature: {
+        type: sequelize_1.DataTypes.REAL,
+        allowNull: true,
+        defaultValue: null
+    },
+    last_humidity: {
+        type: sequelize_1.DataTypes.REAL,
+        allowNull: true,
+        defaultValue: null
+    },
+    last_co2: {
+        type: sequelize_1.DataTypes.REAL,
+        allowNull: true,
+        defaultValue: null
+    },
     door_state: {
         type: sequelize_1.DataTypes.TEXT,
         allowNull: true,

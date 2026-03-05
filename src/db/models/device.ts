@@ -5,6 +5,8 @@ import { sequelize } from '../config';
 
 export type DeviceStatus = 'Online' | 'Offline';
 export type FanState = 'ON' | 'OFF';
+export type DehumidifierState = 'ON' | 'OFF';
+export type ControlMode = 'AUTO' | 'MANUAL';
 export type DoorState = 'OPEN' | 'CLOSED';
 export type IntrusiSystemState = 'ARMED' | 'DISARMED';
 export type SirenState = 'ON' | 'COOLDOWN' | 'OFF';
@@ -18,6 +20,12 @@ export interface DeviceAttributes {
   status: CreationOptional<DeviceStatus>;
   last_heartbeat?: Date | null;
   fan_state: CreationOptional<FanState>;
+  dehumidifier_state: CreationOptional<DehumidifierState>;
+  control_mode: CreationOptional<ControlMode>;
+  manual_override_until?: Date | null;
+  last_temperature?: number | null;
+  last_humidity?: number | null;
+  last_co2?: number | null;
   door_state?: DoorState | null;
   intrusi_system_state?: IntrusiSystemState | null;
   siren_state?: SirenState | null;
@@ -45,6 +53,12 @@ class Device
   public status!: CreationOptional<DeviceStatus>;
   public last_heartbeat!: Date | null;
   public fan_state!: CreationOptional<FanState>;
+  public dehumidifier_state!: CreationOptional<DehumidifierState>;
+  public control_mode!: CreationOptional<ControlMode>;
+  public manual_override_until!: Date | null;
+  public last_temperature!: number | null;
+  public last_humidity!: number | null;
+  public last_co2!: number | null;
   public door_state!: DoorState | null;
   public intrusi_system_state!: IntrusiSystemState | null;
   public siren_state!: SirenState | null;
@@ -89,6 +103,36 @@ Device.init(
       type: DataTypes.ENUM('ON', 'OFF'),
       allowNull: false,
       defaultValue: 'OFF'
+    },
+    dehumidifier_state: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: 'OFF'
+    },
+    control_mode: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: 'AUTO'
+    },
+    manual_override_until: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null
+    },
+    last_temperature: {
+      type: DataTypes.REAL,
+      allowNull: true,
+      defaultValue: null
+    },
+    last_humidity: {
+      type: DataTypes.REAL,
+      allowNull: true,
+      defaultValue: null
+    },
+    last_co2: {
+      type: DataTypes.REAL,
+      allowNull: true,
+      defaultValue: null
     },
     door_state: {
       type: DataTypes.TEXT,
