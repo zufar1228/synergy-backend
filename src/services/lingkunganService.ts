@@ -72,7 +72,7 @@ export const ingestSensorData = async (data: {
  */
 const triggerPrediction = async (deviceId: string) => {
   try {
-    // Get the last 60 readings for the LSTM sequence (1 hour at 1‑min interval)
+    // Get the last 60 readings for the LSTM sequence
     const recentData = await LingkunganLog.findAll({
       where: { device_id: deviceId },
       order: [['timestamp', 'DESC']],
