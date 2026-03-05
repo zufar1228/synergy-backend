@@ -24,27 +24,24 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include <DHT.h>
+#include <Wire.h>
+#include <Adafruit_SHT31.h>
+#include <ESP32Servo.h>
 #include <ArduinoJson.h>
 
-// ============================================================================
-// Pin Definitions
-// ============================================================================
-
-#define DHT_PIN        4         // DHT22 data pin
-#define DHT_TYPE       DHT22
-#define MQ135_PIN      34        // MQ-135 analog pin (ADC1)
-#define FAN_RELAY_PIN  26        // Fan relay control
-#define DEHUM_RELAY_PIN 27       // Dehumidifier relay control
-#define STATUS_LED_PIN 2         // Built-in LED
+// --- PIN DEFINITIONS ---
+#define MQ135_PIN       34    
+#define FAN_RELAY_PIN   27    
+#define SERVO_PIN       26    
+#define STATUS_LED_PIN  2     
 
 // ============================================================================
 // Configuration — CHANGE THESE
 // ============================================================================
 
-// WiFi
-const char* WIFI_SSID     = "HUAWEI-3X5S";
-const char* WIFI_PASSWORD = "Gr6TCfJ4";
+// --- CONFIGURATION ---
+const char* WIFI_SSID     = "anak hebat";
+const char* WIFI_PASSWORD = "07112208";
 
 // MQTT Broker
 const char* MQTT_HOST     = "mfe19520.ala.asia-southeast1.emqxsl.com";
@@ -69,9 +66,9 @@ const float SAFE_CO2_MAX        = 1200.0; // Turn OFF if below
 // Timing Constants
 // ============================================================================
 
-const unsigned long SENSOR_READ_INTERVAL_MS   = 60000;   // 1 minute (1 reading per minute for ML)
+const unsigned long SENSOR_INTERVAL = 60000;  // 1 minute (1 reading per minute for ML)
 const unsigned long HEARTBEAT_INTERVAL_MS     = 60000;   // 1 minute
-const unsigned long MANUAL_OVERRIDE_DURATION  = 300000;  // 5 minutes
+const unsigned long OVERRIDE_DURATION = 300000; // 5 minutes
 const unsigned long WIFI_RECONNECT_INTERVAL   = 10000;   // 10 seconds
 const unsigned long MQTT_RECONNECT_INTERVAL   = 5000;    // 5 seconds
 
@@ -111,9 +108,12 @@ float currentTemp     = 0.0;
 float currentHumidity = 0.0;
 float currentCO2      = 0.0;
 
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
+
 // Actuator states
 bool fanOn           = false;
 bool dehumidifierOn  = false;
+Servo myServo;
 
 // Control mode
 enum ControlMode { AUTO_MODE, MANUAL_MODE };
@@ -132,23 +132,18 @@ unsigned long lastMqttReconnect = 0;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n");
-  Serial.println("========================================");
-  Serial.println("  Warehouse Environment Monitor v1.0");
-  Serial.println("========================================");
-
-  // Pin modes
+  
+  // pin configuration
   pinMode(FAN_RELAY_PIN, OUTPUT);
-  pinMode(DEHUM_RELAY_PIN, OUTPUT);
+  digitalWrite(FAN_RELAY_PIN, HIGH); // relay off
   pinMode(STATUS_LED_PIN, OUTPUT);
 
-  // Start with actuators OFF
-  setFan(false);
-  setDehumidifier(false);
+  // servo initialization for dehumidifier (handled later)
 
-  // Initialize DHT sensor
-  dht.begin();
-  Serial.println("[SENSOR] DHT22 initialized");
+  if (!sht31.begin(0x44)) {
+    Serial.println("[ERROR] SHT31 Failure!");
+    while (1) delay(1);
+  }
 
   // Build MQTT topics
   snprintf(topicSensor, sizeof(topicSensor),
@@ -161,9 +156,6 @@ void setup() {
     "warehouses/%s/areas/%s/devices/%s/commands",
     WAREHOUSE_ID, AREA_ID, DEVICE_ID);
 
-  Serial.printf("[MQTT] Sensor topic: %s\n", topicSensor);
-  Serial.printf("[MQTT] Status topic: %s\n", topicStatus);
-  Serial.printf("[MQTT] Command topic: %s\n", topicCommand);
 
   // Connect WiFi
   connectWiFi();
@@ -176,7 +168,12 @@ void setup() {
 
   connectMQTT();
 
-  Serial.println("[SETUP] Initialization complete\n");
+  // servo initialization for dehumidifier
+  ESP32PWM::allocateTimer(0);
+  myServo.setPeriodHertz(50);
+  myServo.attach(SERVO_PIN, 500, 2400);
+  myServo.write(0);
+
 }
 
 // ============================================================================
@@ -208,13 +205,12 @@ void loop() {
   // Check manual override expiry
   if (controlMode == MANUAL_MODE) {
     if (now - manualOverrideStartTime >= MANUAL_OVERRIDE_DURATION) {
-      Serial.println("[CONTROL] Manual override expired. Switching to AUTO.");
-      controlMode = AUTO_MODE;
+          controlMode = AUTO_MODE;
     }
   }
 
   // Read sensors periodically
-  if (now - lastSensorRead >= SENSOR_READ_INTERVAL_MS) {
+  if (now - lastSensorRead >= SENSOR_INTERVAL) {
     lastSensorRead = now;
     readSensors();
     publishSensorData();
@@ -237,22 +233,18 @@ void loop() {
 // ============================================================================
 
 void connectWiFi() {
-  Serial.printf("[WIFI] Connecting to %s", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
-    Serial.print(".");
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
     digitalWrite(STATUS_LED_PIN, HIGH);
   } else {
-    Serial.println("\n[WIFI] Connection failed!");
     digitalWrite(STATUS_LED_PIN, LOW);
   }
 }
@@ -262,21 +254,17 @@ void connectWiFi() {
 // ============================================================================
 
 void connectMQTT() {
-  Serial.println("[MQTT] Connecting to broker...");
 
   String clientId = "esp32-lingkungan-" + String(DEVICE_ID).substring(0, 8);
 
   if (mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
-    Serial.println("[MQTT] Connected!");
 
     // Subscribe to command topic
     mqtt.subscribe(topicCommand, 1);
-    Serial.printf("[MQTT] Subscribed to: %s\n", topicCommand);
 
     // Publish initial heartbeat
     publishHeartbeat();
   } else {
-    Serial.printf("[MQTT] Failed, rc=%d. Retrying...\n", mqtt.state());
   }
 }
 
@@ -300,18 +288,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   DeserializationError err = deserializeJson(doc, payload, length);
 
   if (err) {
-    Serial.printf("[MQTT] JSON parse error: %s\n", err.c_str());
     return;
   }
 
-  Serial.printf("[MQTT] Command received on %s\n", topic);
 
   // Check if switching to AUTO mode
   if (doc.containsKey("mode")) {
     const char* mode = doc["mode"];
     if (strcmp(mode, "AUTO") == 0) {
       controlMode = AUTO_MODE;
-      Serial.println("[CONTROL] Switched to AUTO mode via command.");
       return;
     }
   }
@@ -325,10 +310,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     // Level 1: Manual control — highest priority, 5-minute override
     controlMode = MANUAL_MODE;
     manualOverrideStartTime = millis();
-    Serial.println("[CONTROL] Manual override activated (5 min).");
   } else if (isML && controlMode == MANUAL_MODE) {
     // ML commands are ignored during manual override
-    Serial.println("[CONTROL] ML command ignored — manual override active.");
     return;
   }
 
@@ -356,17 +339,16 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 // ============================================================================
 
 void readSensors() {
-  // Read DHT22
-  float temp = dht.readTemperature();
-  float hum  = dht.readHumidity();
+    // Read SHT31
+  float temp = sht31.readTemperature();
+  float hum  = sht31.readHumidity();
 
-  if (isnan(temp) || isnan(hum)) {
-    Serial.println("[SENSOR] DHT22 read failed!");
-    return;
+  if (!isnan(temp) && !isnan(hum)) {
+    currentTemp     = temp;
+    currentHumidity = hum;
+  } else {
+    Serial.println("[SENSOR] SHT31 read failed!");
   }
-
-  currentTemp     = temp;
-  currentHumidity = hum;
 
   // Read MQ-135 (average multiple samples)
   long adcSum = 0;
@@ -434,7 +416,13 @@ void setFan(bool on) {
 
 void setDehumidifier(bool on) {
   dehumidifierOn = on;
-  digitalWrite(DEHUM_RELAY_PIN, on ? HIGH : LOW);
+  // move servo to ON or OFF angle
+  if (on) {
+    myServo.write(90);  // adjust as needed
+  } else {
+    myServo.write(0);
+  }
+  delay(500);
 }
 
 // ============================================================================
