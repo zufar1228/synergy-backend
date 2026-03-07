@@ -42,7 +42,7 @@ const apiError_1 = __importDefault(require("../../utils/apiError"));
 const getAnalytics = async (req, res) => {
     try {
         const { system_type } = req.params;
-        const { area_id, from, to } = req.query;
+        const { area_id, from, to, status, event_type, system_state, door_state } = req.query;
         const page = req.query.page ? parseInt(req.query.page, 10) : 1;
         const per_page = req.query.per_page
             ? parseInt(req.query.per_page, 10)
@@ -52,6 +52,10 @@ const getAnalytics = async (req, res) => {
             area_id: area_id,
             from: from,
             to: to,
+            status: status,
+            event_type: event_type,
+            system_state: system_state,
+            door_state: door_state,
             page,
             per_page
         });

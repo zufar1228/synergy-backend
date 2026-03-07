@@ -25,10 +25,14 @@ interface AnalyticsQuery {
   per_page?: number;
   from?: string;
   to?: string;
+  status?: string;
+  event_type?: string;
+  system_state?: string;
+  door_state?: string;
 }
 
 export const getAnalyticsData = async (query: AnalyticsQuery) => {
-  const { system_type, area_id, from, to } = query;
+  const { system_type, area_id, from, to, status, event_type, system_state, door_state } = query;
   const page = query.page || 1;
   const perPage = query.per_page || 25;
   const offset = (page - 1) * perPage;
@@ -42,6 +46,11 @@ export const getAnalyticsData = async (query: AnalyticsQuery) => {
   const whereCondition: any = {};
   const deviceWhereCondition: any = { area_id: area_id };
   const dateColumn = system_type === 'keamanan' ? 'created_at' : 'timestamp';
+
+  if (status) whereCondition.status = { [Op.in]: status.split(',') };
+  if (event_type) whereCondition.event_type = { [Op.in]: event_type.split(',') };
+  if (system_state) whereCondition.system_state = { [Op.in]: system_state.split(',') };
+  if (door_state) whereCondition.door_state = { [Op.in]: door_state.split(',') };
 
   // === PERBAIKAN UTAMA: Definisikan kolom yang akan diambil ===
   let modelAttributes;

@@ -15,7 +15,7 @@ const logModels = {
     lingkungan: models_1.LingkunganLog
 };
 const getAnalyticsData = async (query) => {
-    const { system_type, area_id, from, to } = query;
+    const { system_type, area_id, from, to, status, event_type, system_state, door_state } = query;
     const page = query.page || 1;
     const perPage = query.per_page || 25;
     const offset = (page - 1) * perPage;
@@ -27,6 +27,14 @@ const getAnalyticsData = async (query) => {
     const whereCondition = {};
     const deviceWhereCondition = { area_id: area_id };
     const dateColumn = system_type === 'keamanan' ? 'created_at' : 'timestamp';
+    if (status)
+        whereCondition.status = { [sequelize_1.Op.in]: status.split(',') };
+    if (event_type)
+        whereCondition.event_type = { [sequelize_1.Op.in]: event_type.split(',') };
+    if (system_state)
+        whereCondition.system_state = { [sequelize_1.Op.in]: system_state.split(',') };
+    if (door_state)
+        whereCondition.door_state = { [sequelize_1.Op.in]: door_state.split(',') };
     // === PERBAIKAN UTAMA: Definisikan kolom yang akan diambil ===
     let modelAttributes;
     if (system_type === 'keamanan') {
