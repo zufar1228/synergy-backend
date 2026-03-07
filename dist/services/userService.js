@@ -128,11 +128,14 @@ const getAllUsers = async (requestingUserId) => {
         throw new apiError_1.default(500, "Gagal mengambil daftar pengguna.");
     const roles = await models_1.UserRole.findAll();
     const rolesMap = new Map(roles.map((r) => [r.user_id, r.role]));
+    // Batch-fetch all profiles in one query (fixes N+1)
+    const userIds = users.map((u) => u.id);
+    const profiles = await models_1.Profile.findAll({ where: { id: userIds } });
+    const profileMap = new Map(profiles.map((p) => [p.id, p]));
     // Gabungkan data auth dengan roles dan profile pictures
-    const usersWithRolesAndProfiles = await Promise.all(users.map(async (user) => {
+    const usersWithRolesAndProfiles = users.map((user) => {
         const role = rolesMap.get(user.id) || "user";
-        // Ambil profile dari database jika ada
-        const profile = await models_1.Profile.findByPk(user.id);
+        const profile = profileMap.get(user.id);
         return {
             ...user,
             role: role,
@@ -140,7 +143,7 @@ const getAllUsers = async (requestingUserId) => {
             avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture,
             full_name: user.user_metadata?.full_name,
         };
-    }));
+    });
     // Filter untuk tidak menampilkan super_admin lain DAN tidak menampilkan diri sendiri
     return usersWithRolesAndProfiles.filter((user) => user.role !== "super_admin" && user.id !== requestingUserId);
 };

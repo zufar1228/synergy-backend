@@ -104,11 +104,7 @@ const authMiddleware = async (req, res, next) => {
             if (!decoded.sub) {
                 throw new apiError_1.default(401, 'Token tidak memiliki User ID (sub).');
             }
-            // Debug: Log decoded JWT untuk melihat struktur
-            console.log('[AuthMiddleware] Decoded JWT app_metadata:', JSON.stringify(decoded.app_metadata));
-            console.log('[AuthMiddleware] Decoded JWT role:', decoded.role);
             const userRole = decoded.app_metadata?.role || decoded.role || 'user';
-            console.log('[AuthMiddleware] Final userRole:', userRole);
             req.user = {
                 id: decoded.sub,
                 email: decoded.email,

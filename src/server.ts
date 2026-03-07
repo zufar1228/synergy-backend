@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { syncDatabase } from './db/models';
 import deviceRoutes from './api/routes/deviceRoutes';
 import warehouseRoutes from './api/routes/warehouseRoutes';
@@ -37,6 +38,17 @@ app.use(
   })
 );
 app.use(express.json());
+
+// Global rate limiter
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: process.env.NODE_ENV === 'development' ? 5000 : 1000, // Much higher limit for dev so SSR doesn't crash
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' }
+  })
+);
 
 // Health Check Route
 app.get('/', (req: Request, res: Response) => {
@@ -76,13 +88,13 @@ app.use('/api/devices', authMiddleware, deviceRoutes);
 app.use('/api/warehouses', authMiddleware, warehouseRoutes);
 app.use('/api/analytics', authMiddleware, analyticsRoutes);
 app.use('/api/areas', authMiddleware, areaRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/navigation', navigationRoutes);
-app.use('/api/alerts', alertRoutes);
+app.use('/api/users', userRoutes); // has per-route auth (some endpoints need public access)
+app.use('/api/navigation', authMiddleware, navigationRoutes);
+app.use('/api/alerts', authMiddleware, alertRoutes);
 app.use('/api/security-logs', authMiddleware, keamananRoutes);
-app.use('/api/intrusi', intrusiRoutes);
-app.use('/api/lingkungan', lingkunganRoutes);
-app.use('/api/telegram', telegramRoutes);
+app.use('/api/intrusi', authMiddleware, intrusiRoutes);
+app.use('/api/lingkungan', authMiddleware, lingkunganRoutes);
+app.use('/api/telegram', telegramRoutes); // has per-route auth (webhook must stay public)
 
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err: any, req: Request, res: Response, next: any) => {
@@ -169,4 +181,3 @@ app.listen(PORT, HOST, () => {
   });
 });
 
-//tes

@@ -101,7 +101,7 @@ export const updateStatus = async (req: Request, res: Response) => {
 
 /**
  * POST /api/intrusi/devices/:deviceId/command
- * Mengirim perintah ke perangkat intrusi (ARM, DISARM, CALIB, SIREN_SILENCE, STATUS)
+ * Mengirim perintah ke perangkat intrusi (ARM, DISARM, SIREN_SILENCE, STATUS)
  */
 export const sendCommand = async (req: Request, res: Response) => {
   try {

@@ -114,24 +114,25 @@ export const getAllUsers = async (requestingUserId: string) => {
   const roles = await UserRole.findAll();
   const rolesMap = new Map(roles.map((r) => [r.user_id, r.role]));
 
+  // Batch-fetch all profiles in one query (fixes N+1)
+  const userIds = users.map((u: User) => u.id);
+  const profiles = await Profile.findAll({ where: { id: userIds } });
+  const profileMap = new Map(profiles.map((p) => [p.id, p]));
+
   // Gabungkan data auth dengan roles dan profile pictures
-  const usersWithRolesAndProfiles = await Promise.all(
-    users.map(async (user: User) => {
-      const role = rolesMap.get(user.id) || "user";
+  const usersWithRolesAndProfiles = users.map((user: User) => {
+    const role = rolesMap.get(user.id) || "user";
+    const profile = profileMap.get(user.id);
 
-      // Ambil profile dari database jika ada
-      const profile = await Profile.findByPk(user.id);
-
-      return {
-        ...user,
-        role: role,
-        username: profile?.username,
-        avatar_url:
-          user.user_metadata?.avatar_url || user.user_metadata?.picture,
-        full_name: user.user_metadata?.full_name,
-      };
-    })
-  );
+    return {
+      ...user,
+      role: role,
+      username: profile?.username,
+      avatar_url:
+        user.user_metadata?.avatar_url || user.user_metadata?.picture,
+      full_name: user.user_metadata?.full_name,
+    };
+  });
 
   // Filter untuk tidak menampilkan super_admin lain DAN tidak menampilkan diri sendiri
   return usersWithRolesAndProfiles.filter(

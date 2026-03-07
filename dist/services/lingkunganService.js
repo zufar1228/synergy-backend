@@ -67,18 +67,26 @@ const ingestSensorData = async (data) => {
         co2: data.co2
     });
     console.log(`[LingkunganService] Ingested sensor data: T=${data.temperature}°C, H=${data.humidity}%, CO2=${data.co2}ppm for device ${data.device_id}`);
-    // 2. Update device with latest sensor readings
-    await models_1.Device.update({
+    // 2. Fetch device once, share across all downstream calls
+    const device = await models_1.Device.findByPk(data.device_id, {
+        include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+    });
+    if (!device) {
+        console.error(`[LingkunganService] Device ${data.device_id} not found`);
+        return log;
+    }
+    // 3. Update device with latest sensor readings
+    await device.update({
         last_temperature: data.temperature,
         last_humidity: data.humidity,
         last_co2: data.co2
-    }, { where: { id: data.device_id } });
-    // 3. Trigger ML prediction (non-blocking)
-    triggerPrediction(data.device_id).catch((err) => {
+    });
+    // 4. Trigger ML prediction (non-blocking)
+    triggerPrediction(data.device_id, device).catch((err) => {
         console.error('[LingkunganService] ML prediction failed:', err.message);
     });
-    // 4. Check firmware safety thresholds (Level 2)
-    await handleFirmwareSafetyCheck(data);
+    // 5. Check firmware safety thresholds (Level 2)
+    await handleFirmwareSafetyCheck(data, device);
     return log;
 };
 exports.ingestSensorData = ingestSensorData;
@@ -88,20 +96,20 @@ exports.ingestSensorData = ingestSensorData;
  * and publishes the result to 'synergy/ml/predict/response/{deviceId}'.
  * The response is handled asynchronously in handlePredictionResult().
  */
-const triggerPrediction = async (deviceId) => {
+const triggerPrediction = async (deviceId, device) => {
     try {
-        // Get the last 60 readings for the LSTM sequence
+        // Get the last 60 readings for the LSTM sequence, ordered oldest-first
         const recentData = await models_1.LingkunganLog.findAll({
             where: { device_id: deviceId },
-            order: [['timestamp', 'DESC']],
-            limit: 60
+            order: [['timestamp', 'ASC']],
+            limit: 60,
+            offset: Math.max(0, (await models_1.LingkunganLog.count({ where: { device_id: deviceId } })) - 60)
         });
         if (recentData.length < 60) {
             console.log(`[LingkunganService] Not enough data for prediction (${recentData.length}/60). Skipping.`);
             return;
         }
-        // Reverse so oldest is first
-        const sequence = recentData.reverse().map((r) => ({
+        const sequence = recentData.map((r) => ({
             temperature: r.temperature,
             humidity: r.humidity,
             co2: r.co2
@@ -156,14 +164,11 @@ exports.handlePredictionResult = handlePredictionResult;
 /**
  * Level 2: Firmware safety check — turn OFF actuators if below safe thresholds.
  */
-const handleFirmwareSafetyCheck = async (data) => {
+const handleFirmwareSafetyCheck = async (data, device) => {
     // If ALL readings are below safe thresholds, turn off actuators
     if (data.temperature < SAFE_TEMP &&
         data.humidity < SAFE_HUMIDITY &&
         data.co2 < SAFE_CO2) {
-        const device = (await models_1.Device.findByPk(data.device_id));
-        if (!device)
-            return;
         // Check if in manual override mode
         if (device.control_mode === 'MANUAL' && device.manual_override_until) {
             const overrideExpiry = new Date(device.manual_override_until);
@@ -172,7 +177,10 @@ const handleFirmwareSafetyCheck = async (data) => {
                 return;
             }
             // Override expired, switch back to auto
-            await models_1.Device.update({ control_mode: 'AUTO', manual_override_until: null }, { where: { id: data.device_id } });
+            await device.update({
+                control_mode: 'AUTO',
+                manual_override_until: null
+            });
         }
         // Turn off actuators via MQTT
         if (device.fan_state === 'ON' ||
@@ -181,8 +189,11 @@ const handleFirmwareSafetyCheck = async (data) => {
             await (0, exports.sendActuatorCommand)(data.device_id, {
                 fan: 'OFF',
                 dehumidifier: 'OFF'
+            }, device);
+            await device.update({
+                fan_state: 'OFF',
+                dehumidifier_state: 'OFF'
             });
-            await models_1.Device.update({ fan_state: 'OFF', dehumidifier_state: 'OFF' }, { where: { id: data.device_id } });
         }
     }
 };
@@ -190,7 +201,9 @@ const handleFirmwareSafetyCheck = async (data) => {
  * Level 3: Predictive & Early Warning — activate actuators based on ML forecast.
  */
 const handlePredictiveControl = async (deviceId, prediction) => {
-    const device = (await models_1.Device.findByPk(deviceId));
+    const device = await models_1.Device.findByPk(deviceId, {
+        include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+    });
     if (!device)
         return;
     // Check manual override
@@ -222,14 +235,14 @@ const handlePredictiveControl = async (deviceId, prediction) => {
             command.fan = 'ON';
         if (triggerDehumidifier)
             command.dehumidifier = 'ON';
-        await (0, exports.sendActuatorCommand)(deviceId, command);
+        await (0, exports.sendActuatorCommand)(deviceId, command, device);
         // Update device state
         const updateData = {};
         if (triggerFan)
             updateData.fan_state = 'ON';
         if (triggerDehumidifier)
             updateData.dehumidifier_state = 'ON';
-        await models_1.Device.update(updateData, { where: { id: deviceId } });
+        await device.update(updateData);
         // Update prediction record
         await models_1.PredictionResult.update({
             fan_triggered: triggerFan,
@@ -246,14 +259,18 @@ const handlePredictiveControl = async (deviceId, prediction) => {
 /**
  * Send actuator command to ESP32 via MQTT.
  */
-const sendActuatorCommand = async (deviceId, command) => {
-    const device = (await models_1.Device.findByPk(deviceId, {
-        include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
-    }));
-    if (!device) {
+const sendActuatorCommand = async (deviceId, command, device) => {
+    // Use provided device or fetch if not available
+    const deviceWithArea = device && device.area
+        ? device
+        : await models_1.Device.findByPk(deviceId, {
+            include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+        });
+    if (!deviceWithArea) {
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan.');
     }
-    const topic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
+    const area = deviceWithArea.area;
+    const topic = `warehouses/${area.warehouse_id}/areas/${area.id}/devices/${deviceWithArea.id}/commands`;
     const payload = JSON.stringify(command);
     client_1.client.publish(topic, payload, { qos: 1 }, (err) => {
         if (err) {
@@ -419,7 +436,7 @@ exports.getChartData = getChartData;
  * Get device status including control mode.
  */
 const getLingkunganStatus = async (device_id) => {
-    const device = (await models_1.Device.findByPk(device_id));
+    const device = await models_1.Device.findByPk(device_id);
     if (!device)
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan.');
     const latest = await models_1.LingkunganLog.findOne({

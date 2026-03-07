@@ -79,13 +79,15 @@ const syncDatabase = async () => {
         console.log('Database connection established successfully.');
         // Only sync in development, not in production
         if (process.env.NODE_ENV !== 'production') {
-            // await sequelize.sync({ alter: true }); // Jangan gunakan 'force: true' di production
-            console.log('Database sync skipped in production.');
+            // await sequelize.sync({ alter: true });
+            console.log('Database schema sync disabled (using migrations).');
         }
-        console.log('Database synchronized successfully.');
+        else {
+            console.log('Production: skipping database schema sync.');
+        }
     }
     catch (error) {
-        console.error('Unable to synchronize the database:', error);
+        console.error('Unable to connect to the database:', error);
         throw error; // Re-throw to be caught by the caller
     }
 };

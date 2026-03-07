@@ -12,12 +12,6 @@ const intrusiCommandSchema = z.object({
   body: z.discriminatedUnion('cmd', [
     z.object({ cmd: z.literal('ARM') }),
     z.object({ cmd: z.literal('DISARM') }),
-    z.object({ cmd: z.literal('CALIB_START') }),
-    z.object({
-      cmd: z.literal('CALIB_KNOCK_START'),
-      n_hits: z.number().int().min(3).max(15).optional(),
-      timeout_ms: z.number().int().min(10000).max(300000).optional()
-    }),
     z.object({
       cmd: z.literal('SIREN_SILENCE'),
       issued_by: z.string().optional()
@@ -43,7 +37,7 @@ router.get(
   intrusiController.getStatus
 );
 
-// Send command to intrusi device (ARM, DISARM, CALIB, SIREN_SILENCE, STATUS)
+// Send command to intrusi device (ARM, DISARM, SIREN_SILENCE, STATUS)
 router.post(
   '/devices/:deviceId/command',
   authMiddleware,

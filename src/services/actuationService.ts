@@ -15,8 +15,6 @@ interface DeviceWithArea extends Device {
 export type IntrusiCommand =
   | { cmd: 'ARM' }
   | { cmd: 'DISARM' }
-  | { cmd: 'CALIB_START' }
-  | { cmd: 'CALIB_KNOCK_START'; n_hits?: number; timeout_ms?: number }
   | { cmd: 'SIREN_SILENCE'; issued_by?: string }
   | { cmd: 'STATUS' };
 

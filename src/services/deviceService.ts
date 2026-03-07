@@ -196,47 +196,13 @@ export const updateDeviceHeartbeat = async (
       last_heartbeat: new Date()
     };
 
-    // Merge intrusi-specific fields if provided
-    if (extraFields?.door_state) {
-      updateData.door_state = extraFields.door_state;
-    }
-    if (extraFields?.intrusi_system_state) {
-      updateData.intrusi_system_state = extraFields.intrusi_system_state;
-    }
-    if (extraFields?.siren_state) {
-      updateData.siren_state = extraFields.siren_state;
-    }
-    if (extraFields?.power_source) {
-      updateData.power_source = extraFields.power_source;
-    }
-    if (
-      extraFields?.vbat_voltage !== undefined &&
-      extraFields?.vbat_voltage !== null
-    ) {
-      updateData.vbat_voltage = extraFields.vbat_voltage;
-    }
-    if (extraFields?.vbat_pct !== undefined && extraFields?.vbat_pct !== null) {
-      updateData.vbat_pct = extraFields.vbat_pct;
-    }
-
-    // Merge lingkungan-specific fields if provided
-    if (extraFields?.last_temperature !== undefined) {
-      updateData.last_temperature = extraFields.last_temperature;
-    }
-    if (extraFields?.last_humidity !== undefined) {
-      updateData.last_humidity = extraFields.last_humidity;
-    }
-    if (extraFields?.last_co2 !== undefined) {
-      updateData.last_co2 = extraFields.last_co2;
-    }
-    if (extraFields?.fan_state) {
-      updateData.fan_state = extraFields.fan_state;
-    }
-    if (extraFields?.dehumidifier_state) {
-      updateData.dehumidifier_state = extraFields.dehumidifier_state;
-    }
-    if (extraFields?.control_mode) {
-      updateData.control_mode = extraFields.control_mode;
+    // Merge extra fields if provided (removes 40 lines of if-checks)
+    if (extraFields) {
+      for (const [key, value] of Object.entries(extraFields)) {
+        if (value !== undefined && value !== null) {
+          updateData[key] = value;
+        }
+      }
     }
 
     await Device.update(updateData, { where: { id: deviceId } });

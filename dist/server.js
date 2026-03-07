@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const models_1 = require("./db/models");
 const deviceRoutes_1 = __importDefault(require("./api/routes/deviceRoutes"));
 const warehouseRoutes_1 = __importDefault(require("./api/routes/warehouseRoutes"));
@@ -37,6 +38,14 @@ app.use((0, cors_1.default)({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express_1.default.json());
+// Global rate limiter
+app.use((0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: process.env.NODE_ENV === 'development' ? 5000 : 1000, // Much higher limit for dev so SSR doesn't crash
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' }
+}));
 // Health Check Route
 app.get('/', (req, res) => {
     res.status(200).json({
@@ -71,13 +80,13 @@ app.use('/api/devices', authMiddleware_1.authMiddleware, deviceRoutes_1.default)
 app.use('/api/warehouses', authMiddleware_1.authMiddleware, warehouseRoutes_1.default);
 app.use('/api/analytics', authMiddleware_1.authMiddleware, analyticsRoutes_1.default);
 app.use('/api/areas', authMiddleware_1.authMiddleware, areaRoutes_1.default);
-app.use('/api/users', userRoutes_1.default);
-app.use('/api/navigation', navigationRoutes_1.default);
-app.use('/api/alerts', alertRoutes_1.default);
+app.use('/api/users', userRoutes_1.default); // has per-route auth (some endpoints need public access)
+app.use('/api/navigation', authMiddleware_1.authMiddleware, navigationRoutes_1.default);
+app.use('/api/alerts', authMiddleware_1.authMiddleware, alertRoutes_1.default);
 app.use('/api/security-logs', authMiddleware_1.authMiddleware, keamananRoutes_1.default);
-app.use('/api/intrusi', intrusiRoutes_1.default);
-app.use('/api/lingkungan', lingkunganRoutes_1.default);
-app.use('/api/telegram', telegramRoutes_1.default);
+app.use('/api/intrusi', authMiddleware_1.authMiddleware, intrusiRoutes_1.default);
+app.use('/api/lingkungan', authMiddleware_1.authMiddleware, lingkunganRoutes_1.default);
+app.use('/api/telegram', telegramRoutes_1.default); // has per-route auth (webhook must stay public)
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err, req, res, next) => {
     console.error('Error:', err);
@@ -152,4 +161,3 @@ app.listen(PORT, HOST, () => {
         initializeServices();
     });
 });
-//tes

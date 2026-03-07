@@ -1,10 +1,12 @@
 // backend/src/services/lingkunganService.ts
 import { Op } from 'sequelize';
 import { LingkunganLog, PredictionResult, Device, Area } from '../db/models';
+import { DeviceAttributes } from '../db/models/device';
 import { AcknowledgeStatus } from '../db/models/lingkunganLog';
 import ApiError from '../utils/apiError';
 import { client as mqttClient } from '../mqtt/client';
 import * as alertingService from './alertingService';
+import { sequelize } from '../db/config';
 
 // MQTT topics for ML prediction pipeline
 const ML_PREDICT_REQUEST_TOPIC = 'synergy/ml/predict/request';
@@ -43,23 +45,30 @@ export const ingestSensorData = async (data: {
     `[LingkunganService] Ingested sensor data: T=${data.temperature}°C, H=${data.humidity}%, CO2=${data.co2}ppm for device ${data.device_id}`
   );
 
-  // 2. Update device with latest sensor readings
-  await Device.update(
-    {
-      last_temperature: data.temperature,
-      last_humidity: data.humidity,
-      last_co2: data.co2
-    } as any,
-    { where: { id: data.device_id } }
-  );
+  // 2. Fetch device once, share across all downstream calls
+  const device = await Device.findByPk(data.device_id, {
+    include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+  });
 
-  // 3. Trigger ML prediction (non-blocking)
-  triggerPrediction(data.device_id).catch((err) => {
+  if (!device) {
+    console.error(`[LingkunganService] Device ${data.device_id} not found`);
+    return log;
+  }
+
+  // 3. Update device with latest sensor readings
+  await device.update({
+    last_temperature: data.temperature,
+    last_humidity: data.humidity,
+    last_co2: data.co2
+  });
+
+  // 4. Trigger ML prediction (non-blocking)
+  triggerPrediction(data.device_id, device).catch((err) => {
     console.error('[LingkunganService] ML prediction failed:', err.message);
   });
 
-  // 4. Check firmware safety thresholds (Level 2)
-  await handleFirmwareSafetyCheck(data);
+  // 5. Check firmware safety thresholds (Level 2)
+  await handleFirmwareSafetyCheck(data, device);
 
   return log;
 };
@@ -70,13 +79,17 @@ export const ingestSensorData = async (data: {
  * and publishes the result to 'synergy/ml/predict/response/{deviceId}'.
  * The response is handled asynchronously in handlePredictionResult().
  */
-const triggerPrediction = async (deviceId: string) => {
+const triggerPrediction = async (deviceId: string, device: Device) => {
   try {
-    // Get the last 60 readings for the LSTM sequence
+    // Get the last 60 readings for the LSTM sequence, ordered oldest-first
     const recentData = await LingkunganLog.findAll({
       where: { device_id: deviceId },
-      order: [['timestamp', 'DESC']],
-      limit: 60
+      order: [['timestamp', 'ASC']],
+      limit: 60,
+      offset: Math.max(
+        0,
+        (await LingkunganLog.count({ where: { device_id: deviceId } })) - 60
+      )
     });
 
     if (recentData.length < 60) {
@@ -86,8 +99,7 @@ const triggerPrediction = async (deviceId: string) => {
       return;
     }
 
-    // Reverse so oldest is first
-    const sequence = recentData.reverse().map((r) => ({
+    const sequence = recentData.map((r) => ({
       temperature: r.temperature,
       humidity: r.humidity,
       co2: r.co2
@@ -174,19 +186,16 @@ const handleFirmwareSafetyCheck = async (data: {
   temperature: number;
   humidity: number;
   co2: number;
-}) => {
+}, device: Device) => {
   // If ALL readings are below safe thresholds, turn off actuators
   if (
     data.temperature < SAFE_TEMP &&
     data.humidity < SAFE_HUMIDITY &&
     data.co2 < SAFE_CO2
   ) {
-    const device = (await Device.findByPk(data.device_id)) as any;
-    if (!device) return;
-
     // Check if in manual override mode
-    if (device.control_mode === 'MANUAL' && device.manual_override_until) {
-      const overrideExpiry = new Date(device.manual_override_until);
+    if ((device as any).control_mode === 'MANUAL' && (device as any).manual_override_until) {
+      const overrideExpiry = new Date((device as any).manual_override_until);
       if (overrideExpiry > new Date()) {
         console.log(
           '[LingkunganService] Manual override active. Skipping safety deactivation.'
@@ -194,10 +203,10 @@ const handleFirmwareSafetyCheck = async (data: {
         return;
       }
       // Override expired, switch back to auto
-      await Device.update(
-        { control_mode: 'AUTO', manual_override_until: null } as any,
-        { where: { id: data.device_id } }
-      );
+      await device.update({
+        control_mode: 'AUTO',
+        manual_override_until: null
+      });
     }
 
     // Turn off actuators via MQTT
@@ -211,11 +220,11 @@ const handleFirmwareSafetyCheck = async (data: {
       await sendActuatorCommand(data.device_id, {
         fan: 'OFF',
         dehumidifier: 'OFF'
+      }, device);
+      await device.update({
+        fan_state: 'OFF',
+        dehumidifier_state: 'OFF'
       });
-      await Device.update(
-        { fan_state: 'OFF', dehumidifier_state: 'OFF' } as any,
-        { where: { id: data.device_id } }
-      );
     }
   }
 };
@@ -231,12 +240,14 @@ const handlePredictiveControl = async (
     predicted_co2: number;
   }
 ) => {
-  const device = (await Device.findByPk(deviceId)) as any;
+  const device = await Device.findByPk(deviceId, {
+    include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+  });
   if (!device) return;
 
   // Check manual override
-  if (device.control_mode === 'MANUAL' && device.manual_override_until) {
-    const overrideExpiry = new Date(device.manual_override_until);
+  if ((device as any).control_mode === 'MANUAL' && (device as any).manual_override_until) {
+    const overrideExpiry = new Date((device as any).manual_override_until);
     if (overrideExpiry > new Date()) {
       console.log(
         '[LingkunganService] Manual override active. Skipping predictive control.'
@@ -275,13 +286,13 @@ const handlePredictiveControl = async (
     if (triggerFan) command.fan = 'ON';
     if (triggerDehumidifier) command.dehumidifier = 'ON';
 
-    await sendActuatorCommand(deviceId, command);
+    await sendActuatorCommand(deviceId, command, device);
 
     // Update device state
-    const updateData: any = {};
+    const updateData: Partial<DeviceAttributes> = {};
     if (triggerFan) updateData.fan_state = 'ON';
     if (triggerDehumidifier) updateData.dehumidifier_state = 'ON';
-    await Device.update(updateData, { where: { id: deviceId } });
+    await device.update(updateData);
 
     // Update prediction record
     await PredictionResult.update(
@@ -306,17 +317,22 @@ const handlePredictiveControl = async (
  */
 export const sendActuatorCommand = async (
   deviceId: string,
-  command: { fan?: string; dehumidifier?: string }
+  command: { fan?: string; dehumidifier?: string },
+  device?: Device
 ) => {
-  const device = (await Device.findByPk(deviceId, {
-    include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
-  })) as any;
+  // Use provided device or fetch if not available
+  const deviceWithArea = device && (device as any).area
+    ? device
+    : await Device.findByPk(deviceId, {
+        include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+      });
 
-  if (!device) {
+  if (!deviceWithArea) {
     throw new ApiError(404, 'Perangkat tidak ditemukan.');
   }
 
-  const topic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
+  const area = (deviceWithArea as any).area;
+  const topic = `warehouses/${area.warehouse_id}/areas/${area.id}/devices/${deviceWithArea.id}/commands`;
   const payload = JSON.stringify(command);
 
   mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
@@ -364,7 +380,7 @@ export const handleManualControl = async (
  */
 export const switchToAutoMode = async (deviceId: string) => {
   await Device.update(
-    { control_mode: 'AUTO', manual_override_until: null } as any,
+    { control_mode: 'AUTO', manual_override_until: null },
     { where: { id: deviceId } }
   );
   console.log(
@@ -529,7 +545,7 @@ export const getChartData = async (
  * Get device status including control mode.
  */
 export const getLingkunganStatus = async (device_id: string) => {
-  const device = (await Device.findByPk(device_id)) as any;
+  const device = await Device.findByPk(device_id);
   if (!device) throw new ApiError(404, 'Perangkat tidak ditemukan.');
 
   const latest = await LingkunganLog.findOne({

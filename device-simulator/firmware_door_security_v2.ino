@@ -1,10 +1,10 @@
 // ============================================================================
-//  WAREHOUSE DOOR SECURITY SYSTEM — FIRMWARE v3.0
+//  WAREHOUSE DOOR SECURITY SYSTEM — FIRMWARE v3.1
 //  Microcontroller: Seeed XIAO ESP32-S3
 //  Sensors: MPU6050 (I²C), Reed Switch, Battery ADC
 //  Actuators: MOSFET-driven Piezo Siren
 //  Connectivity: WiFi + MQTT over TLS (EMQX Cloud)
-//  Spec: SECURITY_SYSTEM_SPEC v19
+//  Spec: SECURITY_SYSTEM_SPEC v19 — Empirical Static Configuration
 // ============================================================================
 
 #include <WiFi.h>
@@ -13,10 +13,8 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
-#include <Preferences.h>
 #include <time.h>
 #include <math.h>    // expf()
-#include <stdlib.h>  // qsort()
 
 // ============================================================================
 //  PIN MAPPING (XIAO ESP32-S3) — per Spec v18 §2.5
@@ -59,7 +57,8 @@ static const char* AREA_ID       = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 //  SYSTEM PARAMETERS — Spec v19
 // ============================================================================
 
-// --- Threat Scoring: Leaky Bucket (§6.2) ---
+// --- Threat Scoring: Leaky Bucket (§5) — Empirical Static Configuration ---
+static constexpr float    TH_HIT           = 0.85f;    // Empirical baseline threshold (g) — 7-day study
 static constexpr float    LAMBDA           = 0.025f;   // decay rate per second
 static constexpr float    H_ADD            = 1.0f;     // score added per valid hit
 static constexpr float    S_ALARM          = 2.0f;     // threshold → FORCED_ENTRY_ALARM
@@ -71,14 +70,6 @@ static constexpr uint32_t IMU_SAMPLE_MS    = 10;       // 100 Hz
 // --- Siren Policy (§8) ---
 static constexpr uint32_t SIREN_ON_MS      = 30000;    // 30s siren duration
 static constexpr uint32_t ALARM_COOLDOWN_MS = 30000;   // 30s cooldown after siren off
-
-// --- Calibration: Two-Stage (§7) ---
-static constexpr float    ALPHA            = 0.75f;    // knock threshold factor
-static constexpr float    GAMMA_CAL        = 2.5f;     // noise threshold factor
-static constexpr uint32_t NOISE_DURATION_MS = 120000;  // 120s noise baseline (Stage A)
-static constexpr uint8_t  N_CALIB_KNOCKS   = 9;        // knocks for Stage B
-static constexpr uint32_t CALIB_KNOCK_TIMEOUT_MS = 60000; // 60s timeout for knock stage
-static constexpr uint16_t NOISE_MAX_SAMPLES = 12000;   // max samples for Stage A (120s @ 100Hz)
 
 // --- Battery Monitoring: Robust (§9) ---
 static constexpr uint32_t VBAT_READ_INTERVAL_MS        = 10000;  // read every 10s
@@ -99,7 +90,6 @@ static constexpr uint32_t STATUS_INTERVAL_MS = 15000;  // heartbeat every 15s
 // ============================================================================
 enum SystemState { STATE_DISARMED, STATE_ARMED };
 enum SirenState  { SIREN_OFF, SIREN_ON_ACTIVE, SIREN_COOLDOWN };
-enum CalibState  { CALIB_IDLE, CALIB_NOISE, CALIB_KNOCK };
 enum BattLevel   { BATT_NORMAL, BATT_LOW, BATT_CRITICAL };
 enum NetPolicy   { NET_IDLE_SAVE, NET_PREWAKE, NET_ALARM_ACTIVE, NET_COOLDOWN_HOLD };
 
@@ -111,9 +101,6 @@ enum NetPolicy   { NET_IDLE_SAVE, NET_PREWAKE, NET_ALARM_ACTIVE, NET_COOLDOWN_HO
 static float    threatScore  = 0.0f;
 static uint32_t lastDecayMs  = 0;
 static uint32_t lastHitTs    = 0;
-
-// --- Hit Threshold (calibrated) ---
-static float TH_HIT = 1.0f;   // default, overridden by NVS/calibration
 
 // --- System/Siren State ---
 static volatile SystemState systemState = STATE_DISARMED;
@@ -139,20 +126,6 @@ static BattLevel   prevBattLevel   = BATT_NORMAL;
 // --- Network Policy ---
 static NetPolicy netPolicy = NET_IDLE_SAVE;
 
-// --- Calibration (Two-Stage) ---
-static CalibState calibState      = CALIB_IDLE;
-static uint32_t   calibStartMs    = 0;
-
-// Stage A: Noise Baseline
-static float*   noiseSamples      = nullptr;
-static uint16_t noiseSampleCount  = 0;
-static float    n995              = 0.0f;   // noise 99.5th percentile
-
-// Stage B: Knock Capture
-static float    calibKnockPeaks[15];
-static uint8_t  calibKnockCount   = 0;
-static uint32_t calibKnockStartMs = 0;     // start of knock stage
-
 // --- NTP ---
 static bool ntpSynced = false;
 
@@ -170,7 +143,6 @@ static uint32_t nextImuTick = 0;
 static Adafruit_MPU6050 mpu;
 static WiFiClientSecure wifiSecureClient;
 static PubSubClient mqtt(wifiSecureClient);
-static Preferences preferences;
 
 // ============================================================================
 //  UTILITY: LOGGING + TIMESTAMPS
@@ -207,25 +179,6 @@ static String isoTimestamp() {
   return String("\"ts_ms\":") + String((unsigned long)millis());
 }
 
-// ============================================================================
-//  NVS — PERSIST CALIBRATION DATA
-// ============================================================================
-static void saveParamsToNVS() {
-  preferences.begin("security", false);
-  preferences.putFloat("th_hit", TH_HIT);
-  preferences.putFloat("n995", n995);
-  preferences.putFloat("alpha", ALPHA);
-  preferences.end();
-  logMsg("[NVS] Saved TH_HIT=" + String(TH_HIT, 4) + " N995=" + String(n995, 4));
-}
-
-static void loadParamsFromNVS() {
-  preferences.begin("security", true);
-  TH_HIT = preferences.getFloat("th_hit", 1.0f);  // match old v18 default
-  n995   = preferences.getFloat("n995", 0.0f);
-  preferences.end();
-  logMsg("[NVS] Loaded TH_HIT=" + String(TH_HIT, 4) + " N995=" + String(n995, 4));
-}
 
 // ============================================================================
 //  WIFI
@@ -304,14 +257,7 @@ static const char* netPolicyStr(NetPolicy np) {
   }
 }
 
-// Helper: CalibState → string
-static const char* calibStateStr(CalibState cs) {
-  switch (cs) {
-    case CALIB_NOISE: return "NOISE";
-    case CALIB_KNOCK: return "KNOCK";
-    default:          return "IDLE";
-  }
-}
+
 
 // ============================================================================
 //  EVENT PUBLISHERS (Spec v19 §10)
@@ -361,35 +307,7 @@ static void publishBatteryLevelChanged(BattLevel newLevel, BattLevel oldLevel) {
   mqttPublish(TOPIC_SENSOR, j);
 }
 
-static void publishCalibNoiseComplete() {
-  String j = baseJson("CALIB_NOISE_COMPLETE");
-  j += ",\"n995\":" + String(n995, 4);
-  j += ",\"noise_samples\":" + String(noiseSampleCount);
-  j += ",\"noise_duration_ms\":" + String(NOISE_DURATION_MS);
-  j += "}";
-  mqttPublish(TOPIC_SENSOR, j);
-}
 
-static void publishCalibSaved(float kmed) {
-  String j = baseJson("CALIB_SAVED");
-  j += ",\"th_hit\":" + String(TH_HIT, 4);
-  j += ",\"n995\":" + String(n995, 4);
-  j += ",\"kmed\":" + String(kmed, 4);
-  j += ",\"gamma\":" + String(GAMMA_CAL, 2);
-  j += ",\"alpha\":" + String(ALPHA, 4);
-  j += ",\"n_knocks\":" + String(N_CALIB_KNOCKS);
-  j += "}";
-  mqttPublish(TOPIC_SENSOR, j);
-}
-
-static void publishCalibAborted(const char* stage, uint8_t received, uint8_t expected) {
-  String j = baseJson("CALIB_ABORTED");
-  j += ",\"stage\":\"" + String(stage) + "\"";
-  j += ",\"hits_received\":" + String(received);
-  j += ",\"hits_expected\":" + String(expected);
-  j += "}";
-  mqttPublish(TOPIC_SENSOR, j);
-}
 
 static void publishSirenSilenced(const String &issuedBy) {
   String j = baseJson("SIREN_SILENCED");
@@ -424,7 +342,6 @@ static void publishStatus() {
   j += ",\"vbat_v\":" + String(lastVbatV, 2);
   j += ",\"vbat_pct\":" + String(lastVbatPct);
   j += ",\"batt_level\":\"" + String(battLevelStr(battLevel)) + "\"";
-  j += ",\"calib\":\"" + String(calibStateStr(calibState)) + "\"";
   j += ",\"net_policy\":\"" + String(netPolicyStr(netPolicy)) + "\"";
   j += "}";
   mqttPublish(TOPIC_STATUS, j);
@@ -532,9 +449,6 @@ static void processHit(float peakDelta) {
   // Only active when ARMED and door CLOSED
   if (systemState != STATE_ARMED || !doorClosed) return;
 
-  // Don't process hits during calibration
-  if (calibState != CALIB_IDLE) return;
-
   uint32_t now = millis();
 
   // Check threshold and interhit debounce
@@ -562,171 +476,7 @@ static void processHit(float peakDelta) {
   }
 }
 
-// ============================================================================
-//  CALIBRATION — TWO-STAGE (Spec v19 §7)
-//  Stage A (NOISE): 120s passive noise floor measurement → N995
-//  Stage B (KNOCK): User knocks 9 times → Kmed
-//  TH_HIT = max(GAMMA * N995, ALPHA * Kmed)
-// ============================================================================
 
-// qsort comparator for floats (ascending)
-static int compareFloat(const void* a, const void* b) {
-  float fa = *(const float*)a;
-  float fb = *(const float*)b;
-  if (fa < fb) return -1;
-  if (fa > fb) return 1;
-  return 0;
-}
-
-static float medianOfArray(float* arr, int n) {
-  // Bubble sort for small n (knock peaks, n <= 15)
-  for (int i = 0; i < n - 1; i++) {
-    for (int j = 0; j < n - i - 1; j++) {
-      if (arr[j] > arr[j + 1]) {
-        float tmp  = arr[j];
-        arr[j]     = arr[j + 1];
-        arr[j + 1] = tmp;
-      }
-    }
-  }
-  if (n % 2 == 1) return arr[n / 2];
-  return (arr[n / 2 - 1] + arr[n / 2]) / 2.0f;
-}
-
-static void calibStart() {
-  if (calibState != CALIB_IDLE) {
-    logMsg("[CALIB] Already running.");
-    return;
-  }
-
-  // Anti-leak protection: free any stale buffer from a previously interrupted calibration
-  if (noiseSamples != nullptr) {
-    free(noiseSamples);
-    noiseSamples = nullptr;
-    logMsg("[CALIB] Freed stale noise buffer from previous session.");
-  }
-
-  // Allocate noise sample buffer
-  noiseSamples = (float*)malloc(NOISE_MAX_SAMPLES * sizeof(float));
-  if (noiseSamples == nullptr) {
-    logMsg("[CALIB] ERROR: Failed to allocate noise buffer! Skipping noise stage.");
-    // Fallback: go directly to knock stage without noise baseline
-    n995 = 0.0f;
-    calibKnockCount   = 0;
-    calibKnockStartMs = millis();
-    calibState        = CALIB_KNOCK;
-    logMsg("[CALIB] Knock stage started (no noise baseline). Knock " + String(N_CALIB_KNOCKS) + " times.");
-    return;
-  }
-
-  noiseSampleCount = 0;
-  calibStartMs     = millis();
-  calibState       = CALIB_NOISE;
-
-  logMsg("[CALIB] Stage A (NOISE) started. Collecting baseline for "
-       + String(NOISE_DURATION_MS / 1000) + "s. Keep environment quiet!");
-  publishStatus();
-}
-
-static void calibProcessNoiseSample(float delta) {
-  if (calibState != CALIB_NOISE) return;
-
-  uint32_t now = millis();
-
-  // Collect sample
-  if (noiseSampleCount < NOISE_MAX_SAMPLES) {
-    noiseSamples[noiseSampleCount++] = delta;
-  }
-
-  // Time check: noise stage complete?
-  if (now - calibStartMs >= NOISE_DURATION_MS) {
-    if (noiseSampleCount < 100) {
-      logMsg("[CALIB] Too few noise samples (" + String(noiseSampleCount) + "). Aborting.");
-      free(noiseSamples);
-      noiseSamples = nullptr;
-      calibState = CALIB_IDLE;
-      publishCalibAborted("NOISE", 0, N_CALIB_KNOCKS);
-      return;
-    }
-
-    // Sort and find 99.5th percentile
-    qsort(noiseSamples, noiseSampleCount, sizeof(float), compareFloat);
-    uint16_t idx995 = (uint16_t)(0.995f * (noiseSampleCount - 1));
-    n995 = noiseSamples[idx995];
-
-    logMsg("[CALIB] Stage A DONE. Samples=" + String(noiseSampleCount)
-         + " N995=" + String(n995, 4) + "g");
-
-    // Free noise buffer
-    free(noiseSamples);
-    noiseSamples = nullptr;
-
-    publishCalibNoiseComplete();
-
-    // Transition to Stage B (KNOCK)
-    calibKnockCount   = 0;
-    calibKnockStartMs = millis();
-    calibState        = CALIB_KNOCK;
-
-    logMsg("[CALIB] Stage B (KNOCK) started. Knock the door " + String(N_CALIB_KNOCKS)
-         + " times from OUTSIDE! Timeout=" + String(CALIB_KNOCK_TIMEOUT_MS / 1000) + "s");
-    publishStatus();
-  }
-
-  // Progress log every 30s
-  static uint32_t lastProgressLog = 0;
-  if (now - lastProgressLog >= 30000) {
-    lastProgressLog = now;
-    uint32_t elapsed = (now - calibStartMs) / 1000;
-    uint32_t remaining = (NOISE_DURATION_MS / 1000) - elapsed;
-    logMsg("[CALIB] Noise progress: " + String(noiseSampleCount) + " samples, "
-         + String(remaining) + "s remaining");
-  }
-}
-
-static void calibProcessKnockSample(float delta) {
-  if (calibState != CALIB_KNOCK) return;
-
-  uint32_t now = millis();
-
-  // Timeout check
-  if (now - calibKnockStartMs >= CALIB_KNOCK_TIMEOUT_MS) {
-    calibState = CALIB_IDLE;
-    logMsg("[CALIB] KNOCK TIMEOUT — aborted. Knocks received: " + String(calibKnockCount));
-    publishCalibAborted("KNOCK", calibKnockCount, N_CALIB_KNOCKS);
-    return;
-  }
-
-  // Detect knock: must exceed noise floor (or 0.1g minimum) + debounce
-  float minThresh = (n995 > 0.05f) ? n995 : 0.1f;
-  if (delta >= minThresh && (now - lastHitTs) >= MIN_INTERHIT_MS) {
-    lastHitTs = now;
-    calibKnockPeaks[calibKnockCount] = delta;
-    calibKnockCount++;
-
-    logMsg("[CALIB] Knock " + String(calibKnockCount) + "/" + String(N_CALIB_KNOCKS)
-         + " peak=" + String(delta, 4) + "g");
-
-    // All knocks received → compute threshold
-    if (calibKnockCount >= N_CALIB_KNOCKS) {
-      float kmed = medianOfArray(calibKnockPeaks, calibKnockCount);
-      float th_noise = GAMMA_CAL * n995;
-      float th_knock = ALPHA * kmed;
-      TH_HIT = (th_noise > th_knock) ? th_noise : th_knock;
-
-      logMsg("[CALIB] DONE! Kmed=" + String(kmed, 4)
-           + " GAMMA*N995=" + String(th_noise, 4)
-           + " ALPHA*Kmed=" + String(th_knock, 4)
-           + " → TH_HIT=" + String(TH_HIT, 4));
-
-      saveParamsToNVS();
-      publishCalibSaved(kmed);
-
-      calibState = CALIB_IDLE;
-      publishStatus();
-    }
-  }
-}
 
 // ============================================================================
 //  DOOR SWITCH (Reed) — Spec v19 §6.1
@@ -982,10 +732,7 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
     publishDisarmEvent();
     publishStatus();
   }
-  // ---- CALIB_START / CALIB_KNOCK_START (Spec v19 §7 — Two-Stage) ----
-  else if (msg.indexOf("\"CALIB_START\"") >= 0 || msg.indexOf("\"CALIB_KNOCK_START\"") >= 0) {
-    calibStart();
-  }
+
   // ---- SIREN_SILENCE (Spec v19 §8.3) ----
   else if (msg.indexOf("\"SIREN_SILENCE\"") >= 0) {
     String issuedBy = "dashboard";
@@ -1045,10 +792,11 @@ void setup() {
   delay(500);
 
   Serial.println("============================================");
-  Serial.println(" Warehouse Door Security System v3.0");
+  Serial.println(" Warehouse Door Security System v3.1");
   Serial.println(" XIAO ESP32-S3 + MPU6050 + Reed Switch");
-  Serial.println(" Spec: SECURITY_SYSTEM_SPEC v19");
+  Serial.println(" Spec: v19 — Empirical Static Config");
   Serial.println(" Threat Model: Leaky Bucket (S_ALARM=2.0)");
+  Serial.println(" TH_HIT=0.85g (hardcoded, no calibration)");
   Serial.println("============================================");
 
   // --- Pin Setup ---
@@ -1066,8 +814,6 @@ void setup() {
   digitalWrite(PIN_SIM800L_RX, LOW);
   logMsg("[SIM800L] Pins D6/D7 driven LOW — module disabled.");
 
-  // --- Load calibration from NVS ---
-  loadParamsFromNVS();
 
   // --- I2C + MPU6050 ---
   Wire.begin(PIN_SDA, PIN_SCL);
@@ -1166,14 +912,7 @@ void loop() {
     // Decay threat score every tick
     decayThreatScore();
 
-    // Calibration processing
-    if (calibState == CALIB_NOISE) {
-      calibProcessNoiseSample(delta);
-    } else if (calibState == CALIB_KNOCK) {
-      calibProcessKnockSample(delta);
-    }
-
-    // Hit detection (only when ARMED + CLOSED + not calibrating)
+    // Hit detection (only when ARMED + CLOSED)
     processHit(delta);
   }
 
