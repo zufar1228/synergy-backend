@@ -229,10 +229,10 @@ export const processIntrusiAlert = async (
 export const processLingkunganAlert = async (
   deviceId: string,
   alerts: string[],
-  prediction: {
-    predicted_temperature: number;
-    predicted_humidity: number;
-    predicted_co2: number;
+  data: {
+    temperature: number;
+    humidity: number;
+    co2: number;
   }
 ) => {
   console.log(
@@ -261,20 +261,20 @@ export const processLingkunganAlert = async (
 
   const timestamp = formatTimestampWIB();
 
-  const incidentType = 'Prediksi Kondisi Lingkungan Berbahaya (15 Menit)';
+  const incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
 
   const details: { key: string; value: string }[] = [
     {
-      key: 'Prediksi Suhu',
-      value: `${prediction.predicted_temperature.toFixed(1)}°C`
+      key: 'Suhu Saat Ini',
+      value: `${data.temperature.toFixed(1)}°C`
     },
     {
-      key: 'Prediksi Kelembapan',
-      value: `${prediction.predicted_humidity.toFixed(1)}%`
+      key: 'Kelembapan Saat Ini',
+      value: `${data.humidity.toFixed(1)}%`
     },
     {
-      key: 'Prediksi CO2',
-      value: `${prediction.predicted_co2.toFixed(0)} ppm`
+      key: 'CO2 Saat Ini',
+      value: `${data.co2.toFixed(0)} ppm`
     }
   ];
 

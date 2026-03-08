@@ -195,7 +195,7 @@ exports.processIntrusiAlert = processIntrusiAlert;
  * Process predictive alerts from the environmental monitoring (lingkungan) system.
  * Called when ML predictions exceed safety thresholds.
  */
-const processLingkunganAlert = async (deviceId, alerts, prediction) => {
+const processLingkunganAlert = async (deviceId, alerts, data) => {
     console.log(`[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`);
     const device = (await models_1.Device.findByPk(deviceId, {
         include: [
@@ -213,19 +213,19 @@ const processLingkunganAlert = async (deviceId, alerts, prediction) => {
     const { area } = device;
     const { warehouse } = area;
     const timestamp = formatTimestampWIB();
-    const incidentType = 'Prediksi Kondisi Lingkungan Berbahaya (15 Menit)';
+    const incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
     const details = [
         {
-            key: 'Prediksi Suhu',
-            value: `${prediction.predicted_temperature.toFixed(1)}°C`
+            key: 'Suhu Saat Ini',
+            value: `${data.temperature.toFixed(1)}°C`
         },
         {
-            key: 'Prediksi Kelembapan',
-            value: `${prediction.predicted_humidity.toFixed(1)}%`
+            key: 'Kelembapan Saat Ini',
+            value: `${data.humidity.toFixed(1)}%`
         },
         {
-            key: 'Prediksi CO2',
-            value: `${prediction.predicted_co2.toFixed(0)} ppm`
+            key: 'CO2 Saat Ini',
+            value: `${data.co2.toFixed(0)} ppm`
         }
     ];
     alerts.forEach((alert) => {

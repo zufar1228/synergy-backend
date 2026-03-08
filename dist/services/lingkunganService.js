@@ -85,7 +85,9 @@ const ingestSensorData = async (data) => {
     triggerPrediction(data.device_id, device).catch((err) => {
         console.error('[LingkunganService] ML prediction failed:', err.message);
     });
-    // 5. Check firmware safety thresholds (Level 2)
+    // 5. Check actual thresholds for notifications and ML override (Level 3 - Actual)
+    await handleActualThresholdControl(data, device);
+    // 6. Check firmware safety thresholds (Level 2)
     await handleFirmwareSafetyCheck(data, device);
     return log;
 };
@@ -152,7 +154,7 @@ const handlePredictionResult = async (deviceId, prediction) => {
             predicted_co2: prediction.predicted_co2
         });
         console.log(`[LingkunganService] Prediction saved: T=${prediction.predicted_temperature}°C, H=${prediction.predicted_humidity}%, CO2=${prediction.predicted_co2}ppm`);
-        // Check predictive thresholds (Level 3)
+        // Check predictive thresholds (Level 3 - Actuators)
         await handlePredictiveControl(deviceId, prediction);
         return predResult;
     }
@@ -198,7 +200,7 @@ const handleFirmwareSafetyCheck = async (data, device) => {
     }
 };
 /**
- * Level 3: Predictive & Early Warning — activate actuators based on ML forecast.
+ * Level 3: Predictive & Early Warning — activate actuators based on ML forecast (NO ALERTS).
  */
 const handlePredictiveControl = async (deviceId, prediction) => {
     const device = await models_1.Device.findByPk(deviceId, {
@@ -216,18 +218,14 @@ const handlePredictiveControl = async (deviceId, prediction) => {
     }
     let triggerFan = false;
     let triggerDehumidifier = false;
-    const alerts = [];
     if (prediction.predicted_temperature > PREDICT_TEMP_THRESHOLD) {
         triggerFan = true;
-        alerts.push(`Suhu diprediksi ${prediction.predicted_temperature.toFixed(1)}°C (> ${PREDICT_TEMP_THRESHOLD}°C)`);
     }
     if (prediction.predicted_humidity > PREDICT_HUMIDITY_THRESHOLD) {
         triggerDehumidifier = true;
-        alerts.push(`Kelembapan diprediksi ${prediction.predicted_humidity.toFixed(1)}% (> ${PREDICT_HUMIDITY_THRESHOLD}%)`);
     }
     if (prediction.predicted_co2 > PREDICT_CO2_THRESHOLD) {
         triggerFan = true;
-        alerts.push(`CO2 diprediksi ${prediction.predicted_co2.toFixed(0)}ppm (> ${PREDICT_CO2_THRESHOLD}ppm)`);
     }
     if (triggerFan || triggerDehumidifier) {
         const command = {};
@@ -252,8 +250,39 @@ const handlePredictiveControl = async (deviceId, prediction) => {
             order: [['timestamp', 'DESC']],
             limit: 1
         });
-        // Send Telegram notification
-        await alertingService.processLingkunganAlert(deviceId, alerts, prediction);
+    }
+};
+/**
+ * Level 3: Threshold warning — SEND ALERTS based on ACTUAL readings exceeding thresholds (NO ACTUATORS).
+ */
+const handleActualThresholdControl = async (data, device) => {
+    // Use passed device ensuring associations like 'area' are present
+    // Check manual override
+    if (device.control_mode === 'MANUAL' && device.manual_override_until) {
+        const overrideExpiry = new Date(device.manual_override_until);
+        if (overrideExpiry > new Date()) {
+            console.log('[LingkunganService] Manual override active. Skipping actual threshold control.');
+            return;
+        }
+    }
+    let triggerFan = false;
+    let triggerDehumidifier = false;
+    const alerts = [];
+    if (data.temperature > PREDICT_TEMP_THRESHOLD) {
+        triggerFan = true;
+        alerts.push(`Suhu saat ini ${data.temperature.toFixed(1)}°C (> ${PREDICT_TEMP_THRESHOLD}°C)`);
+    }
+    if (data.humidity > PREDICT_HUMIDITY_THRESHOLD) {
+        triggerDehumidifier = true;
+        alerts.push(`Kelembapan saat ini ${data.humidity.toFixed(1)}% (> ${PREDICT_HUMIDITY_THRESHOLD}%)`);
+    }
+    if (data.co2 > PREDICT_CO2_THRESHOLD) {
+        triggerFan = true;
+        alerts.push(`CO2 saat ini ${data.co2.toFixed(0)}ppm (> ${PREDICT_CO2_THRESHOLD}ppm)`);
+    }
+    if (triggerFan || triggerDehumidifier) {
+        // Send Telegram/Push notification based on actual data
+        await alertingService.processLingkunganAlert(data.device_id, alerts, data);
     }
 };
 /**
