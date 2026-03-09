@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAnalyticsData = void 0;
+const config_1 = require("../db/config");
 const models_1 = require("../db/models");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const sequelize_1 = require("sequelize");
@@ -128,9 +129,46 @@ const getAnalyticsData = async (query) => {
                 }
             ]
         });
+        const falseAlarms = await models_1.KeamananLog.count({
+            where: { ...whereCondition, status: 'false_alarm' },
+            include: [
+                {
+                    model: models_1.Device,
+                    as: 'device',
+                    attributes: [],
+                    where: area_id ? deviceWhereCondition : undefined,
+                    required: !!area_id
+                }
+            ]
+        });
+        const responseTimeResult = await models_1.KeamananLog.findAll({
+            attributes: [
+                [
+                    config_1.sequelize.fn('AVG', config_1.sequelize.fn('EXTRACT', config_1.sequelize.literal('EPOCH FROM ("KeamananLog"."acknowledged_at" - "KeamananLog"."created_at")'))),
+                    'avg_response_time'
+                ]
+            ],
+            where: {
+                ...whereCondition,
+                acknowledged_at: { [sequelize_1.Op.not]: null }
+            },
+            include: [
+                {
+                    model: models_1.Device,
+                    as: 'device',
+                    attributes: [],
+                    where: area_id ? deviceWhereCondition : undefined,
+                    required: !!area_id
+                }
+            ],
+            raw: true,
+        });
+        const avgResponseTime = responseTimeResult[0]?.avg_response_time || 0;
         summary = {
             total_detections: totalDetections,
-            unacknowledged_alerts: unacknowledged
+            unacknowledged_alerts: unacknowledged,
+            false_alarms: falseAlarms,
+            avg_response_time: avgResponseTime
         };
     }
     else if (system_type === 'intrusi') {
