@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import * as telegramService from '../../services/telegramService';
 import { TelegramSubscriber } from '../../db/models';
 import ApiError from '../../utils/apiError';
+import { formatTimestampWIB } from '../../utils/time';
 
 /**
  * Handle errors consistently
@@ -184,12 +185,14 @@ export const setupWebhook = async (req: Request, res: Response) => {
  */
 export const sendTestAlert = async (req: Request, res: Response) => {
   try {
+    const timestamp = formatTimestampWIB();
+
     const testMessage = `
 🧪 <b>TEST ALERT</b>
 
 Ini adalah pesan tes dari sistem monitoring.
 Dikirim oleh: ${req.user?.email || 'Unknown'}
-Waktu: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
+Waktu: ${timestamp}
 
 <i>Jika Anda menerima pesan ini, integrasi Telegram berfungsi dengan baik.</i>
 `;

@@ -2,8 +2,7 @@
 import { KeamananLog, Device, Area, Warehouse } from '../db/models';
 import * as telegramService from './telegramService';
 import { Op } from 'sequelize';
-import { format } from 'date-fns';
-import { id as localeID } from 'date-fns/locale';
+import { formatTimestampWIB } from '../utils/time';
 
 const REPEAT_WINDOW_MINUTES = 15;
 
@@ -145,12 +144,8 @@ export const findAndNotifyRepeatDetections = async () => {
         ),
         detectionCount: detections.length,
         durationMinutes: durationSeconds / 60, // Convert to minutes for email
-        firstSeen: format(firstDetection.created_at, 'dd MMM yyyy, HH:mm:ss', {
-          locale: localeID
-        }),
-        lastSeen: format(lastDetection.created_at, 'dd MMM yyyy, HH:mm:ss', {
-          locale: localeID
-        }),
+        firstSeen: formatTimestampWIB(firstDetection.created_at),
+        lastSeen: formatTimestampWIB(lastDetection.created_at),
         imageUrl: lastDetection.image_url
       };
 
@@ -167,8 +162,8 @@ export const findAndNotifyRepeatDetections = async () => {
 👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes as any[]).replace(/_/g, ', ')}
 
 📊 <b>Detail Deteksi:</b>
-   • Deteksi pertama: ${format(firstDetection.created_at, 'dd MMM yyyy, HH:mm:ss', { locale: localeID })}
-   • Deteksi terakhir: ${format(lastDetection.created_at, 'dd MMM yyyy, HH:mm:ss', { locale: localeID })}
+  • Deteksi pertama: ${formatTimestampWIB(firstDetection.created_at)}
+  • Deteksi terakhir: ${formatTimestampWIB(lastDetection.created_at)}
 
 🖼️ <b>Gambar:</b> ${lastDetection.image_url}
 

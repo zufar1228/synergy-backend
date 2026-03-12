@@ -40,6 +40,7 @@ exports.sendTestAlert = exports.setupWebhook = exports.getWebhookInfo = exports.
 const telegramService = __importStar(require("../../services/telegramService"));
 const models_1 = require("../../db/models");
 const apiError_1 = __importDefault(require("../../utils/apiError"));
+const time_1 = require("../../utils/time");
 /**
  * Handle errors consistently
  */
@@ -212,12 +213,13 @@ exports.setupWebhook = setupWebhook;
  */
 const sendTestAlert = async (req, res) => {
     try {
+        const timestamp = (0, time_1.formatTimestampWIB)();
         const testMessage = `
 🧪 <b>TEST ALERT</b>
 
 Ini adalah pesan tes dari sistem monitoring.
 Dikirim oleh: ${req.user?.email || 'Unknown'}
-Waktu: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
+Waktu: ${timestamp}
 
 <i>Jika Anda menerima pesan ini, integrasi Telegram berfungsi dengan baik.</i>
 `;

@@ -54,8 +54,7 @@ const node_cron_1 = __importDefault(require("node-cron"));
 const models_1 = require("../db/models");
 const telegramService = __importStar(require("../services/telegramService"));
 const webPushService = __importStar(require("../services/webPushService"));
-const date_fns_1 = require("date-fns");
-const locale_1 = require("date-fns/locale");
+const time_1 = require("../utils/time");
 // --- Configuration ---
 const DISARM_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000; // Re-remind every 1 hour
@@ -67,9 +66,7 @@ const disarmTrackers = new Map();
 const sendDisarmReminder = async (device) => {
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = (0, date_fns_1.format)(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-        locale: locale_1.id
-    });
+    const timestamp = (0, time_1.formatTimestampWIB)();
     // --- Telegram ---
     const telegramMessage = `
 ⚠️ <b>PENGINGAT: SISTEM BELUM DIAKTIFKAN</b> ⚠️

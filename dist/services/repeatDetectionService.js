@@ -38,8 +38,7 @@ exports.findAndNotifyRepeatDetections = void 0;
 const models_1 = require("../db/models");
 const telegramService = __importStar(require("./telegramService"));
 const sequelize_1 = require("sequelize");
-const date_fns_1 = require("date-fns");
-const locale_1 = require("date-fns/locale");
+const time_1 = require("../utils/time");
 const REPEAT_WINDOW_MINUTES = 15;
 /**
  * Mengubah JSON atribut mentah dari Python menjadi string kunci yang konsisten.
@@ -156,12 +155,8 @@ const findAndNotifyRepeatDetections = async () => {
                 attributes: getIdentityKey(firstDetection.attributes).replace(/_/g, ', '),
                 detectionCount: detections.length,
                 durationMinutes: durationSeconds / 60, // Convert to minutes for email
-                firstSeen: (0, date_fns_1.format)(firstDetection.created_at, 'dd MMM yyyy, HH:mm:ss', {
-                    locale: locale_1.id
-                }),
-                lastSeen: (0, date_fns_1.format)(lastDetection.created_at, 'dd MMM yyyy, HH:mm:ss', {
-                    locale: locale_1.id
-                }),
+                firstSeen: (0, time_1.formatTimestampWIB)(firstDetection.created_at),
+                lastSeen: (0, time_1.formatTimestampWIB)(lastDetection.created_at),
                 imageUrl: lastDetection.image_url
             };
             const subject = `[PERINGATAN] Orang yang Sama Terdeteksi Berulang Kali di ${warehouse.name} - ${area.name}`;
@@ -176,8 +171,8 @@ const findAndNotifyRepeatDetections = async () => {
 👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes).replace(/_/g, ', ')}
 
 📊 <b>Detail Deteksi:</b>
-   • Deteksi pertama: ${(0, date_fns_1.format)(firstDetection.created_at, 'dd MMM yyyy, HH:mm:ss', { locale: locale_1.id })}
-   • Deteksi terakhir: ${(0, date_fns_1.format)(lastDetection.created_at, 'dd MMM yyyy, HH:mm:ss', { locale: locale_1.id })}
+  • Deteksi pertama: ${(0, time_1.formatTimestampWIB)(firstDetection.created_at)}
+  • Deteksi terakhir: ${(0, time_1.formatTimestampWIB)(lastDetection.created_at)}
 
 🖼️ <b>Gambar:</b> ${lastDetection.image_url}
 

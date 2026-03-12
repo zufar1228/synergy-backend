@@ -38,20 +38,7 @@ exports.processPowerAlert = exports.processLingkunganAlert = exports.processIntr
 const models_1 = require("../db/models");
 const webPushService = __importStar(require("./webPushService"));
 const telegramService = __importStar(require("./telegramService"));
-const formatTimestampWIB = (date = new Date()) => {
-    const parts = new Intl.DateTimeFormat('id-ID', {
-        timeZone: 'Asia/Jakarta',
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    }).formatToParts(date);
-    const pick = (type) => parts.find((part) => part.type === type)?.value ?? '';
-    return `${pick('day')} ${pick('month')} ${pick('year')}, ${pick('hour')}:${pick('minute')}:${pick('second')} WIB`;
-};
+const time_1 = require("../utils/time");
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
@@ -144,7 +131,7 @@ const processIntrusiAlert = async (deviceId, data) => {
     }
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = formatTimestampWIB();
+    const timestamp = (0, time_1.formatTimestampWIB)();
     const isUnauthorizedOpen = data.type === 'UNAUTHORIZED_OPEN';
     const incidentType = isUnauthorizedOpen
         ? 'Pembukaan Pintu Tidak Sah'
@@ -212,7 +199,7 @@ const processLingkunganAlert = async (deviceId, alerts, data) => {
     }
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = formatTimestampWIB();
+    const timestamp = (0, time_1.formatTimestampWIB)();
     const incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
     const details = [
         {
@@ -310,7 +297,7 @@ const processPowerAlert = async (deviceId, data) => {
     }
     const { area } = device;
     const { warehouse } = area;
-    const timestamp = formatTimestampWIB();
+    const timestamp = (0, time_1.formatTimestampWIB)();
     let incidentType;
     let subject;
     const details = [];

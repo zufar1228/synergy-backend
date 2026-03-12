@@ -21,8 +21,7 @@ import {
 } from '../db/models';
 import * as telegramService from '../services/telegramService';
 import * as webPushService from '../services/webPushService';
-import { format } from 'date-fns';
-import { id as localeID } from 'date-fns/locale';
+import { formatTimestampWIB } from '../utils/time';
 
 // --- Configuration ---
 const DISARM_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
@@ -51,9 +50,7 @@ const sendDisarmReminder = async (device: DeviceWithRelations) => {
   const { area } = device;
   const { warehouse } = area;
 
-  const timestamp = format(new Date(), "dd MMMM yyyy, HH:mm:ss 'WIB'", {
-    locale: localeID
-  });
+  const timestamp = formatTimestampWIB();
 
   // --- Telegram ---
   const telegramMessage = `
