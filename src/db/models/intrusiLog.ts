@@ -3,9 +3,9 @@ import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize';
 import { sequelize } from '../config';
 
 /**
- * Event types from door security system (spec v19 — Empirical Static Config):
- * - IMPACT_WARNING: hit detected, threat_score increased (leaky bucket)
- * - FORCED_ENTRY_ALARM: threat_score >= S_ALARM → alarm triggered
+ * Event types from door security system (spec v20 — Windowed Threshold Algorithm):
+ * - IMPACT_WARNING: Δg ≥ TH_HIT detected, anomaly_count incremented within window
+ * - FORCED_ENTRY_ALARM: anomaly_count >= WINDOW_THRESHOLD within 45-second window → alarm triggered
  * - UNAUTHORIZED_OPEN: reed switch detected door open while ARMED
  * - POWER_SOURCE_CHANGED: mains ↔ battery transition
  * - BATTERY_LEVEL_CHANGED: battery hysteresis level transition (NORMAL/LOW/CRITICAL)

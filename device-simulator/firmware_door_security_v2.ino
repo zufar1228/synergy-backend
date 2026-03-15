@@ -1,10 +1,10 @@
 // ============================================================================
-//  WAREHOUSE DOOR SECURITY SYSTEM — FIRMWARE v3.1
+//  WAREHOUSE DOOR SECURITY SYSTEM — FIRMWARE v4.0
 //  Microcontroller: Seeed XIAO ESP32-S3
 //  Sensors: MPU6050 (I²C), Reed Switch, Battery ADC
 //  Actuators: MOSFET-driven Piezo Siren
 //  Connectivity: WiFi + MQTT over TLS (EMQX Cloud)
-//  Spec: SECURITY_SYSTEM_SPEC v19 — Empirical Static Configuration
+//  Spec: SECURITY_SYSTEM_SPEC v20 — Windowed Threshold Algorithm
 // ============================================================================
 
 #include <WiFi.h>
@@ -14,7 +14,6 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <time.h>
-#include <math.h>    // expf()
 
 // ============================================================================
 //  PIN MAPPING (XIAO ESP32-S3) — per Spec v18 §2.5
@@ -57,11 +56,11 @@ static const char* AREA_ID       = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 //  SYSTEM PARAMETERS — Spec v19
 // ============================================================================
 
-// --- Threat Scoring: Leaky Bucket (§5) — Empirical Static Configuration ---
-static constexpr float    TH_HIT           = 0.85f;    // Empirical baseline threshold (g) — 7-day study
-static constexpr float    LAMBDA           = 0.025f;   // decay rate per second
-static constexpr float    H_ADD            = 1.0f;     // score added per valid hit
-static constexpr float    S_ALARM          = 2.0f;     // threshold → FORCED_ENTRY_ALARM
+// --- Vibration Detection: Windowed Threshold (§5) ---
+static constexpr float    TH_HIT           = 0.85f;    // Empirical Δg threshold — 7-day study
+static constexpr uint32_t WINDOW_SIZE_MS   = 45000;    // 45-second evaluation window
+static constexpr int      WINDOW_THRESHOLD = 3;        // anomaly count to trigger FORCED_ENTRY_ALARM
+static constexpr int      HIT_WINDOW_MAX   = 20;       // max tracked anomalies (> WINDOW_THRESHOLD)
 static constexpr uint32_t MIN_INTERHIT_MS  = 300;      // debounce between hits
 
 // --- IMU Sampling (§5) ---
@@ -97,9 +96,10 @@ enum NetPolicy   { NET_IDLE_SAVE, NET_PREWAKE, NET_ALARM_ACTIVE, NET_COOLDOWN_HO
 //  RUNTIME GLOBALS
 // ============================================================================
 
-// --- Threat Score (Leaky Bucket) ---
-static float    threatScore  = 0.0f;
-static uint32_t lastDecayMs  = 0;
+// --- Windowed Anomaly Buffer ---
+static uint32_t hitTimestamps[HIT_WINDOW_MAX];
+static int      hitHead      = 0;     // next write index (circular)
+static int      hitBufCount  = 0;     // entries stored (max HIT_WINDOW_MAX)
 static uint32_t lastHitTs    = 0;
 
 // --- System/Siren State ---
@@ -263,21 +263,22 @@ static const char* netPolicyStr(NetPolicy np) {
 //  EVENT PUBLISHERS (Spec v19 §10)
 // ============================================================================
 
-static void publishImpactWarning(float peakDelta) {
+static void publishImpactWarning(float peakDelta, int anomalyCount) {
   String j = baseJson("IMPACT_WARNING");
   j += ",\"peak_delta_g\":" + String(peakDelta, 4);
-  j += ",\"threat_score\":" + String(threatScore, 4);
-  j += ",\"s_alarm\":" + String(S_ALARM, 2);
-  j += ",\"lambda_per_s\":" + String(LAMBDA, 4);
+  j += ",\"anomaly_count\":" + String(anomalyCount);
+  j += ",\"window_threshold\":" + String(WINDOW_THRESHOLD);
+  j += ",\"window_s\":" + String(WINDOW_SIZE_MS / 1000);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
 
-static void publishForcedEntryAlarm(float peakDelta) {
+static void publishForcedEntryAlarm(float peakDelta, int anomalyCount) {
   String j = baseJson("FORCED_ENTRY_ALARM");
   j += ",\"peak_delta_g\":" + String(peakDelta, 4);
-  j += ",\"threat_score\":" + String(threatScore, 4);
-  j += ",\"s_alarm\":" + String(S_ALARM, 2);
+  j += ",\"anomaly_count\":" + String(anomalyCount);
+  j += ",\"window_threshold\":" + String(WINDOW_THRESHOLD);
+  j += ",\"window_s\":" + String(WINDOW_SIZE_MS / 1000);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
@@ -335,7 +336,8 @@ static void publishStatus() {
   j += ",\"state\":\"" + String(systemState == STATE_ARMED ? "ARMED" : "DISARMED") + "\"";
   j += ",\"door\":\"" + String(doorClosed ? "CLOSED" : "OPEN") + "\"";
   j += ",\"th_hit\":" + String(TH_HIT, 4);
-  j += ",\"threat_score\":" + String(threatScore, 4);
+  j += ",\"anomaly_count\":" + String(countHitsInWindow(millis()));
+  j += ",\"window_threshold\":" + String(WINDOW_THRESHOLD);
   j += ",\"siren\":\"" + String(sirenState == SIREN_ON_ACTIVE ? "ON" :
                                  (sirenState == SIREN_COOLDOWN ? "COOLDOWN" : "OFF")) + "\"";
   j += ",\"power\":\"" + String(adapterPresent ? "MAINS" : "BATTERY") + "\"";
@@ -425,24 +427,32 @@ static float readDeltaG() {
 }
 
 // ============================================================================
-//  THREAT SCORING — LEAKY BUCKET (Spec v19 §6.2)
+//  VIBRATION DETECTION — WINDOWED THRESHOLD (Spec v20 §6.2)
 // ============================================================================
-//  S decays exponentially: S(t) = S(prev) * exp(-LAMBDA * dt)
-//  Each valid hit adds H_ADD to S.
-//  When S >= S_ALARM → FORCED_ENTRY_ALARM + siren.
+//  A circular buffer stores the timestamp of each valid anomaly (Δg ≥ TH_HIT).
+//  On every hit, anomalies older than WINDOW_SIZE_MS are ignored when counting.
+//  If active anomaly count within the window >= WINDOW_THRESHOLD
+//    → FORCED_ENTRY_ALARM + siren.
+//  Otherwise → IMPACT_WARNING (sustained anomaly below validation count).
 // ============================================================================
 
-static void decayThreatScore() {
-  uint32_t now = millis();
-  if (lastDecayMs == 0) { lastDecayMs = now; return; }
+// Add a hit timestamp to the circular buffer
+static void recordHit(uint32_t ts) {
+  hitTimestamps[hitHead] = ts;
+  hitHead = (hitHead + 1) % HIT_WINDOW_MAX;
+  if (hitBufCount < HIT_WINDOW_MAX) hitBufCount++;
+}
 
-  float dt_s = (float)(now - lastDecayMs) / 1000.0f;
-  lastDecayMs = now;
-
-  if (dt_s > 0.0f && threatScore > 0.0f) {
-    threatScore *= expf(-LAMBDA * dt_s);
-    if (threatScore < 0.001f) threatScore = 0.0f;
+// Count how many buffered hits fall within the last WINDOW_SIZE_MS
+static int countHitsInWindow(uint32_t now) {
+  int count = 0;
+  for (int i = 0; i < hitBufCount; i++) {
+    int idx = ((hitHead - 1 - i) % HIT_WINDOW_MAX + HIT_WINDOW_MAX) % HIT_WINDOW_MAX;
+    if ((now - hitTimestamps[idx]) <= WINDOW_SIZE_MS) {
+      count++;
+    }
   }
+  return count;
 }
 
 static void processHit(float peakDelta) {
@@ -451,27 +461,30 @@ static void processHit(float peakDelta) {
 
   uint32_t now = millis();
 
-  // Check threshold and interhit debounce
+  // Apply Δg threshold and interhit debounce
   if (peakDelta >= TH_HIT && (now - lastHitTs) >= MIN_INTERHIT_MS) {
     lastHitTs = now;
 
-    // Add to threat score
-    threatScore += H_ADD;
+    // Record anomaly in window buffer
+    recordHit(now);
 
-    logMsg("[HIT] +H_ADD → S=" + String(threatScore, 4)
+    int anomalyCount = countHitsInWindow(now);
+    logMsg("[HIT] anomaly_count=" + String(anomalyCount)
+         + "/" + String(WINDOW_THRESHOLD)
          + " peak=" + String(peakDelta, 4) + "g");
 
-    // Check if alarm threshold reached
-    if (threatScore >= S_ALARM) {
-      logMsg("[HIT] FORCED_ENTRY_ALARM! S=" + String(threatScore, 4)
-           + " >= S_ALARM=" + String(S_ALARM, 2));
-      publishForcedEntryAlarm(peakDelta);
+    // Check if validation threshold is reached within the window
+    if (anomalyCount >= WINDOW_THRESHOLD) {
+      logMsg("[HIT] FORCED_ENTRY_ALARM! count=" + String(anomalyCount)
+           + " >= WINDOW_THRESHOLD=" + String(WINDOW_THRESHOLD));
+      publishForcedEntryAlarm(peakDelta, anomalyCount);
       triggerAlarm();
-      // Reset threat score after alarm
-      threatScore = 0.0f;
+      // Clear window buffer after alarm to prevent immediate re-trigger
+      hitBufCount = 0;
+      hitHead = 0;
     } else {
-      // Below threshold → IMPACT_WARNING
-      publishImpactWarning(peakDelta);
+      // Sustained anomalies below validation count → IMPACT_WARNING
+      publishImpactWarning(peakDelta, anomalyCount);
     }
   }
 }
@@ -680,7 +693,7 @@ static void updateNetPolicy() {
     newPolicy = NET_ALARM_ACTIVE;
   } else if (sirenState == SIREN_COOLDOWN) {
     newPolicy = NET_COOLDOWN_HOLD;
-  } else if (threatScore > 0.001f) {
+  } else if (hitBufCount > 0 && countHitsInWindow(millis()) > 0) {
     newPolicy = NET_PREWAKE;
   } else {
     newPolicy = NET_IDLE_SAVE;
@@ -714,7 +727,8 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // ---- ARM ----
   if (msg.indexOf("\"ARM\"") >= 0 && msg.indexOf("\"DISARM\"") < 0) {
     systemState = STATE_ARMED;
-    threatScore = 0.0f;
+    hitBufCount = 0;
+    hitHead = 0;
     logMsg("[STATE] ARMED");
     publishArmEvent();
     publishStatus();
@@ -722,7 +736,8 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // ---- DISARM ----
   else if (msg.indexOf("\"DISARM\"") >= 0) {
     systemState = STATE_DISARMED;
-    threatScore = 0.0f;
+    hitBufCount = 0;
+    hitHead = 0;
     if (sirenState == SIREN_ON_ACTIVE) {
       sirenOff();
       sirenState = SIREN_OFF;
@@ -792,10 +807,10 @@ void setup() {
   delay(500);
 
   Serial.println("============================================");
-  Serial.println(" Warehouse Door Security System v3.1");
+  Serial.println(" Warehouse Door Security System v4.0");
   Serial.println(" XIAO ESP32-S3 + MPU6050 + Reed Switch");
-  Serial.println(" Spec: v19 — Empirical Static Config");
-  Serial.println(" Threat Model: Leaky Bucket (S_ALARM=2.0)");
+  Serial.println(" Spec: v20 — Windowed Threshold Algorithm");
+  Serial.println(" Detection: TH_HIT=0.85g, Window=45s, N=3");
   Serial.println(" TH_HIT=0.85g (hardcoded, no calibration)");
   Serial.println("============================================");
 
@@ -862,14 +877,17 @@ void setup() {
   nextImuTick       = millis();
   lastVbatReadMs    = millis();
   lastStatusPublish = millis();
-  lastDecayMs       = millis();
   lastHitTs         = 0;
   sirenOffMs        = 0;
   sourceChangeMs    = 0;
+  hitHead           = 0;
+  hitBufCount       = 0;
+  memset(hitTimestamps, 0, sizeof(hitTimestamps));
 
   logMsg("[SYS] System ready. State=DISARMED. Send ARM command to activate.");
-  logMsg("[SYS] TH_HIT=" + String(TH_HIT, 4) + " S_ALARM=" + String(S_ALARM, 2)
-       + " LAMBDA=" + String(LAMBDA, 4) + "/s");
+  logMsg("[SYS] TH_HIT=" + String(TH_HIT, 4)
+       + " WINDOW_THRESHOLD=" + String(WINDOW_THRESHOLD)
+       + " WINDOW_SIZE=" + String(WINDOW_SIZE_MS / 1000) + "s");
 }
 
 // ============================================================================
@@ -908,9 +926,6 @@ void loop() {
     nextImuTick += IMU_SAMPLE_MS;
 
     float delta = readDeltaG();
-
-    // Decay threat score every tick
-    decayThreatScore();
 
     // Hit detection (only when ARMED + CLOSED)
     processHit(delta);

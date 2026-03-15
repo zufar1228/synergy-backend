@@ -170,11 +170,11 @@ export const processIntrusiAlert = async (
       key: 'Peak Impact (g)',
       value: data.peak_delta_g.toFixed(3)
     });
-    // v19: show threat_score (leaky bucket) instead of hit_count
-    if (data.threat_score != null) {
+    // Windowed threshold: show anomaly_count instead of threat_score/hit_count
+    if (data.anomaly_count != null) {
       details.push({
-        key: 'Threat Score',
-        value: Number(data.threat_score).toFixed(2)
+        key: 'Jumlah Anomali (Window)',
+        value: `${data.anomaly_count} / ${data.window_threshold ?? 3}`
       });
     } else if (data.hit_count != null) {
       details.push({ key: 'Hit Count', value: String(data.hit_count) });
