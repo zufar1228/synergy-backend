@@ -21,6 +21,9 @@ const PREDICT_TEMP_THRESHOLD = 35;
 const PREDICT_HUMIDITY_THRESHOLD = 80;
 const PREDICT_CO2_THRESHOLD = 1500;
 
+// ML v3 expects 240 samples (15s interval x 1 hour)
+const ML_SEQUENCE_LENGTH = 240;
+
 // Manual override duration (5 minutes)
 const MANUAL_OVERRIDE_DURATION_MS = 5 * 60 * 1000;
 
@@ -82,42 +85,39 @@ export const ingestSensorData = async (data: {
  * and publishes the result to 'synergy/ml/predict/response/{deviceId}'.
  * The response is handled asynchronously in handlePredictionResult().
  */
-const SEQUENCE_LENGTH = 240; // 1 hour of data at 15s intervals
-
 const triggerPrediction = async (deviceId: string, device: Device) => {
   try {
-    // Only trigger prediction when we have a full hour (240 readings)
     const totalLogs = await LingkunganLog.count({
       where: { device_id: deviceId }
     });
 
-    if (totalLogs < SEQUENCE_LENGTH) {
+    // Only trigger prediction when we have at least 1 full hour of data.
+    if (totalLogs < ML_SEQUENCE_LENGTH) {
       console.log(
-        `[LingkunganService] Not enough data for prediction (${totalLogs}/${SEQUENCE_LENGTH}). Skipping.`
+        `[LingkunganService] Not enough data for prediction (${totalLogs}/${ML_SEQUENCE_LENGTH}). Skipping.`
       );
       return;
     }
 
-    // Trigger only on every full-hour boundary to avoid redundant predictions
-    if (totalLogs % SEQUENCE_LENGTH !== 0) {
+    // Trigger only on each complete 240-reading boundary.
+    if (totalLogs % ML_SEQUENCE_LENGTH !== 0) {
       return;
     }
 
-    // Get the last SEQUENCE_LENGTH readings for the LSTM sequence (oldest-first)
+    // Get the latest ML_SEQUENCE_LENGTH readings then reverse to oldest-first.
     const recentData = await LingkunganLog.findAll({
       where: { device_id: deviceId },
       order: [['timestamp', 'DESC']],
-      limit: SEQUENCE_LENGTH
+      limit: ML_SEQUENCE_LENGTH
     });
 
-    // Reverse to oldest-first (LSTM expects chronological order)
-    recentData.reverse();
-
-    const sequence = recentData.map((r) => ({
+    const sequence = recentData.reverse().map((r) => ({
       temperature: r.temperature,
       humidity: r.humidity,
       co2: r.co2,
-      timestamp: r.timestamp?.toISOString()
+      timestamp: r.timestamp.toISOString(),
+      status_kipas: (device as any).fan_state === 'ON' ? 1 : 0,
+      status_dehumidifier: (device as any).dehumidifier_state === 'ON' ? 1 : 0
     }));
 
     // Publish prediction request to ML server via MQTT
