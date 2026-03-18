@@ -168,3 +168,70 @@ export const updateStatus = async (req: Request, res: Response) => {
     handleError(res, error);
   }
 };
+
+/**
+ * POST /api/lingkungan/devices/:deviceId/override-manual
+ * Activate manual override mode for 5 minutes
+ */
+export const activateManualOverride = async (req: Request, res: Response) => {
+  try {
+    const { deviceId } = req.params;
+    const { fan, dehumidifier } = req.body;
+
+    const command: { fan?: string; dehumidifier?: string } = {};
+    if (fan) command.fan = fan;
+    if (dehumidifier) command.dehumidifier = dehumidifier;
+
+    await lingkunganService.handleManualControl(deviceId, command);
+
+    res.status(200).json({
+      message: 'Mode manual diaktifkan selama 5 menit.',
+      device_id: deviceId,
+      mode: 'MANUAL',
+      override_duration_min: 5,
+      command: command || {}
+    });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+/**
+ * POST /api/lingkungan/devices/:deviceId/override-auto
+ * Switch back to auto (mode=AUTO)
+ */
+export const switchToAutoMode = async (req: Request, res: Response) => {
+  try {
+    const { deviceId } = req.params;
+
+    await lingkunganService.switchToAutoMode(deviceId);
+
+    res.status(200).json({
+      message:
+        'Beralih ke mode otomatis. Sistem akan mengendalikan aktuator secara otomatis.',
+      device_id: deviceId,
+      mode: 'AUTO'
+    });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+/**
+ * GET /api/lingkungan/devices/:deviceId/prediction-status
+ * Get latest ML prediction and current actuation reason
+ */
+export const getPredictionStatus = async (req: Request, res: Response) => {
+  try {
+    const { deviceId } = req.params;
+
+    const data = await lingkunganService.getPredictionStatus(deviceId);
+
+    res.status(200).json({
+      ...data,
+      device_id: deviceId
+    });
+  } catch (error) {
+    handleError(res, error);
+  }
+};

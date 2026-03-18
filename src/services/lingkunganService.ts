@@ -6,20 +6,28 @@ import { AcknowledgeStatus } from '../db/models/lingkunganLog';
 import ApiError from '../utils/apiError';
 import { client as mqttClient } from '../mqtt/client';
 import * as alertingService from './alertingService';
+import * as predictionControlService from './predictionControlService';
+import * as criticalAlertService from './criticalAlertService';
+import * as stabilityAlertService from './stabilityAlertService';
 import { sequelize } from '../db/config';
 
 // MQTT topics for ML prediction pipeline
 const ML_PREDICT_REQUEST_TOPIC = 'synergy/ml/predict/request';
 
-// Safety thresholds (Level 2 — firmware safety)
-const SAFE_TEMP = 30;
-const SAFE_HUMIDITY = 75;
-const SAFE_CO2 = 1200;
+// Hardcoded safety thresholds (Level 2 — firmware safety)
+const SAFE_TEMP = 30; // °C
+const SAFE_HUMIDITY = 75; // %
+const SAFE_CO2 = 1200; // ppm
 
-// Predictive thresholds (Level 3 — ML-driven)
-const PREDICT_TEMP_THRESHOLD = 35;
-const PREDICT_HUMIDITY_THRESHOLD = 80;
-const PREDICT_CO2_THRESHOLD = 1500;
+// Hardcoded predictive thresholds (Level 3 — ML-driven proactive actuation)
+const PREDICT_TEMP_THRESHOLD = 35; // °C
+const PREDICT_HUMIDITY_THRESHOLD = 80; // %
+const PREDICT_CO2_THRESHOLD = 1500; // ppm
+
+// Hardcoded critical thresholds (for alert detection with mismatch)
+const CRITICAL_TEMP_THRESHOLD = 34; // °C
+const CRITICAL_HUMIDITY_THRESHOLD = 79; // %
+const CRITICAL_CO2_THRESHOLD = 1450; // ppm
 
 // Manual override duration (5 minutes)
 const MANUAL_OVERRIDE_DURATION_MS = 5 * 60 * 1000;
@@ -67,11 +75,33 @@ export const ingestSensorData = async (data: {
     console.error('[LingkunganService] ML prediction failed:', err.message);
   });
 
-  // 5. Check actual thresholds for notifications and ML override (Level 3 - Actual)
-  await handleActualThresholdControl(data, device);
+  // 5. Check stability and turn off actuators if conditions are safe
+  await stabilityAlertService
+    .checkStabilityAndTurnOff(data.device_id, {
+      temperature: data.temperature,
+      humidity: data.humidity,
+      co2: data.co2
+    })
+    .catch((err) => {
+      console.error('[LingkunganService] Stability check failed:', err.message);
+    });
 
-  // 6. Check firmware safety thresholds (Level 2)
-  await handleFirmwareSafetyCheck(data, device);
+  // 6. Check for critical conditions with prediction mismatch (alert only, no auto actuation)
+  await criticalAlertService
+    .checkCriticalMismatch(data.device_id, {
+      temperature: data.temperature,
+      humidity: data.humidity,
+      co2: data.co2
+    })
+    .catch((err) => {
+      console.error(
+        '[LingkunganService] Critical mismatch check failed:',
+        err.message
+      );
+    });
+
+  // 7. Check actual thresholds for notifications (legacy alert system)
+  await handleActualThresholdControl(data, device);
 
   return log;
 };
@@ -169,135 +199,17 @@ export const handlePredictionResult = async (
       `[LingkunganService] Prediction saved: T=${prediction.predicted_temperature}°C, H=${prediction.predicted_humidity}%, CO2=${prediction.predicted_co2}ppm`
     );
 
-    // Check predictive thresholds (Level 3 - Actuators)
-    await handlePredictiveControl(deviceId, prediction);
+    // Evaluate prediction and trigger actuators if needed
+    await predictionControlService.evaluatePredictionAndControl(
+      deviceId,
+      prediction
+    );
 
     return predResult;
   } catch (error: any) {
     console.error(
       '[LingkunganService] Error handling prediction result:',
       error.message
-    );
-  }
-};
-
-/**
- * Level 2: Firmware safety check — turn OFF actuators if below safe thresholds.
- */
-const handleFirmwareSafetyCheck = async (data: {
-  device_id: string;
-  temperature: number;
-  humidity: number;
-  co2: number;
-}, device: Device) => {
-  // If ALL readings are below safe thresholds, turn off actuators
-  if (
-    data.temperature < SAFE_TEMP &&
-    data.humidity < SAFE_HUMIDITY &&
-    data.co2 < SAFE_CO2
-  ) {
-    // Check if in manual override mode
-    if ((device as any).control_mode === 'MANUAL' && (device as any).manual_override_until) {
-      const overrideExpiry = new Date((device as any).manual_override_until);
-      if (overrideExpiry > new Date()) {
-        console.log(
-          '[LingkunganService] Manual override active. Skipping safety deactivation.'
-        );
-        return;
-      }
-      // Override expired, switch back to auto
-      await device.update({
-        control_mode: 'AUTO',
-        manual_override_until: null
-      });
-    }
-
-    // Turn off actuators via MQTT
-    if (
-      (device as any).fan_state === 'ON' ||
-      (device as any).dehumidifier_state === 'ON'
-    ) {
-      console.log(
-        '[LingkunganService] Safety thresholds clear. Turning off actuators.'
-      );
-      await sendActuatorCommand(data.device_id, {
-        fan: 'OFF',
-        dehumidifier: 'OFF'
-      }, device);
-      await device.update({
-        fan_state: 'OFF',
-        dehumidifier_state: 'OFF'
-      });
-    }
-  }
-};
-
-/**
- * Level 3: Predictive & Early Warning — activate actuators based on ML forecast (NO ALERTS).
- */
-const handlePredictiveControl = async (
-  deviceId: string,
-  prediction: {
-    predicted_temperature: number;
-    predicted_humidity: number;
-    predicted_co2: number;
-  }
-) => {
-  const device = await Device.findByPk(deviceId, {
-    include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
-  });
-  if (!device) return;
-
-  // Check manual override
-  if ((device as any).control_mode === 'MANUAL' && (device as any).manual_override_until) {
-    const overrideExpiry = new Date((device as any).manual_override_until);
-    if (overrideExpiry > new Date()) {
-      console.log(
-        '[LingkunganService] Manual override active. Skipping predictive control.'
-      );
-      return;
-    }
-  }
-
-  let triggerFan = false;
-  let triggerDehumidifier = false;
-
-  if (prediction.predicted_temperature > PREDICT_TEMP_THRESHOLD) {
-    triggerFan = true;
-  }
-
-  if (prediction.predicted_humidity > PREDICT_HUMIDITY_THRESHOLD) {
-    triggerDehumidifier = true;
-  }
-
-  if (prediction.predicted_co2 > PREDICT_CO2_THRESHOLD) {
-    triggerFan = true;
-  }
-
-  if (triggerFan || triggerDehumidifier) {
-    const command: any = {};
-    if (triggerFan) command.fan = 'ON';
-    if (triggerDehumidifier) command.dehumidifier = 'ON';
-
-    await sendActuatorCommand(deviceId, command, device);
-
-    // Update device state
-    const updateData: Partial<DeviceAttributes> = {};
-    if (triggerFan) updateData.fan_state = 'ON';
-    if (triggerDehumidifier) updateData.dehumidifier_state = 'ON';
-    await device.update(updateData);
-
-    // Update prediction record
-    await PredictionResult.update(
-      {
-        fan_triggered: triggerFan,
-        dehumidifier_triggered: triggerDehumidifier
-      },
-      {
-        where: { device_id: deviceId },
-        order: [['timestamp', 'DESC']],
-        limit: 1
-      } as any
     );
   }
 };
@@ -316,7 +228,10 @@ const handleActualThresholdControl = async (
 ) => {
   // Use passed device ensuring associations like 'area' are present
   // Check manual override
-  if ((device as any).control_mode === 'MANUAL' && (device as any).manual_override_until) {
+  if (
+    (device as any).control_mode === 'MANUAL' &&
+    (device as any).manual_override_until
+  ) {
     const overrideExpiry = new Date((device as any).manual_override_until);
     if (overrideExpiry > new Date()) {
       console.log(
@@ -366,11 +281,14 @@ export const sendActuatorCommand = async (
   device?: Device
 ) => {
   // Use provided device or fetch if not available
-  const deviceWithArea = device && (device as any).area
-    ? device
-    : await Device.findByPk(deviceId, {
-        include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
-      });
+  const deviceWithArea =
+    device && (device as any).area
+      ? device
+      : await Device.findByPk(deviceId, {
+          include: [
+            { model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }
+          ]
+        });
 
   if (!deviceWithArea) {
     throw new ApiError(404, 'Perangkat tidak ditemukan.');
@@ -666,4 +584,50 @@ export const updateLingkunganLogStatus = async (
 
   await log.save();
   return log;
+};
+
+/**
+ * Get latest prediction result and device actuation status
+ */
+export const getPredictionStatus = async (deviceId: string) => {
+  const device = await Device.findByPk(deviceId);
+  if (!device) {
+    throw new ApiError(404, 'Perangkat tidak ditemukan.');
+  }
+
+  const latestPrediction = await PredictionResult.findOne({
+    where: { device_id: deviceId },
+    order: [['timestamp', 'DESC']]
+  });
+
+  return {
+    device_id: deviceId,
+    control_mode: device.control_mode || 'AUTO',
+    manual_override_until: (device as any).manual_override_until,
+    fan_state: device.fan_state || 'OFF',
+    dehumidifier_state: device.dehumidifier_state || 'OFF',
+    actuator_fan_on_reason: (device as any).actuator_fan_on_reason,
+    actuator_dehumidifier_on_reason: (device as any)
+      .actuator_dehumidifier_on_reason,
+    latest_prediction: latestPrediction
+      ? {
+          predicted_temperature: latestPrediction.predicted_temperature,
+          predicted_humidity: latestPrediction.predicted_humidity,
+          predicted_co2: latestPrediction.predicted_co2,
+          fan_triggered: latestPrediction.fan_triggered,
+          dehumidifier_triggered: latestPrediction.dehumidifier_triggered,
+          timestamp: latestPrediction.timestamp
+        }
+      : null,
+    last_actual_reading: {
+      temperature: device.last_temperature,
+      humidity: device.last_humidity,
+      co2: device.last_co2
+    },
+    last_prediction_values: {
+      temperature: (device as any).last_prediction_temperature,
+      humidity: (device as any).last_prediction_humidity,
+      co2: (device as any).last_prediction_co2
+    }
+  };
 };

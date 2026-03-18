@@ -51,6 +51,27 @@ router.post(
   lingkunganController.sendControlCommand
 );
 
+// POST /api/lingkungan/devices/:deviceId/override-manual — Activate manual override
+router.post(
+  '/devices/:deviceId/override-manual',
+  authMiddleware,
+  lingkunganController.activateManualOverride
+);
+
+// POST /api/lingkungan/devices/:deviceId/override-auto — Switch back to auto mode
+router.post(
+  '/devices/:deviceId/override-auto',
+  authMiddleware,
+  lingkunganController.switchToAutoMode
+);
+
+// GET /api/lingkungan/devices/:deviceId/prediction-status — Get latest prediction + actuation reason
+router.get(
+  '/devices/:deviceId/prediction-status',
+  authMiddleware,
+  lingkunganController.getPredictionStatus
+);
+
 // Log acknowledgement
 router.put(
   '/logs/:id/status',

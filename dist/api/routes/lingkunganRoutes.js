@@ -59,6 +59,12 @@ router.get('/devices/:deviceId/status', authMiddleware_1.authMiddleware, lingkun
 router.get('/devices/:deviceId/chart', authMiddleware_1.authMiddleware, lingkunganController.getChartData);
 // POST /api/lingkungan/control — Manual control (fan, dehumidifier)
 router.post('/devices/:deviceId/control', authMiddleware_1.authMiddleware, (0, validateRequest_1.validate)(controlCommandSchema), lingkunganController.sendControlCommand);
+// POST /api/lingkungan/devices/:deviceId/override-manual — Activate manual override
+router.post('/devices/:deviceId/override-manual', authMiddleware_1.authMiddleware, lingkunganController.activateManualOverride);
+// POST /api/lingkungan/devices/:deviceId/override-auto — Switch back to auto mode
+router.post('/devices/:deviceId/override-auto', authMiddleware_1.authMiddleware, lingkunganController.switchToAutoMode);
+// GET /api/lingkungan/devices/:deviceId/prediction-status — Get latest prediction + actuation reason
+router.get('/devices/:deviceId/prediction-status', authMiddleware_1.authMiddleware, lingkunganController.getPredictionStatus);
 // Log acknowledgement
 router.put('/logs/:id/status', authMiddleware_1.authMiddleware, lingkunganController.updateStatus);
 exports.default = router;
