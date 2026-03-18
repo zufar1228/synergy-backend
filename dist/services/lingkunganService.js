@@ -62,6 +62,9 @@ const CRITICAL_HUMIDITY_THRESHOLD = 79; // %
 const CRITICAL_CO2_THRESHOLD = 1450; // ppm
 // Manual override duration (5 minutes)
 const MANUAL_OVERRIDE_DURATION_MS = 5 * 60 * 1000;
+// Track last time we logged "Need at least 240 readings" per device (to reduce log spam)
+const lastInsufficientDataLog = new Map();
+const INSUFFICIENT_DATA_LOG_COOLDOWN_MS = 60 * 1000; // Log max once per minute per device
 /**
  * Ingest raw sensor data from MQTT and trigger ML prediction pipeline.
  */
@@ -168,7 +171,19 @@ const handlePredictionResult = async (deviceId, prediction) => {
     try {
         // Check for ML server error
         if (prediction.error) {
-            console.error(`[LingkunganService] ML server returned error for ${deviceId}: ${prediction.error}`);
+            // Special handling for "Need at least 240 readings" - log only once per minute per device
+            if (prediction.error.includes('Need at least 240 readings')) {
+                const now = Date.now();
+                const lastLog = lastInsufficientDataLog.get(deviceId) || 0;
+                if (now - lastLog > INSUFFICIENT_DATA_LOG_COOLDOWN_MS) {
+                    console.warn(`[LingkunganService] ML server: ${prediction.error}`);
+                    lastInsufficientDataLog.set(deviceId, now);
+                }
+            }
+            else {
+                // Log other errors immediately
+                console.error(`[LingkunganService] ML server error for ${deviceId}: ${prediction.error}`);
+            }
             return;
         }
         // Save prediction result
