@@ -122,7 +122,18 @@ export const sendControlCommand = async (req: Request, res: Response) => {
       });
     }
 
-    // Manual control (Level 1 — highest priority)
+    // If switching to manual mode (without specific fan/dehumidifier commands)
+    if (mode === 'MANUAL' && !fan && !dehumidifier) {
+      await lingkunganService.handleManualControl(deviceId, {});
+      return res.status(200).json({
+        message: 'Mode manual diaktifkan (5 menit).',
+        device_id: deviceId,
+        mode: 'MANUAL',
+        override_duration: '5 menit'
+      });
+    }
+
+    // Manual control with specific actuator commands (Level 1 — highest priority)
     const command: { fan?: string; dehumidifier?: string } = {};
     if (fan) command.fan = fan;
     if (dehumidifier) command.dehumidifier = dehumidifier;
