@@ -67,31 +67,6 @@ Device.init({
         allowNull: true,
         defaultValue: null
     },
-    last_prediction_temperature: {
-        type: sequelize_1.DataTypes.REAL,
-        allowNull: true,
-        defaultValue: null
-    },
-    last_prediction_humidity: {
-        type: sequelize_1.DataTypes.REAL,
-        allowNull: true,
-        defaultValue: null
-    },
-    last_prediction_co2: {
-        type: sequelize_1.DataTypes.REAL,
-        allowNull: true,
-        defaultValue: null
-    },
-    actuator_fan_on_reason: {
-        type: sequelize_1.DataTypes.TEXT,
-        allowNull: true,
-        defaultValue: null
-    },
-    actuator_dehumidifier_on_reason: {
-        type: sequelize_1.DataTypes.TEXT,
-        allowNull: true,
-        defaultValue: null
-    },
     door_state: {
         type: sequelize_1.DataTypes.TEXT,
         allowNull: true,

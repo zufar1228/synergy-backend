@@ -26,11 +26,6 @@ export interface DeviceAttributes {
   last_temperature?: number | null;
   last_humidity?: number | null;
   last_co2?: number | null;
-  last_prediction_temperature?: number | null;
-  last_prediction_humidity?: number | null;
-  last_prediction_co2?: number | null;
-  actuator_fan_on_reason?: string | null;
-  actuator_dehumidifier_on_reason?: string | null;
   door_state?: DoorState | null;
   intrusi_system_state?: IntrusiSystemState | null;
   siren_state?: SirenState | null;
@@ -64,11 +59,6 @@ class Device
   public last_temperature!: number | null;
   public last_humidity!: number | null;
   public last_co2!: number | null;
-  public last_prediction_temperature!: number | null;
-  public last_prediction_humidity!: number | null;
-  public last_prediction_co2!: number | null;
-  public actuator_fan_on_reason!: string | null;
-  public actuator_dehumidifier_on_reason!: string | null;
   public door_state!: DoorState | null;
   public intrusi_system_state!: IntrusiSystemState | null;
   public siren_state!: SirenState | null;
@@ -141,31 +131,6 @@ Device.init(
     },
     last_co2: {
       type: DataTypes.REAL,
-      allowNull: true,
-      defaultValue: null
-    },
-    last_prediction_temperature: {
-      type: DataTypes.REAL,
-      allowNull: true,
-      defaultValue: null
-    },
-    last_prediction_humidity: {
-      type: DataTypes.REAL,
-      allowNull: true,
-      defaultValue: null
-    },
-    last_prediction_co2: {
-      type: DataTypes.REAL,
-      allowNull: true,
-      defaultValue: null
-    },
-    actuator_fan_on_reason: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      defaultValue: null
-    },
-    actuator_dehumidifier_on_reason: {
-      type: DataTypes.TEXT,
       allowNull: true,
       defaultValue: null
     },
