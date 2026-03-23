@@ -110,10 +110,6 @@ const triggerPrediction = async (deviceId, device) => {
             console.log(`[LingkunganService] Not enough data for prediction (${totalLogs}/${ML_SEQUENCE_LENGTH}). Skipping.`);
             return;
         }
-        // Trigger every 15 minutes (60 readings at 15s interval).
-        if (totalLogs % 60 !== 0) {
-            return;
-        }
         // Get the latest ML_SEQUENCE_LENGTH readings then reverse to oldest-first.
         const recentData = await models_1.LingkunganLog.findAll({
             where: { device_id: deviceId },
@@ -158,12 +154,22 @@ const handlePredictionResult = async (deviceId, prediction) => {
             console.error(`[LingkunganService] ML server returned error for ${deviceId}: ${prediction.error}`);
             return;
         }
+        // Compute forecasted timestamp: latest data point + 15 minutes
+        // This reflects the actual time the model is predicting for, not when the inference ran.
+        const latestLog = await models_1.LingkunganLog.findOne({
+            where: { device_id: deviceId },
+            order: [['timestamp', 'DESC']]
+        });
+        const forecastedAt = latestLog
+            ? new Date(latestLog.timestamp.getTime() + 15 * 60 * 1000)
+            : new Date(Date.now() + 15 * 60 * 1000);
         // Save prediction result
         const predResult = await models_1.PredictionResult.create({
             device_id: deviceId,
             predicted_temperature: prediction.predicted_temperature,
             predicted_humidity: prediction.predicted_humidity,
-            predicted_co2: prediction.predicted_co2
+            predicted_co2: prediction.predicted_co2,
+            timestamp: forecastedAt
         });
         console.log(`[LingkunganService] Prediction saved: T=${prediction.predicted_temperature}°C, H=${prediction.predicted_humidity}%, CO2=${prediction.predicted_co2}ppm`);
         // Check predictive thresholds (Level 3 - Actuators)

@@ -99,11 +99,6 @@ const triggerPrediction = async (deviceId: string, device: Device) => {
       return;
     }
 
-    // Trigger every 15 minutes (60 readings at 15s interval).
-    if (totalLogs % 60 !== 0) {
-      return;
-    }
-
     // Get the latest ML_SEQUENCE_LENGTH readings then reverse to oldest-first.
     const recentData = await LingkunganLog.findAll({
       where: { device_id: deviceId },
@@ -169,12 +164,23 @@ export const handlePredictionResult = async (
       return;
     }
 
+    // Compute forecasted timestamp: latest data point + 15 minutes
+    // This reflects the actual time the model is predicting for, not when the inference ran.
+    const latestLog = await LingkunganLog.findOne({
+      where: { device_id: deviceId },
+      order: [['timestamp', 'DESC']]
+    });
+    const forecastedAt = latestLog
+      ? new Date(latestLog.timestamp.getTime() + 15 * 60 * 1000)
+      : new Date(Date.now() + 15 * 60 * 1000);
+
     // Save prediction result
     const predResult = await PredictionResult.create({
       device_id: deviceId,
       predicted_temperature: prediction.predicted_temperature,
       predicted_humidity: prediction.predicted_humidity,
-      predicted_co2: prediction.predicted_co2
+      predicted_co2: prediction.predicted_co2,
+      timestamp: forecastedAt
     });
 
     console.log(

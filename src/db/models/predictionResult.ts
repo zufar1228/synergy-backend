@@ -18,7 +18,6 @@ export interface PredictionResultAttributes {
 export type PredictionResultCreationAttributes = Omit<
   PredictionResultAttributes,
   | 'id'
-  | 'timestamp'
   | 'prediction_horizon_min'
   | 'fan_triggered'
   | 'dehumidifier_triggered'
