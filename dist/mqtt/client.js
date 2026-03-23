@@ -172,8 +172,33 @@ const initializeMqttClient = () => {
                         if (statusData.dehumidifier !== undefined) {
                             extraFields.dehumidifier_state = statusData.dehumidifier;
                         }
+                        // For control_mode: only accept from ESP32 if the backend does NOT
+                        // currently have an active manual override.  The backend API is the
+                        // source of truth for mode changes — blindly accepting the ESP32's
+                        // mode would overwrite it (e.g. ESP32 sends AUTO before receiving
+                        // the MANUAL command).
                         if (statusData.mode !== undefined) {
-                            extraFields.control_mode = statusData.mode;
+                            try {
+                                const { Device } = await Promise.resolve().then(() => __importStar(require('../db/models')));
+                                const currentDevice = await Device.findByPk(deviceId, {
+                                    attributes: ['control_mode', 'manual_override_until']
+                                });
+                                const hasActiveOverride = currentDevice &&
+                                    currentDevice.control_mode === 'MANUAL' &&
+                                    currentDevice.manual_override_until &&
+                                    new Date(currentDevice.manual_override_until) > new Date();
+                                if (!hasActiveOverride) {
+                                    extraFields.control_mode = statusData.mode;
+                                }
+                                else {
+                                    log.debug('Skipping control_mode update from ESP32 — active manual override for', deviceId);
+                                }
+                            }
+                            catch (modeErr) {
+                                log.error('Error checking manual override:', modeErr);
+                                // Fallback: accept ESP32 mode if DB check fails
+                                extraFields.control_mode = statusData.mode;
+                            }
                         }
                         // Process power/battery alerts
                         if (statusData.power || statusData.vbat_pct !== undefined) {

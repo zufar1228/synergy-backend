@@ -99,8 +99,8 @@ const triggerPrediction = async (deviceId: string, device: Device) => {
       return;
     }
 
-    // Trigger only on each complete 240-reading boundary.
-    if (totalLogs % ML_SEQUENCE_LENGTH !== 0) {
+    // Trigger every 15 minutes (60 readings at 15s interval).
+    if (totalLogs % 60 !== 0) {
       return;
     }
 

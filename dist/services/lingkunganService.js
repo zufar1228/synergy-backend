@@ -110,8 +110,8 @@ const triggerPrediction = async (deviceId, device) => {
             console.log(`[LingkunganService] Not enough data for prediction (${totalLogs}/${ML_SEQUENCE_LENGTH}). Skipping.`);
             return;
         }
-        // Trigger only on each complete 240-reading boundary.
-        if (totalLogs % ML_SEQUENCE_LENGTH !== 0) {
+        // Trigger every 15 minutes (60 readings at 15s interval).
+        if (totalLogs % 60 !== 0) {
             return;
         }
         // Get the latest ML_SEQUENCE_LENGTH readings then reverse to oldest-first.
@@ -178,34 +178,39 @@ exports.handlePredictionResult = handlePredictionResult;
 /**
  * Level 2: Firmware safety check — turn OFF actuators if below safe thresholds.
  */
-const handleFirmwareSafetyCheck = async (data, device) => {
+const handleFirmwareSafetyCheck = async (data, _device) => {
     // If ALL readings are below safe thresholds, turn off actuators
     if (data.temperature < SAFE_TEMP &&
         data.humidity < SAFE_HUMIDITY &&
         data.co2 < SAFE_CO2) {
+        // Re-read device to get fresh control_mode (avoid stale data race)
+        const freshDevice = await models_1.Device.findByPk(data.device_id, {
+            include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+        });
+        if (!freshDevice)
+            return;
         // Check if in manual override mode
-        if (device.control_mode === 'MANUAL' &&
-            device.manual_override_until) {
-            const overrideExpiry = new Date(device.manual_override_until);
-            if (overrideExpiry > new Date()) {
+        if (freshDevice.control_mode === 'MANUAL') {
+            const overrideUntil = freshDevice.manual_override_until;
+            if (!overrideUntil || new Date(overrideUntil) > new Date()) {
                 console.log('[LingkunganService] Manual override active. Skipping safety deactivation.');
                 return;
             }
             // Override expired, switch back to auto
-            await device.update({
+            await freshDevice.update({
                 control_mode: 'AUTO',
                 manual_override_until: null
             });
         }
         // Turn off actuators via MQTT
-        if (device.fan_state === 'ON' ||
-            device.dehumidifier_state === 'ON') {
+        if (freshDevice.fan_state === 'ON' ||
+            freshDevice.dehumidifier_state === 'ON') {
             console.log('[LingkunganService] Safety thresholds clear. Turning off actuators.');
             await (0, exports.sendActuatorCommand)(data.device_id, {
                 fan: 'OFF',
                 dehumidifier: 'OFF'
-            }, device);
-            await device.update({
+            }, freshDevice);
+            await freshDevice.update({
                 fan_state: 'OFF',
                 dehumidifier_state: 'OFF'
             });
@@ -222,10 +227,9 @@ const handlePredictiveControl = async (deviceId, prediction) => {
     if (!device)
         return;
     // Check manual override
-    if (device.control_mode === 'MANUAL' &&
-        device.manual_override_until) {
-        const overrideExpiry = new Date(device.manual_override_until);
-        if (overrideExpiry > new Date()) {
+    if (device.control_mode === 'MANUAL') {
+        const overrideUntil = device.manual_override_until;
+        if (!overrideUntil || new Date(overrideUntil) > new Date()) {
             console.log('[LingkunganService] Manual override active. Skipping predictive control.');
             return;
         }
@@ -269,13 +273,15 @@ const handlePredictiveControl = async (deviceId, prediction) => {
 /**
  * Level 3: Threshold warning — SEND ALERTS based on ACTUAL readings exceeding thresholds (NO ACTUATORS).
  */
-const handleActualThresholdControl = async (data, device) => {
-    // Use passed device ensuring associations like 'area' are present
+const handleActualThresholdControl = async (data, _device) => {
+    // Re-read device to get fresh control_mode (avoid stale data race)
+    const freshDevice = await models_1.Device.findByPk(data.device_id);
+    if (!freshDevice)
+        return;
     // Check manual override
-    if (device.control_mode === 'MANUAL' &&
-        device.manual_override_until) {
-        const overrideExpiry = new Date(device.manual_override_until);
-        if (overrideExpiry > new Date()) {
+    if (freshDevice.control_mode === 'MANUAL') {
+        const overrideUntil = freshDevice.manual_override_until;
+        if (!overrideUntil || new Date(overrideUntil) > new Date()) {
             console.log('[LingkunganService] Manual override active. Skipping actual threshold control.');
             return;
         }
