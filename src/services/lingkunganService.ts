@@ -21,6 +21,11 @@ const PREDICT_TEMP_THRESHOLD = 35;
 const PREDICT_HUMIDITY_THRESHOLD = 80;
 const PREDICT_CO2_THRESHOLD = 1500;
 
+// Failsafe thresholds (Level 3 — Actual readings missing predictions)
+const FAILSAFE_TEMP_THRESHOLD = 34;
+const FAILSAFE_HUMIDITY_THRESHOLD = 79;
+const FAILSAFE_CO2_THRESHOLD = 1450;
+
 // ML v3 expects 240 samples (15s interval x 1 hour)
 const ML_SEQUENCE_LENGTH = 240;
 
@@ -259,6 +264,14 @@ const handleFirmwareSafetyCheck = async (
         fan_state: 'OFF',
         dehumidifier_state: 'OFF'
       });
+
+      // Send recovery notification
+      await alertingService.processLingkunganAlert(
+        data.device_id,
+        ['Kondisi lingkungan kembali stabil. Aktuator dinonaktifkan.'],
+        data,
+        'RECOVERY'
+      );
     }
   }
 };
@@ -292,17 +305,21 @@ const handlePredictiveControl = async (
 
   let triggerFan = false;
   let triggerDehumidifier = false;
+  const alerts: string[] = [];
 
-  if (prediction.predicted_temperature > PREDICT_TEMP_THRESHOLD) {
+  if (prediction.predicted_temperature >= PREDICT_TEMP_THRESHOLD) {
     triggerFan = true;
+    alerts.push(`Suhu diprediksi mencapai ${prediction.predicted_temperature.toFixed(1)}°C (>= ${PREDICT_TEMP_THRESHOLD}°C)`);
   }
 
-  if (prediction.predicted_humidity > PREDICT_HUMIDITY_THRESHOLD) {
+  if (prediction.predicted_humidity >= PREDICT_HUMIDITY_THRESHOLD) {
     triggerDehumidifier = true;
+    alerts.push(`Kelembapan diprediksi mencapai ${prediction.predicted_humidity.toFixed(1)}% (>= ${PREDICT_HUMIDITY_THRESHOLD}%)`);
   }
 
-  if (prediction.predicted_co2 > PREDICT_CO2_THRESHOLD) {
-    triggerFan = true;
+  if (prediction.predicted_co2 >= PREDICT_CO2_THRESHOLD) {
+    triggerDehumidifier = true;
+    alerts.push(`CO2 diprediksi mencapai ${prediction.predicted_co2.toFixed(0)}ppm (>= ${PREDICT_CO2_THRESHOLD}ppm)`);
   }
 
   if (triggerFan || triggerDehumidifier) {
@@ -330,11 +347,18 @@ const handlePredictiveControl = async (
         limit: 1
       } as any
     );
+
+    // Send predictive alert
+    await alertingService.processLingkunganAlert(deviceId, alerts, {
+      temperature: prediction.predicted_temperature,
+      humidity: prediction.predicted_humidity,
+      co2: prediction.predicted_co2
+    }, 'PREDICTIVE');
   }
 };
 
 /**
- * Level 3: Threshold warning — SEND ALERTS based on ACTUAL readings exceeding thresholds (NO ACTUATORS).
+ * Level 3: Failsafe warning — SEND ALERTS and TRIGGER ACTUATORS based on ACTUAL readings exceeding thresholds.
  */
 const handleActualThresholdControl = async (
   data: {
@@ -364,30 +388,46 @@ const handleActualThresholdControl = async (
   let triggerDehumidifier = false;
   const alerts: string[] = [];
 
-  if (data.temperature > PREDICT_TEMP_THRESHOLD) {
+  if (data.temperature >= FAILSAFE_TEMP_THRESHOLD) {
     triggerFan = true;
     alerts.push(
-      `Suhu saat ini ${data.temperature.toFixed(1)}°C (> ${PREDICT_TEMP_THRESHOLD}°C)`
+      `Suhu saat ini ${data.temperature.toFixed(1)}°C (>= ${FAILSAFE_TEMP_THRESHOLD}°C)`
     );
   }
 
-  if (data.humidity > PREDICT_HUMIDITY_THRESHOLD) {
+  if (data.humidity >= FAILSAFE_HUMIDITY_THRESHOLD) {
     triggerDehumidifier = true;
     alerts.push(
-      `Kelembapan saat ini ${data.humidity.toFixed(1)}% (> ${PREDICT_HUMIDITY_THRESHOLD}%)`
+      `Kelembapan saat ini ${data.humidity.toFixed(1)}% (>= ${FAILSAFE_HUMIDITY_THRESHOLD}%)`
     );
   }
 
-  if (data.co2 > PREDICT_CO2_THRESHOLD) {
-    triggerFan = true;
+  if (data.co2 >= FAILSAFE_CO2_THRESHOLD) {
+    triggerDehumidifier = true;
     alerts.push(
-      `CO2 saat ini ${data.co2.toFixed(0)}ppm (> ${PREDICT_CO2_THRESHOLD}ppm)`
+      `CO2 saat ini ${data.co2.toFixed(0)}ppm (>= ${FAILSAFE_CO2_THRESHOLD}ppm)`
     );
   }
 
   if (triggerFan || triggerDehumidifier) {
+    // Send actuator command as failsafe
+    const command: any = {};
+    if (triggerFan) command.fan = 'ON';
+    if (triggerDehumidifier) command.dehumidifier = 'ON';
+
+    await sendActuatorCommand(data.device_id, command, freshDevice);
+
+    // Update device state
+    const updateData: Partial<DeviceAttributes> = {};
+    if (triggerFan) updateData.fan_state = 'ON';
+    if (triggerDehumidifier) updateData.dehumidifier_state = 'ON';
+    await freshDevice.update(updateData);
+
+    // Add manual prompt
+    alerts.push("🚨 Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol.");
+
     // Send Telegram/Push notification based on actual data
-    await alertingService.processLingkunganAlert(data.device_id, alerts, data);
+    await alertingService.processLingkunganAlert(data.device_id, alerts, data, 'FAILSAFE');
   }
 };
 

@@ -214,7 +214,8 @@ export const processLingkunganAlert = async (
     temperature: number;
     humidity: number;
     co2: number;
-  }
+  },
+  alertType: 'PREDICTIVE' | 'FAILSAFE' | 'RECOVERY' = 'FAILSAFE'
 ) => {
   console.log(
     `[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`
@@ -242,7 +243,26 @@ export const processLingkunganAlert = async (
 
   const timestamp = formatTimestampWIB();
 
-  const incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
+  let incidentType = '';
+  let subjectPrefix = '';
+
+  switch (alertType) {
+    case 'PREDICTIVE':
+      incidentType = 'Prediksi Kondisi Lingkungan Berbahaya';
+      subjectPrefix = '⚠️ [PERINGATAN PREDIKSI LINGKUNGAN]';
+      break;
+    case 'FAILSAFE':
+      incidentType = 'KRITIS: Kondisi Lingkungan Nyata Berbahaya';
+      subjectPrefix = '🚨 [PERINGATAN KRITIS LINGKUNGAN]';
+      break;
+    case 'RECOVERY':
+      incidentType = 'PEMULIHAN SISTEM: Kondisi Lingkungan Stabil';
+      subjectPrefix = '✅ [KEMBALI NORMAL LINGKUNGAN]';
+      break;
+    default:
+      incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
+      subjectPrefix = '🌡️ [PERINGATAN LINGKUNGAN]';
+  }
 
   const details: { key: string; value: string }[] = [
     {
@@ -271,7 +291,7 @@ export const processLingkunganAlert = async (
     timestamp,
     details
   };
-  const subject = `🌡️ [PERINGATAN LINGKUNGAN] ${incidentType} di ${warehouse.name} - ${area.name}`;
+  const subject = `${subjectPrefix} ${incidentType} di ${warehouse.name} - ${area.name}`;
 
   try {
     await notifySubscribers('lingkungan', subject, emailProps);
