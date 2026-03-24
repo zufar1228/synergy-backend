@@ -16,6 +16,69 @@ interface DeviceWithRelations extends Device {
   };
 }
 
+type LingkunganTelegramState = {
+  alertActive: boolean;
+  lastCriticalSentAt: number;
+  lastRecoverySentAt: number;
+};
+
+// Gatekeeper Telegram khusus lingkungan (lapis kedua anti-spam)
+const lingkunganTelegramState = new Map<string, LingkunganTelegramState>();
+const TELEGRAM_CRITICAL_REMINDER_MS = Number(
+  process.env.TELEGRAM_CRITICAL_REMINDER_MS ?? 30 * 60 * 1000
+);
+const TELEGRAM_RECOVERY_COOLDOWN_MS = Number(
+  process.env.TELEGRAM_RECOVERY_COOLDOWN_MS ?? 2 * 60 * 1000
+);
+
+const shouldSendLingkunganTelegram = (
+  deviceId: string | undefined,
+  isAlert: boolean
+): boolean => {
+  if (!deviceId) return true;
+
+  const now = Date.now();
+  const state = lingkunganTelegramState.get(deviceId) ?? {
+    alertActive: false,
+    lastCriticalSentAt: 0,
+    lastRecoverySentAt: 0
+  };
+
+  if (isAlert) {
+    // Kirim sekali saat transisi normal->kritis
+    if (!state.alertActive) {
+      state.alertActive = true;
+      state.lastCriticalSentAt = now;
+      lingkunganTelegramState.set(deviceId, state);
+      return true;
+    }
+
+    // Selama masih kritis, kirim reminder periodik
+    if (now - state.lastCriticalSentAt >= TELEGRAM_CRITICAL_REMINDER_MS) {
+      state.lastCriticalSentAt = now;
+      lingkunganTelegramState.set(deviceId, state);
+      return true;
+    }
+
+    return false;
+  }
+
+  // Recovery hanya relevan setelah ada episode kritis
+  if (!state.alertActive) {
+    return false;
+  }
+
+  if (now - state.lastRecoverySentAt < TELEGRAM_RECOVERY_COOLDOWN_MS) {
+    return false;
+  }
+
+  state.alertActive = false;
+  state.lastRecoverySentAt = now;
+  state.lastCriticalSentAt = 0;
+  lingkunganTelegramState.set(deviceId, state);
+  return true;
+};
+
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
@@ -39,6 +102,20 @@ const notifySubscribers = async (
       // Check if this is an alert (not "back to normal" message)
       // Alert subjects contain: PERINGATAN, 🚨
       const isAlert = subject.includes('PERINGATAN') || subject.includes('🚨');
+
+      if (systemType === 'lingkungan') {
+        const allowed = shouldSendLingkunganTelegram(
+          emailProps.deviceId,
+          isAlert
+        );
+        if (!allowed) {
+          console.log(
+            `[Alerting] Telegram lingkungan suppressed by gatekeeper for device ${emailProps.deviceId || 'unknown'}`
+          );
+          return;
+        }
+      }
+
       const emoji = isAlert ? '🚨' : '✅';
       const statusText = isAlert ? 'PERINGATAN BAHAYA' : 'KEMBALI NORMAL';
 
@@ -182,6 +259,7 @@ export const processIntrusiAlert = async (
   }
 
   const emailProps = {
+    deviceId,
     incidentType,
     warehouseName: warehouse.name,
     areaName: area.name,
