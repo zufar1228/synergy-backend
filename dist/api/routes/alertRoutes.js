@@ -36,7 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // backend/src/api/routes/alertRoutes.ts
 const express_1 = require("express");
 const alertController = __importStar(require("../controllers/alertController"));
-const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
-router.get("/active", authMiddleware_1.authMiddleware, alertController.listActiveAlerts);
+router.get('/active', alertController.listActiveAlerts);
 exports.default = router;

@@ -36,7 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // backend/src/api/routes/navigationRoutes.ts
 const express_1 = require("express");
 const navigationController = __importStar(require("../controllers/navigationController"));
-const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
-router.get("/areas-by-system", authMiddleware_1.authMiddleware, navigationController.listAreasBySystem);
+router.get('/areas-by-system', navigationController.listAreasBySystem);
 exports.default = router;

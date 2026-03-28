@@ -36,7 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // backend/src/api/routes/intrusiRoutes.ts
 const express_1 = require("express");
 const intrusiController = __importStar(require("../controllers/intrusiController"));
-const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
 const validateRequest_1 = require("../../../api/middlewares/validateRequest");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
@@ -53,11 +52,11 @@ const intrusiCommandSchema = zod_1.z.object({
     ])
 });
 // Device-level endpoints
-router.get('/devices/:deviceId/logs', authMiddleware_1.authMiddleware, intrusiController.getLogs);
-router.get('/devices/:deviceId/summary', authMiddleware_1.authMiddleware, intrusiController.getSummary);
-router.get('/devices/:deviceId/status', authMiddleware_1.authMiddleware, intrusiController.getStatus);
+router.get('/devices/:deviceId/logs', intrusiController.getLogs);
+router.get('/devices/:deviceId/summary', intrusiController.getSummary);
+router.get('/devices/:deviceId/status', intrusiController.getStatus);
 // Send command to intrusi device (ARM, DISARM, SIREN_SILENCE, STATUS)
-router.post('/devices/:deviceId/command', authMiddleware_1.authMiddleware, (0, validateRequest_1.validate)(intrusiCommandSchema), intrusiController.sendCommand);
+router.post('/devices/:deviceId/command', (0, validateRequest_1.validate)(intrusiCommandSchema), intrusiController.sendCommand);
 // Log status update (acknowledgement)
-router.put('/logs/:id/status', authMiddleware_1.authMiddleware, intrusiController.updateStatus);
+router.put('/logs/:id/status', intrusiController.updateStatus);
 exports.default = router;

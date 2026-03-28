@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.testPushNotification = exports.syncAllRoles = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.validateSession = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = exports.verifyAccess = void 0;
+exports.testPushNotification = exports.syncAllRoles = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = exports.verifyAccess = void 0;
 const userService = __importStar(require("../../services/userService"));
 const webPushService = __importStar(require("../../services/webPushService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
@@ -49,7 +49,9 @@ const verifyAccess = async (req, res) => {
     try {
         const userId = req.user?.id;
         if (!userId) {
-            return res.status(401).json({ authorized: false, message: "User not authenticated" });
+            return res
+                .status(401)
+                .json({ authorized: false, message: 'User not authenticated' });
         }
         const result = await userService.verifyUserAccess(userId);
         if (!result.authorized) {
@@ -58,25 +60,30 @@ const verifyAccess = async (req, res) => {
         res.status(200).json(result);
     }
     catch (error) {
-        console.error("[verifyAccess] Error:", error);
-        res.status(500).json({ authorized: false, message: "Terjadi kesalahan saat memverifikasi akses." });
+        console.error('[verifyAccess] Error:', error);
+        res
+            .status(500)
+            .json({
+            authorized: false,
+            message: 'Terjadi kesalahan saat memverifikasi akses.'
+        });
     }
 };
 exports.verifyAccess = verifyAccess;
 const inviteUser = async (req, res) => {
     const { email, role } = req.body;
     if (!email || !role) {
-        return res.status(400).json({ message: "Email dan role wajib diisi." });
+        return res.status(400).json({ message: 'Email dan role wajib diisi.' });
     }
     try {
         const user = await userService.inviteUser(email, role);
-        res.status(200).json({ message: "Undangan berhasil dikirim.", user });
+        res.status(200).json({ message: 'Undangan berhasil dikirim.', user });
     }
     catch (error) {
         if (error instanceof apiError_1.default) {
             return res.status(error.statusCode).json({ message: error.message });
         }
-        res.status(500).json({ message: "Terjadi kesalahan tak terduga." });
+        res.status(500).json({ message: 'Terjadi kesalahan tak terduga.' });
     }
 };
 exports.inviteUser = inviteUser;
@@ -100,7 +107,7 @@ const deleteUser = async (req, res) => {
         if (error instanceof apiError_1.default) {
             return res.status(error.statusCode).json({ message: error.message });
         }
-        res.status(500).json({ message: "Terjadi kesalahan tak terduga." });
+        res.status(500).json({ message: 'Terjadi kesalahan tak terduga.' });
     }
 };
 exports.deleteUser = deleteUser;
@@ -109,7 +116,7 @@ const getMyProfile = async (req, res) => {
         // Ambil user ID dari middleware, bukan dari parameter URL
         const userId = req.user?.id;
         if (!userId)
-            throw new apiError_1.default(401, "User not authenticated");
+            throw new apiError_1.default(401, 'User not authenticated');
         console.log(`[getMyProfile] Fetching profile for user: ${userId}`);
         const profile = await userService.getUserProfile(userId);
         console.log(`[getMyProfile] Profile found:`, JSON.stringify(profile, null, 2));
@@ -125,10 +132,10 @@ const updateMyProfile = async (req, res) => {
     try {
         const userId = req.user?.id;
         if (!userId)
-            throw new apiError_1.default(401, "User not authenticated");
+            throw new apiError_1.default(401, 'User not authenticated');
         const { username } = req.body;
         if (!username)
-            return res.status(400).json({ message: "Username is required." });
+            return res.status(400).json({ message: 'Username is required.' });
         const profile = await userService.updateUserProfile(userId, { username });
         res.status(200).json(profile);
     }
@@ -142,17 +149,17 @@ const handleError = (res, error) => {
         return res.status(error.statusCode).json({ message: error.message });
     }
     // Log error yang tidak terduga untuk debugging
-    console.error("Unhandled Error in UserController:", error);
+    console.error('Unhandled Error in UserController:', error);
     return res
         .status(500)
-        .json({ message: "An unexpected internal server error occurred." });
+        .json({ message: 'An unexpected internal server error occurred.' });
 };
 const updateUserRole = async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        if (!role || !["admin", "user", "super_admin"].includes(role)) {
-            return res.status(400).json({ message: "Peran tidak valid." });
+        if (!role || !['admin', 'user', 'super_admin'].includes(role)) {
+            return res.status(400).json({ message: 'Peran tidak valid.' });
         }
         const updatedRole = await userService.updateUserRole(id, role);
         res.status(200).json(updatedRole);
@@ -166,8 +173,8 @@ const updateUserStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-        if (!status || !["active", "inactive"].includes(status)) {
-            return res.status(400).json({ message: "Status tidak valid." });
+        if (!status || !['active', 'inactive'].includes(status)) {
+            return res.status(400).json({ message: 'Status tidak valid.' });
         }
         const updatedUser = await userService.updateUserStatus(id, status);
         res.status(200).json(updatedUser);
@@ -177,12 +184,6 @@ const updateUserStatus = async (req, res) => {
     }
 };
 exports.updateUserStatus = updateUserStatus;
-const validateSession = (req, res) => {
-    // Jika middleware berhasil dilewati, berarti token valid.
-    // Cukup kirim respons sukses.
-    res.status(200).json({ valid: true });
-};
-exports.validateSession = validateSession;
 const getMyPreferences = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -202,7 +203,7 @@ const updateMyPreferences = async (req, res) => {
         if (!Array.isArray(preferences)) {
             return res
                 .status(400)
-                .json({ message: "Request body harus berupa array." });
+                .json({ message: 'Request body harus berupa array.' });
         }
         const updatedPreferences = await userService.updateUserPreferences(userId, preferences);
         res.status(200).json(updatedPreferences);
@@ -218,7 +219,7 @@ const subscribeToPush = async (req, res) => {
         const subscription = req.body; // Objek PushSubscription dari browser
         console.log(`[Push] Saving subscription for user ${userId}:`, JSON.stringify(subscription).slice(0, 100) + '...');
         await webPushService.saveSubscription(userId, subscription);
-        res.status(201).json({ message: "Push subscription saved." });
+        res.status(201).json({ message: 'Push subscription saved.' });
     }
     catch (error) {
         handleError(res, error);
@@ -248,14 +249,16 @@ const testPushNotification = async (req, res) => {
         const userId = req.user.id;
         console.log(`[Push Test] Triggering test notification for user ${userId}`);
         await webPushService.sendPushNotification(userId, {
-            title: "🧪 Test Notification",
-            body: "Jika Anda melihat ini, push notification bekerja!",
-            url: "/dashboard",
+            title: '🧪 Test Notification',
+            body: 'Jika Anda melihat ini, push notification bekerja!',
+            url: '/dashboard'
         });
-        res.status(200).json({ message: "Test push notification sent. Check your device." });
+        res
+            .status(200)
+            .json({ message: 'Test push notification sent. Check your device.' });
     }
     catch (error) {
-        console.error("[Push Test] Error:", error);
+        console.error('[Push Test] Error:', error);
         handleError(res, error);
     }
 };

@@ -21,22 +21,10 @@ const controlCommandSchema = z.object({
 });
 
 // Device-level endpoints
-router.get(
-  '/devices/:deviceId/logs',
-  lingkunganController.getLogs
-);
-router.get(
-  '/devices/:deviceId/summary',
-  lingkunganController.getSummary
-);
-router.get(
-  '/devices/:deviceId/status',
-  lingkunganController.getStatus
-);
-router.get(
-  '/devices/:deviceId/chart',
-  lingkunganController.getChartData
-);
+router.get('/devices/:deviceId/logs', lingkunganController.getLogs);
+router.get('/devices/:deviceId/summary', lingkunganController.getSummary);
+router.get('/devices/:deviceId/status', lingkunganController.getStatus);
+router.get('/devices/:deviceId/chart', lingkunganController.getChartData);
 
 // POST /api/lingkungan/control — Manual control (fan, dehumidifier)
 router.post(
@@ -46,9 +34,6 @@ router.post(
 );
 
 // Log acknowledgement
-router.put(
-  '/logs/:id/status',
-  lingkunganController.updateStatus
-);
+router.put('/logs/:id/status', lingkunganController.updateStatus);
 
 export default router;

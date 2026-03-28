@@ -35,16 +35,33 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 // backend/src/api/routes/warehouseRoutes.ts
 const express_1 = require("express");
+const zod_1 = require("zod");
 const warehouseController = __importStar(require("../controllers/warehouseController"));
 const authMiddleware_1 = require("../middlewares/authMiddleware");
+const validateRequest_1 = require("../middlewares/validateRequest");
 const router = (0, express_1.Router)();
-const adminOnly = (0, authMiddleware_1.roleBasedAuth)(["admin", "super_admin"]);
+const adminOnly = (0, authMiddleware_1.roleBasedAuth)(['admin', 'super_admin']);
+const createWarehouseSchema = zod_1.z.object({
+    body: zod_1.z.object({
+        name: zod_1.z.string().min(1, { message: 'Nama gudang wajib diisi.' }),
+        location: zod_1.z.string().optional()
+    })
+});
+const updateWarehouseSchema = zod_1.z.object({
+    body: zod_1.z.object({
+        name: zod_1.z.string().min(1, { message: 'Nama gudang wajib diisi.' }).optional(),
+        location: zod_1.z.string().optional()
+    }),
+    params: zod_1.z.object({
+        id: zod_1.z.string().uuid({ message: 'ID harus berupa UUID yang valid.' })
+    })
+});
 // Rute GET bisa diakses semua pengguna yang login
-router.get("/", warehouseController.listWarehouses);
-router.get("/:id", warehouseController.getWarehouseById);
-router.get("/:id/areas-with-systems", warehouseController.getAreasWithSystems);
+router.get('/', warehouseController.listWarehouses);
+router.get('/:id', warehouseController.getWarehouseById);
+router.get('/:id/areas-with-systems', warehouseController.getAreasWithSystems);
 // Rute POST, PUT, DELETE hanya untuk admin
-router.post("/", adminOnly, warehouseController.createWarehouse);
-router.put("/:id", adminOnly, warehouseController.updateWarehouse);
-router.delete("/:id", adminOnly, warehouseController.deleteWarehouse);
+router.post('/', adminOnly, (0, validateRequest_1.validate)(createWarehouseSchema), warehouseController.createWarehouse);
+router.put('/:id', adminOnly, (0, validateRequest_1.validate)(updateWarehouseSchema), warehouseController.updateWarehouse);
+router.delete('/:id', adminOnly, warehouseController.deleteWarehouse);
 exports.default = router;

@@ -35,10 +35,28 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 // backend/src/api/routes/areaRoutes.ts
 const express_1 = require("express");
+const zod_1 = require("zod");
 const areaController = __importStar(require("../controllers/areaController"));
+const authMiddleware_1 = require("../middlewares/authMiddleware");
+const validateRequest_1 = require("../middlewares/validateRequest");
 const router = (0, express_1.Router)();
-router.get("/", areaController.listAreas);
-router.post("/", areaController.createArea);
-router.put("/:id", areaController.updateArea);
-router.delete("/:id", areaController.deleteArea);
+const adminOnly = (0, authMiddleware_1.roleBasedAuth)(['admin', 'super_admin']);
+const createAreaSchema = zod_1.z.object({
+    body: zod_1.z.object({
+        name: zod_1.z.string().min(1, { message: 'Nama area wajib diisi.' }),
+        warehouse_id: zod_1.z.string().uuid({ message: 'Warehouse ID harus berupa UUID yang valid.' }),
+    }),
+});
+const updateAreaSchema = zod_1.z.object({
+    body: zod_1.z.object({
+        name: zod_1.z.string().min(1, { message: 'Nama area wajib diisi.' }).optional(),
+    }),
+    params: zod_1.z.object({
+        id: zod_1.z.string().uuid({ message: 'ID harus berupa UUID yang valid.' }),
+    }),
+});
+router.get('/', areaController.listAreas);
+router.post('/', adminOnly, (0, validateRequest_1.validate)(createAreaSchema), areaController.createArea);
+router.put('/:id', adminOnly, (0, validateRequest_1.validate)(updateAreaSchema), areaController.updateArea);
+router.delete('/:id', adminOnly, areaController.deleteArea);
 exports.default = router;

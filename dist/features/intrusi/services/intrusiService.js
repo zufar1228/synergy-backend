@@ -33,8 +33,8 @@ const getIntrusiLogs = async (options) => {
     const where = { device_id };
     if (from || to) {
         where.timestamp = {
-            ...(from && { $gte: new Date(from) }),
-            ...(to && { $lte: new Date(to) })
+            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
+            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
         };
     }
     if (event_type) {
@@ -64,8 +64,8 @@ const getIntrusiSummary = async (device_id, from, to) => {
     const where = { device_id };
     if (from || to) {
         where.timestamp = {
-            ...(from && { $gte: new Date(from) }),
-            ...(to && { $lte: new Date(to) })
+            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
+            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
         };
     }
     const total_events = await intrusiLog_1.default.count({ where });

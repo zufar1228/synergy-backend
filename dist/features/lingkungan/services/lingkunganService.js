@@ -44,7 +44,7 @@ const lingkunganLog_1 = __importDefault(require("../models/lingkunganLog"));
 const predictionResult_1 = __importDefault(require("../models/predictionResult"));
 const apiError_1 = __importDefault(require("../../../utils/apiError"));
 const client_1 = require("../../../mqtt/client");
-const alertingService = __importStar(require("../../../services/alertingService"));
+const lingkunganAlertingService = __importStar(require("./lingkunganAlertingService"));
 // MQTT topics for ML prediction pipeline
 const ML_PREDICT_REQUEST_TOPIC = 'synergy/ml/predict/request';
 // Safety thresholds (Level 2 — firmware safety)
@@ -227,7 +227,7 @@ const handleFirmwareSafetyCheck = async (data, _device) => {
                 dehumidifier_state: 'OFF'
             });
             // Send recovery notification
-            await alertingService.processLingkunganAlert(data.device_id, ['Kondisi lingkungan kembali stabil. Aktuator dinonaktifkan.'], data, 'RECOVERY');
+            await lingkunganAlertingService.processLingkunganAlert(data.device_id, ['Kondisi lingkungan kembali stabil. Aktuator dinonaktifkan.'], data, 'RECOVERY');
         }
     }
 };
@@ -281,17 +281,19 @@ const handlePredictiveControl = async (deviceId, prediction) => {
         if (triggerDehumidifier)
             updateData.dehumidifier_state = 'ON';
         await device.update(updateData);
-        // Update prediction record
-        await predictionResult_1.default.update({
-            fan_triggered: triggerFan,
-            dehumidifier_triggered: triggerDehumidifier
-        }, {
+        // Update the latest prediction record
+        const latestPrediction = await predictionResult_1.default.findOne({
             where: { device_id: deviceId },
-            order: [['timestamp', 'DESC']],
-            limit: 1
+            order: [['timestamp', 'DESC']]
         });
+        if (latestPrediction) {
+            await latestPrediction.update({
+                fan_triggered: triggerFan,
+                dehumidifier_triggered: triggerDehumidifier
+            });
+        }
         // Send predictive alert
-        await alertingService.processLingkunganAlert(deviceId, alerts, {
+        await lingkunganAlertingService.processLingkunganAlert(deviceId, alerts, {
             temperature: prediction.predicted_temperature,
             humidity: prediction.predicted_humidity,
             co2: prediction.predicted_co2
@@ -347,7 +349,7 @@ const handleActualThresholdControl = async (data, _device) => {
         // Add manual prompt
         alerts.push("🚨 Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol.");
         // Send Telegram/Push notification based on actual data
-        await alertingService.processLingkunganAlert(data.device_id, alerts, data, 'FAILSAFE');
+        await lingkunganAlertingService.processLingkunganAlert(data.device_id, alerts, data, 'FAILSAFE');
     }
 };
 /**

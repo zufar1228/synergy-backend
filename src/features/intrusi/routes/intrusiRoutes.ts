@@ -20,18 +20,9 @@ const intrusiCommandSchema = z.object({
 });
 
 // Device-level endpoints
-router.get(
-  '/devices/:deviceId/logs',
-  intrusiController.getLogs
-);
-router.get(
-  '/devices/:deviceId/summary',
-  intrusiController.getSummary
-);
-router.get(
-  '/devices/:deviceId/status',
-  intrusiController.getStatus
-);
+router.get('/devices/:deviceId/logs', intrusiController.getLogs);
+router.get('/devices/:deviceId/summary', intrusiController.getSummary);
+router.get('/devices/:deviceId/status', intrusiController.getStatus);
 
 // Send command to intrusi device (ARM, DISARM, SIREN_SILENCE, STATUS)
 router.post(

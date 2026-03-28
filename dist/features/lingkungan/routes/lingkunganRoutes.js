@@ -36,7 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // backend/src/api/routes/lingkunganRoutes.ts
 const express_1 = require("express");
 const lingkunganController = __importStar(require("../controllers/lingkunganController"));
-const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
 const validateRequest_1 = require("../../../api/middlewares/validateRequest");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
@@ -53,12 +52,12 @@ const controlCommandSchema = zod_1.z.object({
     })
 });
 // Device-level endpoints
-router.get('/devices/:deviceId/logs', authMiddleware_1.authMiddleware, lingkunganController.getLogs);
-router.get('/devices/:deviceId/summary', authMiddleware_1.authMiddleware, lingkunganController.getSummary);
-router.get('/devices/:deviceId/status', authMiddleware_1.authMiddleware, lingkunganController.getStatus);
-router.get('/devices/:deviceId/chart', authMiddleware_1.authMiddleware, lingkunganController.getChartData);
+router.get('/devices/:deviceId/logs', lingkunganController.getLogs);
+router.get('/devices/:deviceId/summary', lingkunganController.getSummary);
+router.get('/devices/:deviceId/status', lingkunganController.getStatus);
+router.get('/devices/:deviceId/chart', lingkunganController.getChartData);
 // POST /api/lingkungan/control — Manual control (fan, dehumidifier)
-router.post('/devices/:deviceId/control', authMiddleware_1.authMiddleware, (0, validateRequest_1.validate)(controlCommandSchema), lingkunganController.sendControlCommand);
+router.post('/devices/:deviceId/control', (0, validateRequest_1.validate)(controlCommandSchema), lingkunganController.sendControlCommand);
 // Log acknowledgement
-router.put('/logs/:id/status', authMiddleware_1.authMiddleware, lingkunganController.updateStatus);
+router.put('/logs/:id/status', lingkunganController.updateStatus);
 exports.default = router;
