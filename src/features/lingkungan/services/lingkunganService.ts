@@ -7,7 +7,7 @@ import { DeviceAttributes } from '../../../db/models/device';
 import { AcknowledgeStatus } from '../models/lingkunganLog';
 import ApiError from '../../../utils/apiError';
 import { client as mqttClient } from '../../../mqtt/client';
-import * as alertingService from '../../../services/alertingService';
+import * as lingkunganAlertingService from './lingkunganAlertingService';
 import { sequelize } from '../../../db/config';
 
 // MQTT topics for ML prediction pipeline
@@ -268,7 +268,7 @@ const handleFirmwareSafetyCheck = async (
       });
 
       // Send recovery notification
-      await alertingService.processLingkunganAlert(
+      await lingkunganAlertingService.processLingkunganAlert(
         data.device_id,
         ['Kondisi lingkungan kembali stabil. Aktuator dinonaktifkan.'],
         data,
@@ -370,7 +370,7 @@ const handlePredictiveControl = async (
     );
 
     // Send predictive alert
-    await alertingService.processLingkunganAlert(
+    await lingkunganAlertingService.processLingkunganAlert(
       deviceId,
       alerts,
       {
@@ -455,7 +455,7 @@ const handleActualThresholdControl = async (
     );
 
     // Send Telegram/Push notification based on actual data
-    await alertingService.processLingkunganAlert(
+    await lingkunganAlertingService.processLingkunganAlert(
       data.device_id,
       alerts,
       data,

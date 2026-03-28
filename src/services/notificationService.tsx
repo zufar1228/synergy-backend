@@ -1,7 +1,7 @@
 // backend/src/services/notificationService.ts
 import { Resend } from "resend";
 import { AlertEmail } from "../emails/AlertEmail";
-import { RepeatAlertEmail } from "../emails/RepeatAlertEmail";
+import { RepeatAlertEmail } from "../features/keamanan/emails/RepeatAlertEmail";
 import { InviteEmail } from "../emails/InviteEmail";
 import { AllClearEmail } from "../emails/AllClearEmail"; // <-- IMPORT BARU
 import { render } from "@react-email/render";
