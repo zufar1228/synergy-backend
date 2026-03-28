@@ -39,6 +39,48 @@ const models_1 = require("../db/models");
 const webPushService = __importStar(require("./webPushService"));
 const telegramService = __importStar(require("./telegramService"));
 const time_1 = require("../utils/time");
+// Gatekeeper Telegram khusus lingkungan (lapis kedua anti-spam)
+const lingkunganTelegramState = new Map();
+const TELEGRAM_CRITICAL_REMINDER_MS = Number(process.env.TELEGRAM_CRITICAL_REMINDER_MS ?? 30 * 60 * 1000);
+const TELEGRAM_RECOVERY_COOLDOWN_MS = Number(process.env.TELEGRAM_RECOVERY_COOLDOWN_MS ?? 2 * 60 * 1000);
+const shouldSendLingkunganTelegram = (deviceId, isAlert) => {
+    if (!deviceId)
+        return true;
+    const now = Date.now();
+    const state = lingkunganTelegramState.get(deviceId) ?? {
+        alertActive: false,
+        lastCriticalSentAt: 0,
+        lastRecoverySentAt: 0
+    };
+    if (isAlert) {
+        // Kirim sekali saat transisi normal->kritis
+        if (!state.alertActive) {
+            state.alertActive = true;
+            state.lastCriticalSentAt = now;
+            lingkunganTelegramState.set(deviceId, state);
+            return true;
+        }
+        // Selama masih kritis, kirim reminder periodik
+        if (now - state.lastCriticalSentAt >= TELEGRAM_CRITICAL_REMINDER_MS) {
+            state.lastCriticalSentAt = now;
+            lingkunganTelegramState.set(deviceId, state);
+            return true;
+        }
+        return false;
+    }
+    // Recovery hanya relevan setelah ada episode kritis
+    if (!state.alertActive) {
+        return false;
+    }
+    if (now - state.lastRecoverySentAt < TELEGRAM_RECOVERY_COOLDOWN_MS) {
+        return false;
+    }
+    state.alertActive = false;
+    state.lastRecoverySentAt = now;
+    state.lastCriticalSentAt = 0;
+    lingkunganTelegramState.set(deviceId, state);
+    return true;
+};
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
@@ -55,6 +97,13 @@ const notifySubscribers = async (systemType, subject, emailProps) => {
             // Check if this is an alert (not "back to normal" message)
             // Alert subjects contain: PERINGATAN, 🚨
             const isAlert = subject.includes('PERINGATAN') || subject.includes('🚨');
+            if (systemType === 'lingkungan') {
+                const allowed = shouldSendLingkunganTelegram(emailProps.deviceId, isAlert);
+                if (!allowed) {
+                    console.log(`[Alerting] Telegram lingkungan suppressed by gatekeeper for device ${emailProps.deviceId || 'unknown'}`);
+                    return;
+                }
+            }
             const emoji = isAlert ? '🚨' : '✅';
             const statusText = isAlert ? 'PERINGATAN BAHAYA' : 'KEMBALI NORMAL';
             // Build detail text from emailProps.details if available
@@ -158,6 +207,7 @@ const processIntrusiAlert = async (deviceId, data) => {
         }
     }
     const emailProps = {
+        deviceId,
         incidentType,
         warehouseName: warehouse.name,
         areaName: area.name,
@@ -182,7 +232,7 @@ exports.processIntrusiAlert = processIntrusiAlert;
  * Process predictive alerts from the environmental monitoring (lingkungan) system.
  * Called when ML predictions exceed safety thresholds.
  */
-const processLingkunganAlert = async (deviceId, alerts, data) => {
+const processLingkunganAlert = async (deviceId, alerts, data, alertType = 'FAILSAFE') => {
     console.log(`[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`);
     const device = (await models_1.Device.findByPk(deviceId, {
         include: [
@@ -200,7 +250,25 @@ const processLingkunganAlert = async (deviceId, alerts, data) => {
     const { area } = device;
     const { warehouse } = area;
     const timestamp = (0, time_1.formatTimestampWIB)();
-    const incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
+    let incidentType = '';
+    let subjectPrefix = '';
+    switch (alertType) {
+        case 'PREDICTIVE':
+            incidentType = 'Prediksi Kondisi Lingkungan Berbahaya';
+            subjectPrefix = '⚠️ [PERINGATAN PREDIKSI LINGKUNGAN]';
+            break;
+        case 'FAILSAFE':
+            incidentType = 'KRITIS: Kondisi Lingkungan Nyata Berbahaya';
+            subjectPrefix = '🚨 [PERINGATAN KRITIS LINGKUNGAN]';
+            break;
+        case 'RECOVERY':
+            incidentType = 'PEMULIHAN SISTEM: Kondisi Lingkungan Stabil';
+            subjectPrefix = '✅ [KEMBALI NORMAL LINGKUNGAN]';
+            break;
+        default:
+            incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
+            subjectPrefix = '🌡️ [PERINGATAN LINGKUNGAN]';
+    }
     const details = [
         {
             key: 'Suhu Saat Ini',
@@ -226,7 +294,7 @@ const processLingkunganAlert = async (deviceId, alerts, data) => {
         timestamp,
         details
     };
-    const subject = `🌡️ [PERINGATAN LINGKUNGAN] ${incidentType} di ${warehouse.name} - ${area.name}`;
+    const subject = `${subjectPrefix} ${incidentType} di ${warehouse.name} - ${area.name}`;
     try {
         await notifySubscribers('lingkungan', subject, emailProps);
         console.log('[Alerting] Lingkungan alert notifications sent.');

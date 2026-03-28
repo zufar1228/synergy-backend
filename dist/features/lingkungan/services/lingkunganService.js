@@ -39,10 +39,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateLingkunganLogStatus = exports.getLingkunganStatus = exports.getChartData = exports.getLingkunganSummary = exports.getLingkunganLogs = exports.switchToAutoMode = exports.handleManualControl = exports.sendActuatorCommand = exports.handlePredictionResult = exports.ingestSensorData = void 0;
 // backend/src/services/lingkunganService.ts
 const sequelize_1 = require("sequelize");
-const models_1 = require("../db/models");
-const apiError_1 = __importDefault(require("../utils/apiError"));
-const client_1 = require("../mqtt/client");
-const alertingService = __importStar(require("./alertingService"));
+const models_1 = require("../../../db/models");
+const lingkunganLog_1 = __importDefault(require("../models/lingkunganLog"));
+const predictionResult_1 = __importDefault(require("../models/predictionResult"));
+const apiError_1 = __importDefault(require("../../../utils/apiError"));
+const client_1 = require("../../../mqtt/client");
+const alertingService = __importStar(require("../../../services/alertingService"));
 // MQTT topics for ML prediction pipeline
 const ML_PREDICT_REQUEST_TOPIC = 'synergy/ml/predict/request';
 // Safety thresholds (Level 2 — firmware safety)
@@ -66,7 +68,7 @@ const MANUAL_OVERRIDE_DURATION_MS = 5 * 60 * 1000;
  */
 const ingestSensorData = async (data) => {
     // 1. Save raw sensor data
-    const log = await models_1.LingkunganLog.create({
+    const log = await lingkunganLog_1.default.create({
         device_id: data.device_id,
         temperature: data.temperature,
         humidity: data.humidity,
@@ -106,7 +108,7 @@ exports.ingestSensorData = ingestSensorData;
  */
 const triggerPrediction = async (deviceId, device) => {
     try {
-        const totalLogs = await models_1.LingkunganLog.count({
+        const totalLogs = await lingkunganLog_1.default.count({
             where: { device_id: deviceId }
         });
         // Only trigger prediction when we have at least 1 full hour of data.
@@ -115,7 +117,7 @@ const triggerPrediction = async (deviceId, device) => {
             return;
         }
         // Get the latest ML_SEQUENCE_LENGTH readings then reverse to oldest-first.
-        const recentData = await models_1.LingkunganLog.findAll({
+        const recentData = await lingkunganLog_1.default.findAll({
             where: { device_id: deviceId },
             order: [['timestamp', 'DESC']],
             limit: ML_SEQUENCE_LENGTH
@@ -160,7 +162,7 @@ const handlePredictionResult = async (deviceId, prediction) => {
         }
         // Compute forecasted timestamp: latest data point + 15 minutes
         // This reflects the actual time the model is predicting for, not when the inference ran.
-        const latestLog = await models_1.LingkunganLog.findOne({
+        const latestLog = await lingkunganLog_1.default.findOne({
             where: { device_id: deviceId },
             order: [['timestamp', 'DESC']]
         });
@@ -168,7 +170,7 @@ const handlePredictionResult = async (deviceId, prediction) => {
             ? new Date(latestLog.timestamp.getTime() + 15 * 60 * 1000)
             : new Date(Date.now() + 15 * 60 * 1000);
         // Save prediction result
-        const predResult = await models_1.PredictionResult.create({
+        const predResult = await predictionResult_1.default.create({
             device_id: deviceId,
             predicted_temperature: prediction.predicted_temperature,
             predicted_humidity: prediction.predicted_humidity,
@@ -280,7 +282,7 @@ const handlePredictiveControl = async (deviceId, prediction) => {
             updateData.dehumidifier_state = 'ON';
         await device.update(updateData);
         // Update prediction record
-        await models_1.PredictionResult.update({
+        await predictionResult_1.default.update({
             fan_triggered: triggerFan,
             dehumidifier_triggered: triggerDehumidifier
         }, {
@@ -416,7 +418,7 @@ const getLingkunganLogs = async (options) => {
             ...(to && { [sequelize_1.Op.lte]: new Date(to) })
         };
     }
-    const { count, rows } = await models_1.LingkunganLog.findAndCountAll({
+    const { count, rows } = await lingkunganLog_1.default.findAndCountAll({
         where,
         limit,
         offset,
@@ -439,19 +441,19 @@ const getLingkunganSummary = async (device_id, from, to) => {
             ...(to && { [sequelize_1.Op.lte]: new Date(to) })
         };
     }
-    const total_readings = await models_1.LingkunganLog.count({ where });
+    const total_readings = await lingkunganLog_1.default.count({ where });
     // Get latest readings
-    const latest = await models_1.LingkunganLog.findOne({
+    const latest = await lingkunganLog_1.default.findOne({
         where: { device_id },
         order: [['timestamp', 'DESC']]
     });
     // Get latest prediction
-    const latestPrediction = await models_1.PredictionResult.findOne({
+    const latestPrediction = await predictionResult_1.default.findOne({
         where: { device_id },
         order: [['timestamp', 'DESC']]
     });
     // Get alerts count (unacknowledged)
-    const unacknowledged = await models_1.LingkunganLog.count({
+    const unacknowledged = await lingkunganLog_1.default.count({
         where: { ...where, status: 'unacknowledged' }
     });
     return {
@@ -494,14 +496,14 @@ const getChartData = async (device_id, from, to, limit = 100) => {
         limit,
         whereClause: where
     });
-    const actual = await models_1.LingkunganLog.findAll({
+    const actual = await lingkunganLog_1.default.findAll({
         where,
         attributes: ['timestamp', 'temperature', 'humidity', 'co2'],
         // Get newest first for efficient limiting, then reverse before returning.
         order: [['timestamp', 'DESC']],
         limit
     });
-    const predictions = await models_1.PredictionResult.findAll({
+    const predictions = await predictionResult_1.default.findAll({
         where,
         attributes: [
             'timestamp',
@@ -533,11 +535,11 @@ const getLingkunganStatus = async (device_id) => {
     const device = await models_1.Device.findByPk(device_id);
     if (!device)
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan.');
-    const latest = await models_1.LingkunganLog.findOne({
+    const latest = await lingkunganLog_1.default.findOne({
         where: { device_id },
         order: [['timestamp', 'DESC']]
     });
-    const latestPrediction = await models_1.PredictionResult.findOne({
+    const latestPrediction = await predictionResult_1.default.findOne({
         where: { device_id },
         order: [['timestamp', 'DESC']]
     });
@@ -584,7 +586,7 @@ exports.getLingkunganStatus = getLingkunganStatus;
  * Update log acknowledgement status.
  */
 const updateLingkunganLogStatus = async (logId, userId, status, notes) => {
-    const log = await models_1.LingkunganLog.findByPk(logId);
+    const log = await lingkunganLog_1.default.findByPk(logId);
     if (!log)
         throw new apiError_1.default(404, 'Log lingkungan tidak ditemukan.');
     log.status = status;

@@ -6,10 +6,10 @@ import Device from './device';
 import Incident from './incident';
 import Profile from './profile';
 import UserNotificationPreference from './userNotificationPreference';
-import KeamananLog from './keamananLog'; // <-- IMPORT
-import IntrusiLog from './intrusiLog';
-import LingkunganLog from './lingkunganLog';
-import PredictionResult from './predictionResult';
+import KeamananLog from '../../features/keamanan/models/keamananLog'; // <-- IMPORT
+import IntrusiLog from '../../features/intrusi/models/intrusiLog';
+import LingkunganLog from '../../features/lingkungan/models/lingkunganLog';
+import PredictionResult from '../../features/lingkungan/models/predictionResult';
 import PushSubscription from './pushSubscription';
 import UserRole from './userRole';
 import TelegramSubscriber from './telegramSubscriber';

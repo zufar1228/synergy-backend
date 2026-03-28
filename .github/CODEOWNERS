@@ -1,0 +1,46 @@
+# Backend CODEOWNERS
+# Protects feature directories so each domain developer can ONLY merge to their own area.
+# GitHub requires a CODEOWNERS review before merging PRs that touch owned paths.
+#
+# Usage: Replace @org/ placeholders with your actual GitHub org or usernames.
+# Example: @synergy-iot/lingkungan-dev or @username
+
+# ========================================
+# CORE — requires core-team approval
+# ========================================
+/src/server.ts                      @org/core-team
+/src/api/                           @org/core-team
+/src/db/                            @org/core-team
+/src/config/                        @org/core-team
+/src/mqtt/                          @org/core-team
+/src/services/                      @org/core-team
+/src/jobs/                          @org/core-team
+/src/emails/                        @org/core-team
+/src/utils/                         @org/core-team
+/src/types/                         @org/core-team
+/.github/                           @org/core-team
+/tsconfig.json                      @org/core-team
+/package.json                       @org/core-team
+
+# ========================================
+# FEATURE: Lingkungan (Environment)
+# ========================================
+/src/features/lingkungan/           @org/lingkungan-dev
+
+# ========================================
+# FEATURE: Keamanan (Security)
+# ========================================
+/src/features/keamanan/             @org/keamanan-dev
+
+# ========================================
+# FEATURE: Intrusi (Intrusion)
+# ========================================
+/src/features/intrusi/              @org/intrusi-dev
+
+# ========================================
+# DEVICE SIMULATOR — each dev owns their firmware/simulator
+# ========================================
+/device-simulator/*lingkungan*      @org/lingkungan-dev
+/device-simulator/*keamanan*        @org/keamanan-dev
+/device-simulator/*door_security*   @org/intrusi-dev
+/device-simulator/*intrusi*         @org/intrusi-dev

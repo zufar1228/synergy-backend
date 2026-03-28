@@ -1,7 +1,7 @@
 // backend/src/mqtt/client.ts
 import mqtt from 'mqtt';
-import * as intrusiService from '../services/intrusiService';
-import * as lingkunganService from '../services/lingkunganService';
+import * as intrusiService from '../features/intrusi/services/intrusiService';
+import * as lingkunganService from '../features/lingkungan/services/lingkunganService';
 import { updateDeviceHeartbeat } from '../services/deviceService';
 import * as alertingService from '../services/alertingService';
 

@@ -39,8 +39,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.client = exports.initializeMqttClient = void 0;
 // backend/src/mqtt/client.ts
 const mqtt_1 = __importDefault(require("mqtt"));
-const intrusiService = __importStar(require("../services/intrusiService"));
-const lingkunganService = __importStar(require("../services/lingkunganService"));
+const intrusiService = __importStar(require("../features/intrusi/services/intrusiService"));
+const lingkunganService = __importStar(require("../features/lingkungan/services/lingkunganService"));
 const deviceService_1 = require("../services/deviceService");
 const alertingService = __importStar(require("../services/alertingService"));
 // Simple log-level utility

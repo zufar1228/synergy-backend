@@ -1,33 +1,63 @@
-name: Deploy Express TypeScript
+name: Validate & Deploy Express TypeScript
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ['main']
+  pull_request:
+    branches: ['main']
 
 jobs:
-  deploy:
+  # =============================================
+  # JOB 1: Validate (runs on EVERY push and PR)
+  # =============================================
+  validate:
     runs-on: ubuntu-latest
     steps:
-    - name: Deploy to Azure VM via SSH
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.KEY }}
-        port: 22
-        script: |
-          # 1. Masuk ke folder project
-          cd /home/${{ secrets.USERNAME }}/synergy-backend
-          
-          # 2. Reset local changes (dist/ folder often has uncommitted changes after build)
-          git fetch origin main
-          git reset --hard origin/main
-          
-          # 3. Install dependencies baru (gunakan pnpm)
-          pnpm install
-          
-          # 4. Compile TypeScript ke JavaScript
-          pnpm run build
-          
-          # 5. Restart aplikasi agar perubahan diterapkan
-          pm2 restart backend-api
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+  # =============================================
+  # JOB 2: Deploy (only on push to main, after validation passes)
+  # =============================================
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to DigitalOcean via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: 22
+          script: |
+            cd /home/${{ secrets.USERNAME }}/synergy-backend
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            pnpm install
+            pnpm run build
+
+            pm2 restart backend-api
