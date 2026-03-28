@@ -1,46 +1,42 @@
 # Backend CODEOWNERS
-# Protects feature directories so each domain developer can ONLY merge to their own area.
-# GitHub requires a CODEOWNERS review before merging PRs that touch owned paths.
-#
-# Usage: Replace @org/ placeholders with your actual GitHub org or usernames.
-# Example: @synergy-iot/lingkungan-dev or @username
+# GitHub requires a review from the code owner before a PR touching their path can be merged.
 
 # ========================================
-# CORE — requires core-team approval
+# CORE — requires @zufar1228 approval
 # ========================================
-/src/server.ts                      @org/core-team
-/src/api/                           @org/core-team
-/src/db/                            @org/core-team
-/src/config/                        @org/core-team
-/src/mqtt/                          @org/core-team
-/src/services/                      @org/core-team
-/src/jobs/                          @org/core-team
-/src/emails/                        @org/core-team
-/src/utils/                         @org/core-team
-/src/types/                         @org/core-team
-/.github/                           @org/core-team
-/tsconfig.json                      @org/core-team
-/package.json                       @org/core-team
+/src/server.ts                      @zufar1228
+/src/api/                           @zufar1228
+/src/db/                            @zufar1228
+/src/config/                        @zufar1228
+/src/mqtt/                          @zufar1228
+/src/services/                      @zufar1228
+/src/jobs/                          @zufar1228
+/src/emails/                        @zufar1228
+/src/utils/                         @zufar1228
+/src/types/                         @zufar1228
+/.github/                           @zufar1228
+/tsconfig.json                      @zufar1228
+/package.json                       @zufar1228
 
 # ========================================
-# FEATURE: Lingkungan (Environment)
+# FEATURE: Lingkungan (Environment) — @keyeicheiaren
 # ========================================
-/src/features/lingkungan/           @org/lingkungan-dev
+/src/features/lingkungan/           @keyeicheiaren
 
 # ========================================
-# FEATURE: Keamanan (Security)
+# FEATURE: Keamanan (Security) — @Egan354
 # ========================================
-/src/features/keamanan/             @org/keamanan-dev
+/src/features/keamanan/             @Egan354
 
 # ========================================
-# FEATURE: Intrusi (Intrusion)
+# FEATURE: Intrusi (Intrusion) — @zufar1228
 # ========================================
-/src/features/intrusi/              @org/intrusi-dev
+/src/features/intrusi/              @zufar1228
 
 # ========================================
-# DEVICE SIMULATOR — each dev owns their firmware/simulator
+# DEVICE SIMULATOR — each dev owns their firmware
 # ========================================
-/device-simulator/*lingkungan*      @org/lingkungan-dev
-/device-simulator/*keamanan*        @org/keamanan-dev
-/device-simulator/*door_security*   @org/intrusi-dev
-/device-simulator/*intrusi*         @org/intrusi-dev
+/device-simulator/*lingkungan*      @keyeicheiaren
+/device-simulator/*keamanan*        @Egan354
+/device-simulator/*door_security*   @zufar1228
+/device-simulator/*intrusi*         @zufar1228
