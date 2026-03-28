@@ -1,9 +1,5 @@
 // features/intrusi/services/intrusiAlertingService.ts
-import {
-  Device,
-  Area,
-  Warehouse
-} from '../../../db/models';
+import { Device, Area, Warehouse } from '../../../db/models';
 import { formatTimestampWIB } from '../../../utils/time';
 import { notifySubscribers } from '../../../services/alertingService';
 
@@ -12,6 +8,11 @@ interface DeviceWithRelations extends Device {
     warehouse: Warehouse;
   };
 }
+
+// Cooldown to suppress duplicate Telegram alerts when the firmware sends both
+// UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
+const deviceIntrusiAlertState = new Map<string, Date>();
+const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Process alarm events from the door security (intrusi) system.
@@ -31,6 +32,22 @@ export const processIntrusiAlert = async (
   console.log(
     `[Alerting] 🚨 Intrusi alarm: ${data.type} for device ${deviceId}`
   );
+
+  // Suppress duplicate alerts for the same device within the cooldown window.
+  // The firmware can emit both UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for
+  // a single incident, which would otherwise send two Telegram messages.
+  const now = new Date();
+  const lastSent = deviceIntrusiAlertState.get(deviceId);
+  if (
+    lastSent &&
+    now.getTime() - lastSent.getTime() < INTRUSION_ALERT_COOLDOWN_MS
+  ) {
+    console.log(
+      `[Alerting] Intrusi alert suppressed (cooldown) for device ${deviceId} — last sent ${Math.round((now.getTime() - lastSent.getTime()) / 1000)}s ago`
+    );
+    return;
+  }
+  deviceIntrusiAlertState.set(deviceId, now);
 
   const device = (await Device.findByPk(deviceId, {
     include: [
