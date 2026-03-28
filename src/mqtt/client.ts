@@ -3,7 +3,8 @@ import mqtt from 'mqtt';
 import * as intrusiService from '../features/intrusi/services/intrusiService';
 import * as lingkunganService from '../features/lingkungan/services/lingkunganService';
 import { updateDeviceHeartbeat } from '../services/deviceService';
-import * as alertingService from '../services/alertingService';
+import * as intrusiAlertingService from '../features/intrusi/services/intrusiAlertingService';
+import * as lingkunganAlertingService from '../features/lingkungan/services/lingkunganAlertingService';
 
 // Simple log-level utility
 const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
@@ -206,7 +207,7 @@ export const initializeMqttClient = () => {
             // Process power/battery alerts
             if (statusData.power || statusData.vbat_pct !== undefined) {
               try {
-                await alertingService.processPowerAlert(deviceId, {
+                await intrusiAlertingService.processPowerAlert(deviceId, {
                   power_source: statusData.power,
                   vbat_v:
                     statusData.vbat_v !== undefined
@@ -270,7 +271,7 @@ export const initializeMqttClient = () => {
             const alarmEvents = ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'];
             if (alarmEvents.includes(data.type)) {
               log.info('Alarm event detected, processing alerts...');
-              await alertingService.processIntrusiAlert(deviceId, data);
+              await intrusiAlertingService.processIntrusiAlert(deviceId, data);
             }
           } else if (systemType === 'lingkungan') {
             await updateDeviceHeartbeat(deviceId, {
