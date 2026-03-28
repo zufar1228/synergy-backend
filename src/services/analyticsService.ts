@@ -3,7 +3,7 @@
 
 import { Device } from '../db/models';
 import ApiError from '../utils/apiError';
-import { Op, ModelStatic, Model, Includeable } from 'sequelize';
+import { Op, ModelStatic, Model } from 'sequelize';
 
 // Registry type that each feature provides
 export interface AnalyticsConfig {

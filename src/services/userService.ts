@@ -4,7 +4,6 @@ import { sendInviteEmail } from "./notificationService";
 import { Profile, UserRole, UserNotificationPreference } from "../db/models";
 import ApiError from "../utils/apiError";
 import { User } from "@supabase/supabase-js";
-import { en } from "zod/v4/locales";
 import { sequelize } from "../db/config";
 import * as telegramService from "./telegramService";
 

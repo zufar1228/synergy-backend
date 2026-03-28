@@ -1,7 +1,6 @@
 // backend/src/api/routes/lingkunganRoutes.ts
 import { Router } from 'express';
 import * as lingkunganController from '../controllers/lingkunganController';
-import { authMiddleware } from '../../../api/middlewares/authMiddleware';
 import { validate } from '../../../api/middlewares/validateRequest';
 import { z } from 'zod';
 
@@ -24,29 +23,24 @@ const controlCommandSchema = z.object({
 // Device-level endpoints
 router.get(
   '/devices/:deviceId/logs',
-  authMiddleware,
   lingkunganController.getLogs
 );
 router.get(
   '/devices/:deviceId/summary',
-  authMiddleware,
   lingkunganController.getSummary
 );
 router.get(
   '/devices/:deviceId/status',
-  authMiddleware,
   lingkunganController.getStatus
 );
 router.get(
   '/devices/:deviceId/chart',
-  authMiddleware,
   lingkunganController.getChartData
 );
 
 // POST /api/lingkungan/control — Manual control (fan, dehumidifier)
 router.post(
   '/devices/:deviceId/control',
-  authMiddleware,
   validate(controlCommandSchema),
   lingkunganController.sendControlCommand
 );
@@ -54,7 +48,6 @@ router.post(
 // Log acknowledgement
 router.put(
   '/logs/:id/status',
-  authMiddleware,
   lingkunganController.updateStatus
 );
 

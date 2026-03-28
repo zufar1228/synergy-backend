@@ -1,7 +1,6 @@
 // backend/src/api/routes/intrusiRoutes.ts
 import { Router } from 'express';
 import * as intrusiController from '../controllers/intrusiController';
-import { authMiddleware } from '../../../api/middlewares/authMiddleware';
 import { validate } from '../../../api/middlewares/validateRequest';
 import { z } from 'zod';
 
@@ -23,29 +22,25 @@ const intrusiCommandSchema = z.object({
 // Device-level endpoints
 router.get(
   '/devices/:deviceId/logs',
-  authMiddleware,
   intrusiController.getLogs
 );
 router.get(
   '/devices/:deviceId/summary',
-  authMiddleware,
   intrusiController.getSummary
 );
 router.get(
   '/devices/:deviceId/status',
-  authMiddleware,
   intrusiController.getStatus
 );
 
 // Send command to intrusi device (ARM, DISARM, SIREN_SILENCE, STATUS)
 router.post(
   '/devices/:deviceId/command',
-  authMiddleware,
   validate(intrusiCommandSchema),
   intrusiController.sendCommand
 );
 
 // Log status update (acknowledgement)
-router.put('/logs/:id/status', authMiddleware, intrusiController.updateStatus);
+router.put('/logs/:id/status', intrusiController.updateStatus);
 
 export default router;

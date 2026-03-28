@@ -54,8 +54,8 @@ export const getIntrusiLogs = async (options: {
 
   if (from || to) {
     where.timestamp = {
-      ...(from && { $gte: new Date(from) }),
-      ...(to && { $lte: new Date(to) })
+      ...(from && { [Op.gte]: new Date(from) }),
+      ...(to && { [Op.lte]: new Date(to) })
     };
   }
 
@@ -93,8 +93,8 @@ export const getIntrusiSummary = async (
 
   if (from || to) {
     where.timestamp = {
-      ...(from && { $gte: new Date(from) }),
-      ...(to && { $lte: new Date(to) })
+      ...(from && { [Op.gte]: new Date(from) }),
+      ...(to && { [Op.lte]: new Date(to) })
     };
   }
 

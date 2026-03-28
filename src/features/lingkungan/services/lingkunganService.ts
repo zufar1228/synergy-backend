@@ -356,18 +356,17 @@ const handlePredictiveControl = async (
     if (triggerDehumidifier) updateData.dehumidifier_state = 'ON';
     await device.update(updateData);
 
-    // Update prediction record
-    await PredictionResult.update(
-      {
+    // Update the latest prediction record
+    const latestPrediction = await PredictionResult.findOne({
+      where: { device_id: deviceId },
+      order: [['timestamp', 'DESC']]
+    });
+    if (latestPrediction) {
+      await latestPrediction.update({
         fan_triggered: triggerFan,
         dehumidifier_triggered: triggerDehumidifier
-      },
-      {
-        where: { device_id: deviceId },
-        order: [['timestamp', 'DESC']],
-        limit: 1
-      } as any
-    );
+      });
+    }
 
     // Send predictive alert
     await lingkunganAlertingService.processLingkunganAlert(

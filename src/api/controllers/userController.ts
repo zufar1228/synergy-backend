@@ -137,12 +137,6 @@ export const updateUserStatus = async (req: Request, res: Response) => {
   }
 };
 
-export const validateSession = (req: Request, res: Response) => {
-  // Jika middleware berhasil dilewati, berarti token valid.
-  // Cukup kirim respons sukses.
-  res.status(200).json({ valid: true });
-};
-
 export const getMyPreferences = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
