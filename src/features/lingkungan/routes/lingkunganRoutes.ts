@@ -2,9 +2,11 @@
 import { Router } from 'express';
 import * as lingkunganController from '../controllers/lingkunganController';
 import { validate } from '../../../api/middlewares/validateRequest';
+import { roleBasedAuth } from '../../../api/middlewares/authMiddleware';
 import { z } from 'zod';
 
 const router = Router();
+const adminOnly = roleBasedAuth(['admin', 'super_admin']);
 
 // === Zod Schema: Manual control command validation ===
 const controlCommandSchema = z.object({
@@ -29,11 +31,12 @@ router.get('/devices/:deviceId/chart', lingkunganController.getChartData);
 // POST /api/lingkungan/control — Manual control (fan, dehumidifier)
 router.post(
   '/devices/:deviceId/control',
+  adminOnly,
   validate(controlCommandSchema),
   lingkunganController.sendControlCommand
 );
 
 // Log acknowledgement
-router.put('/logs/:id/status', lingkunganController.updateStatus);
+router.put('/logs/:id/status', adminOnly, lingkunganController.updateStatus);
 
 export default router;

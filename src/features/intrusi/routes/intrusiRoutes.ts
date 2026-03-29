@@ -2,9 +2,11 @@
 import { Router } from 'express';
 import * as intrusiController from '../controllers/intrusiController';
 import { validate } from '../../../api/middlewares/validateRequest';
+import { roleBasedAuth } from '../../../api/middlewares/authMiddleware';
 import { z } from 'zod';
 
 const router = Router();
+const adminOnly = roleBasedAuth(['admin', 'super_admin']);
 
 // === Zod Schema: Intrusi command validation ===
 const intrusiCommandSchema = z.object({
@@ -27,11 +29,12 @@ router.get('/devices/:deviceId/status', intrusiController.getStatus);
 // Send command to intrusi device (ARM, DISARM, SIREN_SILENCE, STATUS)
 router.post(
   '/devices/:deviceId/command',
+  adminOnly,
   validate(intrusiCommandSchema),
   intrusiController.sendCommand
 );
 
 // Log status update (acknowledgement)
-router.put('/logs/:id/status', intrusiController.updateStatus);
+router.put('/logs/:id/status', adminOnly, intrusiController.updateStatus);
 
 export default router;
