@@ -39,6 +39,6 @@ const keamananController = __importStar(require("../controllers/keamananControll
 const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
 const router = (0, express_1.Router)();
 const adminOnly = (0, authMiddleware_1.roleBasedAuth)(['admin', 'super_admin']);
-router.put('/:id/status', keamananController.updateStatus);
+router.put('/:id/status', adminOnly, keamananController.updateStatus);
 router.post('/trigger-repeat-detection', adminOnly, keamananController.triggerRepeatDetection);
 exports.default = router;

@@ -52,6 +52,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.startDisarmReminderJob = void 0;
 const node_cron_1 = __importDefault(require("node-cron"));
 const models_1 = require("../../../db/models");
+const intrusiLog_1 = __importDefault(require("../models/intrusiLog"));
 const telegramService = __importStar(require("../../../services/telegramService"));
 const webPushService = __importStar(require("../../../services/webPushService"));
 const time_1 = require("../../../utils/time");
@@ -138,16 +139,38 @@ const checkDisarmedDevices = async () => {
                 continue;
             }
             activeDeviceIds.add(device.id);
-            // Track when we first saw this device DISARMED
+            // Track when we first saw this device DISARMED.
+            // On server restart the in-memory map is empty even though devices may
+            // have been DISARMED for hours. Seed the tracker from the last DISARM
+            // event in the database so devices that were disarmed at different times
+            // don't all fire reminders simultaneously after a restart.
             let tracker = disarmTrackers.get(device.id);
             if (!tracker) {
+                let firstSeenDisarmedAt = now;
+                try {
+                    const lastDisarmLog = await intrusiLog_1.default.findOne({
+                        where: { device_id: device.id, event_type: 'DISARM' },
+                        order: [['timestamp', 'DESC']]
+                    });
+                    if (lastDisarmLog) {
+                        firstSeenDisarmedAt = lastDisarmLog.timestamp;
+                        console.log(`[DisarmReminder] Seeding tracker for device ${device.id} (${device.name}) from last DISARM at ${firstSeenDisarmedAt.toISOString()}`);
+                    }
+                }
+                catch (err) {
+                    console.error(`[DisarmReminder] Failed to seed tracker from DB for ${device.id}, using now:`, err);
+                }
                 tracker = {
-                    firstSeenDisarmedAt: now,
+                    firstSeenDisarmedAt,
                     lastReminderSentAt: null
                 };
                 disarmTrackers.set(device.id, tracker);
-                console.log(`[DisarmReminder] Tracking started for device ${device.id} (${device.name})`);
-                continue; // Don't alert on first detection — wait for threshold
+                if (now.getTime() - firstSeenDisarmedAt.getTime() <
+                    DISARM_THRESHOLD_MS) {
+                    console.log(`[DisarmReminder] Tracking started for device ${device.id} (${device.name})`);
+                    continue; // Not yet past threshold — wait
+                }
+                // Already past threshold — fall through to send reminder immediately
             }
             const disarmedDurationMs = now.getTime() - tracker.firstSeenDisarmedAt.getTime();
             // Check if disarmed for longer than threshold

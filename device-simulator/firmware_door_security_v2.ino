@@ -21,10 +21,10 @@
 #define PIN_SDA             5   // D4
 #define PIN_SCL             6   // D5
 #define PIN_MPU_INT         1   // D0
-#define PIN_VBAT_SENSE      3   // D1 (ADC) — Spec §2.5.2
-#define PIN_ADAPTER_PRESENT 2   // D2 (digital) — Spec §2.5.1
+#define PIN_ADAPTER_PRESENT 3   // D1 (ADC) — Spec §2.5.2
+#define PIN_VBAT_SENSE      2   // D2 (digital) — Spec §2.5.1
 #define PIN_DOOR_SWITCH     4   // D3 (reed switch, INPUT_PULLUP)
-#define PIN_SIREN           7   // D8 (output)
+#define PIN_SIREN           8   // D9 (output)
 
 // SIM800L module pins — kept OFF to save power (not used in this firmware)
 #define PIN_SIM800L_TX      43  // D6 (GPIO 43)
@@ -69,6 +69,7 @@ static constexpr uint32_t IMU_SAMPLE_MS    = 10;       // 100 Hz
 // --- Siren Policy (§8) ---
 static constexpr uint32_t SIREN_ON_MS      = 30000;    // 30s siren duration
 static constexpr uint32_t ALARM_COOLDOWN_MS = 30000;   // 30s cooldown after siren off
+static const int SIREN_MAX_PWM = 100;                  // Batas aman PWM untuk baterai saat ini
 
 // --- Battery Monitoring: Robust (§9) ---
 static constexpr uint32_t VBAT_READ_INTERVAL_MS        = 10000;  // read every 10s
@@ -353,11 +354,20 @@ static void publishStatus() {
 //  SIREN CONTROL (Spec v19 §8)
 // ============================================================================
 static void sirenOn() {
-  digitalWrite(PIN_SIREN, HIGH);
+  logMsg("[SIREN] Memulai Soft-Start ke batas PWM: " + String(SIREN_MAX_PWM));
+
+  // Mengganti digitalWrite dengan PWM Soft-Start untuk mencegah tegangan anjlok
+  for (int tenaga = 0; tenaga <= SIREN_MAX_PWM; tenaga += 5) {
+    analogWrite(PIN_SIREN, tenaga);
+    delay(20); // Jeda total sekitar 400ms untuk mencapai batas maksimal
+  }
 }
 
 static void sirenOff() {
+  // Mematikan PWM dan memastikan pin benar-benar LOW
+  analogWrite(PIN_SIREN, 0);
   digitalWrite(PIN_SIREN, LOW);
+  logMsg("[SIREN] Dimatikan.");
 }
 
 static void triggerAlarm() {

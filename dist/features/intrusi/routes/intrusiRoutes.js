@@ -37,8 +37,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const intrusiController = __importStar(require("../controllers/intrusiController"));
 const validateRequest_1 = require("../../../api/middlewares/validateRequest");
+const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
+const adminOnly = (0, authMiddleware_1.roleBasedAuth)(['admin', 'super_admin']);
 // === Zod Schema: Intrusi command validation ===
 const intrusiCommandSchema = zod_1.z.object({
     body: zod_1.z.discriminatedUnion('cmd', [
@@ -56,7 +58,7 @@ router.get('/devices/:deviceId/logs', intrusiController.getLogs);
 router.get('/devices/:deviceId/summary', intrusiController.getSummary);
 router.get('/devices/:deviceId/status', intrusiController.getStatus);
 // Send command to intrusi device (ARM, DISARM, SIREN_SILENCE, STATUS)
-router.post('/devices/:deviceId/command', (0, validateRequest_1.validate)(intrusiCommandSchema), intrusiController.sendCommand);
+router.post('/devices/:deviceId/command', adminOnly, (0, validateRequest_1.validate)(intrusiCommandSchema), intrusiController.sendCommand);
 // Log status update (acknowledgement)
-router.put('/logs/:id/status', intrusiController.updateStatus);
+router.put('/logs/:id/status', adminOnly, intrusiController.updateStatus);
 exports.default = router;

@@ -44,7 +44,7 @@ const handleWebhook = async (req, res) => {
                     status: 'active',
                     joined_at: new Date(),
                     left_at: null,
-                    kicked_at: null,
+                    kicked_at: null
                 });
                 console.log(`[Telegram Webhook] ✅ Member Joined: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`);
             }
@@ -58,7 +58,7 @@ const handleWebhook = async (req, res) => {
             // Update status to 'left'
             const [affectedRows] = await models_1.TelegramSubscriber.update({
                 status: 'left',
-                left_at: new Date(),
+                left_at: new Date()
                 // Don't set kicked_at here - this is voluntary leave
             }, { where: { user_id: member.id } });
             if (affectedRows > 0) {
@@ -66,6 +66,30 @@ const handleWebhook = async (req, res) => {
             }
             else {
                 console.log(`[Telegram Webhook] Member left but wasn't tracked: ${member.id}`);
+            }
+        }
+        // CASE C: Regular message from a member — auto-register if not yet tracked.
+        // This catches existing group members who were present before the webhook
+        // was set up, since the Bot API has no "list all members" endpoint.
+        if (message.from &&
+            !message.from.is_bot &&
+            !message.new_chat_members &&
+            !message.left_chat_member) {
+            const sender = message.from;
+            const [, created] = await models_1.TelegramSubscriber.findOrCreate({
+                where: { user_id: sender.id },
+                defaults: {
+                    user_id: sender.id,
+                    username: sender.username || null,
+                    first_name: sender.first_name || null,
+                    status: 'active',
+                    joined_at: new Date(),
+                    left_at: null,
+                    kicked_at: null
+                }
+            });
+            if (created) {
+                console.log(`[Telegram Webhook] ✅ Auto-registered existing member: ${sender.first_name} (@${sender.username || 'no-username'}) [ID: ${sender.id}]`);
             }
         }
     }

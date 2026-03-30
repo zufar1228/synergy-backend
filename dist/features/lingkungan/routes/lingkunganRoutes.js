@@ -37,8 +37,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const lingkunganController = __importStar(require("../controllers/lingkunganController"));
 const validateRequest_1 = require("../../../api/middlewares/validateRequest");
+const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
+const adminOnly = (0, authMiddleware_1.roleBasedAuth)(['admin', 'super_admin']);
 // === Zod Schema: Manual control command validation ===
 const controlCommandSchema = zod_1.z.object({
     body: zod_1.z
@@ -57,7 +59,7 @@ router.get('/devices/:deviceId/summary', lingkunganController.getSummary);
 router.get('/devices/:deviceId/status', lingkunganController.getStatus);
 router.get('/devices/:deviceId/chart', lingkunganController.getChartData);
 // POST /api/lingkungan/control — Manual control (fan, dehumidifier)
-router.post('/devices/:deviceId/control', (0, validateRequest_1.validate)(controlCommandSchema), lingkunganController.sendControlCommand);
+router.post('/devices/:deviceId/control', adminOnly, (0, validateRequest_1.validate)(controlCommandSchema), lingkunganController.sendControlCommand);
 // Log acknowledgement
-router.put('/logs/:id/status', lingkunganController.updateStatus);
+router.put('/logs/:id/status', adminOnly, lingkunganController.updateStatus);
 exports.default = router;
