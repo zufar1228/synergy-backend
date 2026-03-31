@@ -4,7 +4,6 @@ import * as intrusiService from '../features/intrusi/services/intrusiService';
 import * as lingkunganService from '../features/lingkungan/services/lingkunganService';
 import { updateDeviceHeartbeat } from '../services/deviceService';
 import * as intrusiAlertingService from '../features/intrusi/services/intrusiAlertingService';
-import * as lingkunganAlertingService from '../features/lingkungan/services/lingkunganAlertingService';
 
 // Simple log-level utility
 const LOG_LEVEL =
@@ -58,7 +57,8 @@ let isConnected = false;
 
 // Keepalive interval in ms — sends a lightweight ping to prevent EMQX Cloud
 // Serverless from going idle and shutting down the broker.
-const BROKER_KEEPALIVE_INTERVAL_MS = 30_000; // 30 seconds
+// 120s is sufficient since device heartbeats (every 60s) also keep the broker awake.
+const BROKER_KEEPALIVE_INTERVAL_MS = 120_000; // 120 seconds
 const HEALTH_CHECK_INTERVAL_MS = 60_000; // 60 seconds
 
 const stopTimers = () => {
@@ -158,11 +158,10 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
 
     const sensorTopic = 'warehouses/+/areas/+/devices/+/sensors/#';
     const statusTopic = 'warehouses/+/areas/+/devices/+/status';
-    const mlResponseTopic = 'synergy/ml/predict/response/+';
-    const mlStatusTopic = 'synergy/ml/status';
 
+    // ML prediction traffic moved to direct HTTP — no longer subscribed via MQTT
     mqttClient.subscribe(
-      [sensorTopic, statusTopic, mlResponseTopic, mlStatusTopic],
+      [sensorTopic, statusTopic],
       { qos: 1 },
       (err, granted) => {
         if (err) {
@@ -185,34 +184,6 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
     try {
       const topicParts = topic.split('/');
       const message = payload.toString();
-
-      // Handle ML prediction responses
-      if (topic.startsWith('synergy/ml/predict/response/')) {
-        const deviceId = topicParts[4];
-        log.debug('ML prediction response for device:', deviceId);
-
-        try {
-          const prediction = JSON.parse(message);
-          await lingkunganService.handlePredictionResult(deviceId, prediction);
-          log.debug('ML prediction processed for', deviceId);
-        } catch (parseErr) {
-          log.error('Failed to parse ML prediction response:', parseErr);
-        }
-        return;
-      }
-
-      // Handle ML server status
-      if (topic === 'synergy/ml/status') {
-        try {
-          const status = JSON.parse(message);
-          log.info(
-            `ML Server: ${status.status} (model: ${status.model_loaded ? '✅' : '❌'}, scaler: ${status.scaler_loaded ? '✅' : '❌'})`
-          );
-        } catch {
-          log.info('ML Server status:', message);
-        }
-        return;
-      }
 
       // Handle device topics (sensor data, heartbeats)
       if (topicParts.length < 7) {

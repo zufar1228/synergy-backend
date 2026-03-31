@@ -10,8 +10,8 @@ import { client as mqttClient } from '../../../mqtt/client';
 import * as lingkunganAlertingService from './lingkunganAlertingService';
 import { sequelize } from '../../../db/config';
 
-// MQTT topics for ML prediction pipeline
-const ML_PREDICT_REQUEST_TOPIC = 'synergy/ml/predict/request';
+// ML server HTTP endpoint (no longer goes through EMQX)
+const ML_SERVER_URL = process.env.ML_SERVER_URL || 'http://localhost:5002';
 
 // Safety thresholds (Level 2 — firmware safety)
 const SAFE_TEMP = 30;
@@ -87,10 +87,8 @@ export const ingestSensorData = async (data: {
 };
 
 /**
- * Trigger ML prediction by publishing a request to the ML server via MQTT.
- * The ML server subscribes to 'synergy/ml/predict/request', runs inference,
- * and publishes the result to 'synergy/ml/predict/response/{deviceId}'.
- * The response is handled asynchronously in handlePredictionResult().
+ * Trigger ML prediction via direct HTTP call to the ML server.
+ * The response is handled synchronously — no MQTT round-trip needed.
  */
 const triggerPrediction = async (deviceId: string, device: Device) => {
   try {
@@ -122,24 +120,28 @@ const triggerPrediction = async (deviceId: string, device: Device) => {
       status_dehumidifier: device.dehumidifier_state === 'ON' ? 1 : 0
     }));
 
-    // Publish prediction request to ML server via MQTT
-    const payload = JSON.stringify({
-      device_id: deviceId,
-      sequence
+    // Direct HTTP call to ML server (bypasses EMQX, saves ~2 GB/month traffic)
+    const response = await fetch(`${ML_SERVER_URL}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, sequence }),
+      signal: AbortSignal.timeout(15000) // 15s timeout
     });
 
-    mqttClient.publish(ML_PREDICT_REQUEST_TOPIC, payload, { qos: 1 }, (err) => {
-      if (err) {
-        console.error(
-          `[LingkunganService] Failed to publish ML prediction request for ${deviceId}:`,
-          err
-        );
-      } else {
-        console.log(
-          `[LingkunganService] ML prediction request published for device ${deviceId}`
-        );
-      }
-    });
+    if (!response.ok) {
+      console.error(
+        `[LingkunganService] ML server returned HTTP ${response.status} for ${deviceId}`
+      );
+      return;
+    }
+
+    const prediction = await response.json();
+    console.log(
+      `[LingkunganService] ML prediction received for device ${deviceId}`
+    );
+
+    // Handle the prediction result directly
+    await handlePredictionResult(deviceId, prediction);
   } catch (error: any) {
     console.error(
       '[LingkunganService] ML prediction request error:',
@@ -149,9 +151,8 @@ const triggerPrediction = async (deviceId: string, device: Device) => {
 };
 
 /**
- * Handle the ML prediction result received via MQTT.
- * Called from the MQTT client when a message arrives on
- * 'synergy/ml/predict/response/{deviceId}'.
+ * Handle the ML prediction result from the HTTP response.
+ * Saves the prediction and triggers predictive actuator control.
  */
 export const handlePredictionResult = async (
   deviceId: string,
