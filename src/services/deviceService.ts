@@ -1,77 +1,54 @@
-// backend/src/services/deviceService.ts
-
-import { Device, Area, Warehouse } from '../db/models';
-import { DeviceCreationAttributes } from '../db/models/device';
-import { sequelize } from '../db/config';
+import { db } from '../db/drizzle';
+import { devices, areas } from '../db/schema';
+import type { DeviceInsert } from '../db/schema';
+import { eq, and, asc } from 'drizzle-orm';
 import ApiError from '../utils/apiError';
-import { UniqueConstraintError } from 'sequelize';
 import * as emqxService from './emqxService';
 
-// Definisikan tipe untuk hasil query dengan relasi
-interface DeviceWithArea extends Device {
-  area: Area;
-}
-
-// Ambil semua perangkat beserta relasi Area dan Gudang induknya
 export const getAllDevices = async () => {
-  return await Device.findAll({
-    include: [
-      {
-        model: Area,
-        as: 'area',
-        attributes: ['id', 'name'],
-        include: [
-          {
-            model: Warehouse,
-            as: 'warehouse',
-            attributes: ['id', 'name']
-          }
-        ]
+  return await db.query.devices.findMany({
+    with: {
+      area: {
+        columns: { id: true, name: true },
+        with: { warehouse: { columns: { id: true, name: true } } }
       }
-    ],
-    order: [['name', 'ASC']]
+    },
+    orderBy: [asc(devices.name)]
   });
 };
 
-// Fungsi createDevice sudah ada dari langkah sebelumnya, kita biarkan
-export const createDevice = async (deviceData: DeviceCreationAttributes) => {
-  const transaction = await sequelize.transaction();
+export const createDevice = async (deviceData: DeviceInsert) => {
   try {
-    const newDevice = await Device.create(deviceData, { transaction });
-    let mqttCredentials = null; // Default kredensial adalah null
+    return await db.transaction(async (tx) => {
+      const [newDevice] = await tx
+        .insert(devices)
+        .values(deviceData)
+        .returning();
+      let mqttCredentials = null;
 
-    // === PERUBAHAN DI SINI: Provisioning Bersyarat ===
-    // Hanya jalankan provisioning MQTT jika BUKAN tipe keamanan
-    if (deviceData.system_type !== 'keamanan') {
-      const deviceWithRelations = (await Device.findByPk(newDevice.id, {
-        include: [{ model: Area, as: 'area' }],
-        transaction
-      })) as DeviceWithArea | null;
-      if (!deviceWithRelations)
-        throw new Error('Gagal mengambil relasi untuk perangkat baru');
+      if (deviceData.system_type !== 'keamanan') {
+        const deviceWithRelations = await tx.query.devices.findFirst({
+          where: eq(devices.id, newDevice.id),
+          with: { area: true }
+        });
+        if (!deviceWithRelations)
+          throw new Error('Gagal mengambil relasi untuk perangkat baru');
 
-      // Panggil service EMQX
-      mqttCredentials =
-        await emqxService.provisionDeviceInEMQX(deviceWithRelations);
-    }
-    // ===============================================
+        mqttCredentials = await emqxService.provisionDeviceInEMQX(
+          deviceWithRelations as any
+        );
+      }
 
-    await transaction.commit();
-    // Kembalikan kredensial (bisa jadi null jika tipe 'keamanan')
-    return { device: newDevice, mqttCredentials };
+      return { device: newDevice, mqttCredentials };
+    });
   } catch (error: any) {
-    await transaction.rollback();
-
-    // === PERBAIKAN UTAMA DI SINI ===
-    // Cek nama error secara spesifik
-    if (error.name === 'SequelizeUniqueConstraintError') {
+    // PostgreSQL unique violation
+    if (error.code === '23505') {
       throw new ApiError(
         409,
         `Perangkat dengan tipe sistem '${deviceData.system_type}' sudah ada di area ini.`
       );
     }
-    // =============================
-
     console.error('[Device Service] Failed to create device:', error);
     if (error instanceof ApiError) throw error;
     if (error.isAxiosError) {
@@ -81,15 +58,12 @@ export const createDevice = async (deviceData: DeviceCreationAttributes) => {
   }
 };
 
-// Fungsi baru untuk update
-export const updateDevice = async (
-  id: string,
-  data: Partial<DeviceCreationAttributes>
-) => {
-  const device = await Device.findByPk(id);
+export const updateDevice = async (id: string, data: Partial<DeviceInsert>) => {
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, id)
+  });
   if (!device) throw new ApiError(404, 'Perangkat tidak ditemukan');
 
-  // Mencegah perubahan system_type setelah dibuat
   if (data.system_type && data.system_type !== device.system_type) {
     throw new ApiError(
       400,
@@ -98,11 +72,14 @@ export const updateDevice = async (
   }
 
   try {
-    await device.update(data);
-    return device;
-  } catch (error) {
-    // PERBAIKAN: Gunakan UniqueConstraintError secara langsung
-    if (error instanceof UniqueConstraintError) {
+    const [updated] = await db
+      .update(devices)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(devices.id, id))
+      .returning();
+    return updated;
+  } catch (error: any) {
+    if (error.code === '23505') {
       throw new ApiError(
         409,
         `Perangkat dengan tipe sistem '${data.system_type}' sudah ada di area ini.`
@@ -112,66 +89,60 @@ export const updateDevice = async (
   }
 };
 
-// Fungsi baru untuk delete
 export const deleteDevice = async (id: string) => {
-  const device = await Device.findByPk(id);
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, id)
+  });
   if (!device) throw new ApiError(404, 'Perangkat tidak ditemukan');
 
-  // === PERUBAHAN DI SINI: De-provisioning Bersyarat ===
-  // Hanya hapus user EMQX jika BUKAN tipe keamanan
   if (device.system_type !== 'keamanan') {
     await emqxService.deprovisionDeviceInEMQX(id);
   }
-  // =================================================
 
-  // 2. Jika berhasil, baru hapus dari database kita
-  await device.destroy();
+  await db.delete(devices).where(eq(devices.id, id));
 };
 
-// Fungsi baru untuk mengambil satu device by id
 export const getDeviceById = async (id: string) => {
-  const device = await Device.findByPk(id, {
-    include: [{ model: Area, as: 'area' }] // Sertakan area untuk konteks
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, id),
+    with: { area: true }
   });
   if (!device) throw new ApiError(404, 'Perangkat tidak ditemukan');
   return device;
 };
 
-// --- TAMBAHKAN FUNGSI BARU INI ---
 export const getDeviceByAreaAndSystem = async (
   areaId: string,
   systemType: string
 ) => {
-  const device = await Device.findOne({
-    where: {
-      area_id: areaId,
-      system_type: systemType
-    },
-    // Kita hanya perlu mengirim status penting
-    attributes: [
-      'id',
-      'name',
-      'status',
-      'fan_status',
-      'door_state',
-      'intrusi_system_state',
-      'siren_state',
-      'power_source',
-      'vbat_voltage',
-      'vbat_pct'
-    ]
-  });
+  const result = await db
+    .select({
+      id: devices.id,
+      name: devices.name,
+      status: devices.status,
+      fan_state: devices.fan_state,
+      door_state: devices.door_state,
+      intrusi_system_state: devices.intrusi_system_state,
+      siren_state: devices.siren_state,
+      power_source: devices.power_source,
+      vbat_voltage: devices.vbat_voltage,
+      vbat_pct: devices.vbat_pct
+    })
+    .from(devices)
+    .where(
+      and(eq(devices.area_id, areaId), eq(devices.system_type, systemType))
+    )
+    .limit(1);
 
-  if (!device) {
+  if (result.length === 0) {
     throw new ApiError(
       404,
       'Perangkat tidak ditemukan untuk area dan tipe sistem ini.'
     );
   }
-  return device;
+  return result[0];
 };
 
-// Fungsi updateHeartbeat tetap ada
 export const updateDeviceHeartbeat = async (
   deviceId: string,
   extraFields?: {
@@ -181,7 +152,6 @@ export const updateDeviceHeartbeat = async (
     power_source?: string;
     vbat_voltage?: number;
     vbat_pct?: number;
-    // Lingkungan-specific
     last_temperature?: number;
     last_humidity?: number;
     last_co2?: number;
@@ -196,7 +166,6 @@ export const updateDeviceHeartbeat = async (
       last_heartbeat: new Date()
     };
 
-    // Merge extra fields if provided (removes 40 lines of if-checks)
     if (extraFields) {
       for (const [key, value] of Object.entries(extraFields)) {
         if (value !== undefined && value !== null) {
@@ -205,7 +174,7 @@ export const updateDeviceHeartbeat = async (
       }
     }
 
-    await Device.update(updateData, { where: { id: deviceId } });
+    await db.update(devices).set(updateData).where(eq(devices.id, deviceId));
     console.log(`[Device Service] Heartbeat updated for device ${deviceId}`);
   } catch (error) {
     console.error(

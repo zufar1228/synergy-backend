@@ -2,24 +2,15 @@
 //
 // Sends a reminder notification (Telegram + Web Push) if an intrusi device
 // has been in the DISARMED state for more than 1 hour.
-//
-// How it works:
-//   - Runs every 10 minutes via node-cron.
-//   - Queries all intrusi devices whose intrusi_system_state = 'DISARMED'.
-//   - Uses an in-memory map to track when each device was first seen DISARMED.
-//   - Once the DISARMED duration exceeds 1 hour, a reminder is sent.
-//   - After the reminder is sent, a cooldown prevents re-sending for another hour.
-//   - If a device is later seen as ARMED (or no longer DISARMED), its tracking
-//     state is cleared so the cycle restarts next time it's disarmed.
 
 import cron from 'node-cron';
+import { db } from '../../../db/drizzle';
 import {
-  Device,
-  Area,
-  Warehouse,
-  UserNotificationPreference
-} from '../../../db/models';
-import IntrusiLog from '../models/intrusiLog';
+  devices,
+  intrusi_logs,
+  user_notification_preferences
+} from '../../../db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 import * as telegramService from '../../../services/telegramService';
 import * as webPushService from '../../../services/webPushService';
 import { formatTimestampWIB } from '../../../utils/time';
@@ -29,31 +20,22 @@ const DISARM_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 const REMINDER_COOLDOWN_MS = 60 * 60 * 1000; // Re-remind every 1 hour
 const JOB_INTERVAL_CRON = '*/10 * * * *'; // Check every 10 minutes
 
-// In-memory state per device
 interface DisarmTracker {
-  /** Timestamp when device was first observed as DISARMED */
   firstSeenDisarmedAt: Date;
-  /** Timestamp of the last reminder sent (null = never sent) */
   lastReminderSentAt: Date | null;
 }
 
 const disarmTrackers: Map<string, DisarmTracker> = new Map();
 
-// Type helper for eager-loaded device
-interface DeviceWithRelations extends Device {
-  area: Area & { warehouse: Warehouse };
-}
-
 /**
  * Send the disarm reminder via Telegram group + Web Push to intrusi subscribers.
  */
-const sendDisarmReminder = async (device: DeviceWithRelations) => {
+const sendDisarmReminder = async (device: any) => {
   const { area } = device;
   const { warehouse } = area;
 
   const timestamp = formatTimestampWIB();
 
-  // --- Telegram ---
   const telegramMessage = `
 ⚠️ <b>PENGINGAT: SISTEM BELUM DIAKTIFKAN</b> ⚠️
 
@@ -80,10 +62,14 @@ const sendDisarmReminder = async (device: DeviceWithRelations) => {
 
   // --- Web Push ---
   try {
-    const subscriberPrefs = await UserNotificationPreference.findAll({
-      where: { system_type: 'intrusi', is_enabled: true },
-      attributes: ['user_id']
-    });
+    const subscriberPrefs =
+      await db.query.user_notification_preferences.findMany({
+        where: and(
+          eq(user_notification_preferences.system_type, 'intrusi'),
+          eq(user_notification_preferences.is_enabled, true)
+        ),
+        columns: { user_id: true }
+      });
     const userIds = subscriberPrefs.map((p) => p.user_id);
 
     if (userIds.length > 0) {
@@ -114,23 +100,19 @@ const checkDisarmedDevices = async () => {
   console.log('[DisarmReminder] Running disarm reminder check...');
 
   try {
-    // Fetch all intrusi-type devices with their area/warehouse relations
-    const devices = (await Device.findAll({
-      where: { system_type: 'intrusi' },
-      include: [
-        {
-          model: Area,
-          as: 'area',
-          include: [{ model: Warehouse, as: 'warehouse' }]
+    const allDevices = await db.query.devices.findMany({
+      where: eq(devices.system_type, 'intrusi'),
+      with: {
+        area: {
+          with: { warehouse: true }
         }
-      ]
-    })) as DeviceWithRelations[];
+      }
+    });
 
     const now = new Date();
     const activeDeviceIds = new Set<string>();
 
-    for (const device of devices) {
-      // Skip devices without area/warehouse relation
+    for (const device of allDevices) {
       if (!device.area || !device.area.warehouse) continue;
 
       const isDisarmed =
@@ -138,27 +120,24 @@ const checkDisarmedDevices = async () => {
         device.intrusi_system_state === null;
 
       if (!isDisarmed) {
-        // Device is ARMED → clear any tracking
         disarmTrackers.delete(device.id);
         continue;
       }
 
       activeDeviceIds.add(device.id);
 
-      // Track when we first saw this device DISARMED.
-      // On server restart the in-memory map is empty even though devices may
-      // have been DISARMED for hours. Seed the tracker from the last DISARM
-      // event in the database so devices that were disarmed at different times
-      // don't all fire reminders simultaneously after a restart.
       let tracker = disarmTrackers.get(device.id);
       if (!tracker) {
         let firstSeenDisarmedAt = now;
         try {
-          const lastDisarmLog = await IntrusiLog.findOne({
-            where: { device_id: device.id, event_type: 'DISARM' },
-            order: [['timestamp', 'DESC']]
+          const lastDisarmLog = await db.query.intrusi_logs.findFirst({
+            where: and(
+              eq(intrusi_logs.device_id, device.id),
+              eq(intrusi_logs.event_type, 'DISARM')
+            ),
+            orderBy: [desc(intrusi_logs.timestamp)]
           });
-          if (lastDisarmLog) {
+          if (lastDisarmLog?.timestamp) {
             firstSeenDisarmedAt = lastDisarmLog.timestamp;
             console.log(
               `[DisarmReminder] Seeding tracker for device ${device.id} (${device.name}) from last DISARM at ${firstSeenDisarmedAt.toISOString()}`
@@ -182,18 +161,15 @@ const checkDisarmedDevices = async () => {
           console.log(
             `[DisarmReminder] Tracking started for device ${device.id} (${device.name})`
           );
-          continue; // Not yet past threshold — wait
+          continue;
         }
-        // Already past threshold — fall through to send reminder immediately
       }
 
       const disarmedDurationMs =
         now.getTime() - tracker.firstSeenDisarmedAt.getTime();
 
-      // Check if disarmed for longer than threshold
       if (disarmedDurationMs < DISARM_THRESHOLD_MS) continue;
 
-      // Check cooldown — don't re-send too frequently
       if (
         tracker.lastReminderSentAt &&
         now.getTime() - tracker.lastReminderSentAt.getTime() <
@@ -202,7 +178,6 @@ const checkDisarmedDevices = async () => {
         continue;
       }
 
-      // Send reminder
       console.log(
         `[DisarmReminder] Device ${device.name} (${device.id}) DISARMED for ${Math.round(disarmedDurationMs / 60000)} minutes — sending reminder.`
       );
@@ -210,7 +185,6 @@ const checkDisarmedDevices = async () => {
       tracker.lastReminderSentAt = now;
     }
 
-    // Cleanup trackers for devices that no longer exist
     for (const trackedId of disarmTrackers.keys()) {
       if (!activeDeviceIds.has(trackedId)) {
         disarmTrackers.delete(trackedId);
@@ -221,12 +195,10 @@ const checkDisarmedDevices = async () => {
   }
 };
 
-/**
- * Start the cron job. Called from server.ts during startup.
- */
 export const startDisarmReminderJob = () => {
-  cron.schedule(JOB_INTERVAL_CRON, checkDisarmedDevices);
+  const task = cron.schedule(JOB_INTERVAL_CRON, checkDisarmedDevices);
   console.log(
     '[DisarmReminder] Disarm reminder job scheduled (every 10 minutes).'
   );
+  return task;
 };

@@ -1,36 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAreasBySystemType = void 0;
-// backend/src/services/navigationService.ts
-const models_1 = require("../db/models");
-const sequelize_1 = require("sequelize");
+const drizzle_1 = require("../db/drizzle");
+const schema_1 = require("../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const getAreasBySystemType = async (systemType) => {
-    const areas = await models_1.Area.findAll({
-        attributes: [
-            "id",
-            "name",
-            "warehouse_id",
-            // Ambil nama gudang melalui relasi
-            [(0, sequelize_1.literal)('"warehouse"."name"'), "warehouse_name"],
-        ],
-        include: [
-            {
-                model: models_1.Device,
-                as: "devices",
-                where: { system_type: systemType },
-                attributes: [], // Kita tidak butuh data device, hanya untuk join
-                required: true, // INNER JOIN: Hanya area yang punya device ini
-            },
-            {
-                model: models_1.Warehouse,
-                as: "warehouse",
-                attributes: [], // Hanya untuk mengambil nama di atas
-                required: true,
-            },
-        ],
-        group: ["Area.id", "warehouse.id"], // Group untuk memastikan hasil unik
-        order: [["name", "ASC"]],
-    });
-    return areas;
+    const result = await drizzle_1.db
+        .selectDistinct({
+        id: schema_1.areas.id,
+        name: schema_1.areas.name,
+        warehouse_id: schema_1.areas.warehouse_id,
+        warehouse_name: schema_1.warehouses.name
+    })
+        .from(schema_1.areas)
+        .innerJoin(schema_1.devices, (0, drizzle_orm_1.eq)(schema_1.areas.id, schema_1.devices.area_id))
+        .innerJoin(schema_1.warehouses, (0, drizzle_orm_1.eq)(schema_1.areas.warehouse_id, schema_1.warehouses.id))
+        .where((0, drizzle_orm_1.eq)(schema_1.devices.system_type, systemType))
+        .orderBy((0, drizzle_orm_1.asc)(schema_1.areas.name));
+    return result;
 };
 exports.getAreasBySystemType = getAreasBySystemType;

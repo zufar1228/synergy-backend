@@ -1,9 +1,9 @@
 // backend/src/services/telegramService.ts
 import axios, { AxiosError } from 'axios';
-import 'dotenv/config';
+import { env } from '../config/env';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const GROUP_ID = process.env.TELEGRAM_GROUP_ID;
+const BOT_TOKEN = env.TELEGRAM_BOT_TOKEN;
+const GROUP_ID = env.TELEGRAM_GROUP_ID;
 const BASE_URL = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // Type definitions for Telegram API responses
@@ -69,7 +69,7 @@ export const sendGroupAlert = async (message: string): Promise<boolean> => {
       chat_id: GROUP_ID,
       text: message,
       parse_mode: 'HTML',
-      disable_web_page_preview: true, // Optimization: disable link previews for alerts
+      disable_web_page_preview: true // Optimization: disable link previews for alerts
     });
     console.log('[TelegramService] Alert sent successfully.');
     return true;
@@ -83,30 +83,34 @@ export const sendGroupAlert = async (message: string): Promise<boolean> => {
  * 2. Buat Invite Link Sekali Pakai (Expire 10 menit)
  * Berguna untuk mengundang user baru ke grup monitoring
  */
-export const createSingleUseInviteLink = async (): Promise<TelegramInviteLink> => {
-  if (!validateConfig()) {
-    throw new Error('Telegram not configured');
-  }
+export const createSingleUseInviteLink =
+  async (): Promise<TelegramInviteLink> => {
+    if (!validateConfig()) {
+      throw new Error('Telegram not configured');
+    }
 
-  try {
-    const expireDate = Math.floor(Date.now() / 1000) + 600; // 10 menit dari sekarang
-    const response = await axios.post<TelegramResponse<TelegramInviteLink>>(
-      `${BASE_URL}/createChatInviteLink`,
-      {
-        chat_id: GROUP_ID,
-        member_limit: 1,
-        expire_date: expireDate,
-        name: `Invite ${new Date().toISOString()}`, // Label untuk tracking
-      }
-    );
-    
-    console.log('[TelegramService] Invite link created:', response.data.result.invite_link);
-    return response.data.result;
-  } catch (error) {
-    handleError('createInviteLink', error);
-    throw new Error('Gagal membuat link undangan Telegram');
-  }
-};
+    try {
+      const expireDate = Math.floor(Date.now() / 1000) + 600; // 10 menit dari sekarang
+      const response = await axios.post<TelegramResponse<TelegramInviteLink>>(
+        `${BASE_URL}/createChatInviteLink`,
+        {
+          chat_id: GROUP_ID,
+          member_limit: 1,
+          expire_date: expireDate,
+          name: `Invite ${new Date().toISOString()}` // Label untuk tracking
+        }
+      );
+
+      console.log(
+        '[TelegramService] Invite link created:',
+        response.data.result.invite_link
+      );
+      return response.data.result;
+    } catch (error) {
+      handleError('createInviteLink', error);
+      throw new Error('Gagal membuat link undangan Telegram');
+    }
+  };
 
 /**
  * 3. Kick Member dari Grup (Ban lalu Unban agar bisa join lagi nanti)
@@ -119,26 +123,30 @@ export const kickMember = async (userId: number | string): Promise<boolean> => {
     // Ban (Kick) member
     await axios.post(`${BASE_URL}/banChatMember`, {
       chat_id: GROUP_ID,
-      user_id: userId,
+      user_id: userId
     });
-    
+
     console.log(`[TelegramService] User ${userId} banned from group.`);
 
     // Unban setelah delay singkat (agar user bisa diinvite lagi di masa depan)
     // Menggunakan Promise-based approach yang lebih clean
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    
+
     try {
       await axios.post(`${BASE_URL}/unbanChatMember`, {
         chat_id: GROUP_ID,
         user_id: userId,
-        only_if_banned: true,
+        only_if_banned: true
       });
-      console.log(`[TelegramService] User ${userId} unbanned (can be re-invited).`);
+      console.log(
+        `[TelegramService] User ${userId} unbanned (can be re-invited).`
+      );
     } catch (unbanError) {
       // Unban failure is not critical - user is still kicked
-      console.warn(`[TelegramService] Unban minor error (user still kicked):`, 
-        axios.isAxiosError(unbanError) ? unbanError.message : unbanError);
+      console.warn(
+        `[TelegramService] Unban minor error (user still kicked):`,
+        axios.isAxiosError(unbanError) ? unbanError.message : unbanError
+      );
     }
 
     console.log(`[TelegramService] User ${userId} kicked successfully.`);
@@ -154,32 +162,42 @@ export const kickMember = async (userId: number | string): Promise<boolean> => {
  * Dipanggil saat server start
  */
 export const setWebhook = async (): Promise<boolean> => {
-  const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const webhookUrl = env.TELEGRAM_WEBHOOK_URL;
+  const secret = env.TELEGRAM_WEBHOOK_SECRET;
 
   if (!BOT_TOKEN) {
-    console.warn('[TelegramService] Bot token not set. Skipping webhook setup.');
+    console.warn(
+      '[TelegramService] Bot token not set. Skipping webhook setup.'
+    );
     return false;
   }
 
   if (!webhookUrl) {
-    console.warn('[TelegramService] Webhook URL not set. Skipping webhook setup.');
+    console.warn(
+      '[TelegramService] Webhook URL not set. Skipping webhook setup.'
+    );
     return false;
   }
 
   try {
-    const response = await axios.post<TelegramResponse<boolean>>(`${BASE_URL}/setWebhook`, {
-      url: webhookUrl,
-      secret_token: secret,
-      allowed_updates: ['chat_member', 'message'], // Fokus ke update member & messages
-      drop_pending_updates: true, // Optimization: ignore old updates on restart
-    });
+    const response = await axios.post<TelegramResponse<boolean>>(
+      `${BASE_URL}/setWebhook`,
+      {
+        url: webhookUrl,
+        secret_token: secret,
+        allowed_updates: ['chat_member', 'message'], // Fokus ke update member & messages
+        drop_pending_updates: true // Optimization: ignore old updates on restart
+      }
+    );
 
     if (response.data.ok) {
       console.log(`[TelegramService] ✅ Webhook set to: ${webhookUrl}`);
       return true;
     } else {
-      console.error(`[TelegramService] ❌ Webhook setup failed:`, response.data.description);
+      console.error(
+        `[TelegramService] ❌ Webhook setup failed:`,
+        response.data.description
+      );
       return false;
     }
   } catch (error) {
@@ -211,7 +229,7 @@ export const deleteWebhook = async (): Promise<boolean> => {
 
   try {
     await axios.post(`${BASE_URL}/deleteWebhook`, {
-      drop_pending_updates: true,
+      drop_pending_updates: true
     });
     console.log('[TelegramService] Webhook deleted.');
     return true;

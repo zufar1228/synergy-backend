@@ -5,14 +5,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateIntrusiLogStatus = exports.getIntrusiStatus = exports.getIntrusiSummary = exports.getIntrusiLogs = exports.ingestIntrusiEvent = void 0;
 // backend/src/services/intrusiService.ts
-const sequelize_1 = require("sequelize");
-const intrusiLog_1 = __importDefault(require("../models/intrusiLog"));
+const drizzle_1 = require("../../../db/drizzle");
+const schema_1 = require("../../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../../../utils/apiError"));
 /**
  * Ingest a door-security event from MQTT into the database.
  */
 const ingestIntrusiEvent = async (data) => {
-    const log = await intrusiLog_1.default.create({
+    const [log] = await drizzle_1.db
+        .insert(schema_1.intrusi_logs)
+        .values({
         device_id: data.device_id,
         event_type: data.event_type,
         system_state: data.system_state,
@@ -20,7 +23,8 @@ const ingestIntrusiEvent = async (data) => {
         peak_delta_g: data.peak_delta_g ?? null,
         hit_count: data.hit_count ?? null,
         payload: data.payload
-    });
+    })
+        .returning();
     console.log(`[IntrusiService] Ingested ${data.event_type} event for device ${data.device_id}`);
     return log;
 };
@@ -30,29 +34,32 @@ exports.ingestIntrusiEvent = ingestIntrusiEvent;
  */
 const getIntrusiLogs = async (options) => {
     const { device_id, limit = 50, offset = 0, from, to, event_type } = options;
-    const where = { device_id };
-    if (from || to) {
-        where.timestamp = {
-            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
-            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
-        };
-    }
-    if (event_type) {
-        where.event_type = event_type;
-    }
-    const { count, rows } = await intrusiLog_1.default.findAndCountAll({
-        where,
+    const conditions = [(0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id)];
+    if (from)
+        conditions.push((0, drizzle_orm_1.gte)(schema_1.intrusi_logs.timestamp, new Date(from)));
+    if (to)
+        conditions.push((0, drizzle_orm_1.lte)(schema_1.intrusi_logs.timestamp, new Date(to)));
+    if (event_type)
+        conditions.push((0, drizzle_orm_1.eq)(schema_1.intrusi_logs.event_type, event_type));
+    const whereClause = (0, drizzle_orm_1.and)(...conditions);
+    const [countResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.intrusi_logs)
+        .where(whereClause);
+    const total = Number(countResult.count);
+    const data = await drizzle_1.db.query.intrusi_logs.findMany({
+        where: whereClause,
         limit,
         offset,
-        order: [['timestamp', 'DESC']]
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.intrusi_logs.timestamp)]
     });
     return {
-        data: rows,
+        data,
         pagination: {
-            total: count,
+            total,
             limit,
             offset,
-            hasMore: offset + limit < count
+            hasMore: offset + limit < total
         }
     };
 };
@@ -61,35 +68,34 @@ exports.getIntrusiLogs = getIntrusiLogs;
  * Get summary statistics for a device's intrusion events.
  */
 const getIntrusiSummary = async (device_id, from, to) => {
-    const where = { device_id };
-    if (from || to) {
-        where.timestamp = {
-            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
-            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
-        };
-    }
-    const total_events = await intrusiLog_1.default.count({ where });
-    const alarm_events = await intrusiLog_1.default.count({
-        where: {
-            ...where,
-            event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
-        }
-    });
-    const impact_warnings = await intrusiLog_1.default.count({
-        where: { ...where, event_type: 'IMPACT_WARNING' }
-    });
-    const unacknowledged = await intrusiLog_1.default.count({
-        where: { ...where, status: 'unacknowledged' }
-    });
-    const latest_event = await intrusiLog_1.default.findOne({
-        where: { device_id },
-        order: [['timestamp', 'DESC']]
+    const conditions = [(0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id)];
+    if (from)
+        conditions.push((0, drizzle_orm_1.gte)(schema_1.intrusi_logs.timestamp, new Date(from)));
+    if (to)
+        conditions.push((0, drizzle_orm_1.lte)(schema_1.intrusi_logs.timestamp, new Date(to)));
+    const baseWhere = (0, drizzle_orm_1.and)(...conditions);
+    const [totalResult] = await drizzle_1.db.select({ count: (0, drizzle_orm_1.count)() }).from(schema_1.intrusi_logs).where(baseWhere);
+    const [alarmResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.intrusi_logs)
+        .where((0, drizzle_orm_1.and)(...conditions, (0, drizzle_orm_1.inArray)(schema_1.intrusi_logs.event_type, ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'])));
+    const [impactResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.intrusi_logs)
+        .where((0, drizzle_orm_1.and)(...conditions, (0, drizzle_orm_1.eq)(schema_1.intrusi_logs.event_type, 'IMPACT_WARNING')));
+    const [unackResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.intrusi_logs)
+        .where((0, drizzle_orm_1.and)(...conditions, (0, drizzle_orm_1.eq)(schema_1.intrusi_logs.status, 'unacknowledged')));
+    const latest_event = await drizzle_1.db.query.intrusi_logs.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.intrusi_logs.timestamp)]
     });
     return {
-        total_events,
-        alarm_events,
-        impact_warnings,
-        unacknowledged,
+        total_events: Number(totalResult.count),
+        alarm_events: Number(alarmResult.count),
+        impact_warnings: Number(impactResult.count),
+        unacknowledged: Number(unackResult.count),
         latest_event
     };
 };
@@ -98,48 +104,32 @@ exports.getIntrusiSummary = getIntrusiSummary;
  * Get current door security status for a device.
  */
 const getIntrusiStatus = async (device_id) => {
-    // Get the latest event to determine current state
-    const latestEvent = await intrusiLog_1.default.findOne({
-        where: { device_id },
-        order: [['timestamp', 'DESC']]
+    const latestEvent = await drizzle_1.db.query.intrusi_logs.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.intrusi_logs.timestamp)]
     });
-    // Get the latest alarm event (if any)
-    const latestAlarm = await intrusiLog_1.default.findOne({
-        where: {
-            device_id,
-            event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
-        },
-        order: [['timestamp', 'DESC']]
+    const latestAlarm = await drizzle_1.db.query.intrusi_logs.findFirst({
+        where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id), (0, drizzle_orm_1.inArray)(schema_1.intrusi_logs.event_type, ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'])),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.intrusi_logs.timestamp)]
     });
-    // Determine overall status
     let status = 'AMAN';
-    // Current system state from the latest event
     const currentSystemState = latestEvent?.system_state ?? 'DISARMED';
     if (latestAlarm && latestAlarm.status === 'unacknowledged') {
-        // Check if a DISARM or SIREN_SILENCED event occurred AFTER the alarm.
-        // If yes, the operator has responded — downgrade from BAHAYA.
-        const clearingEvent = await intrusiLog_1.default.findOne({
-            where: {
-                device_id,
-                event_type: ['DISARM', 'SIREN_SILENCED'],
-                timestamp: { [sequelize_1.Op.gt]: latestAlarm.timestamp }
-            },
-            order: [['timestamp', 'DESC']]
+        const clearingEvent = await drizzle_1.db.query.intrusi_logs.findFirst({
+            where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id), (0, drizzle_orm_1.inArray)(schema_1.intrusi_logs.event_type, ['DISARM', 'SIREN_SILENCED']), (0, drizzle_orm_1.gt)(schema_1.intrusi_logs.timestamp, latestAlarm.timestamp)),
+            orderBy: [(0, drizzle_orm_1.desc)(schema_1.intrusi_logs.timestamp)]
         });
         if (clearingEvent || currentSystemState === 'DISARMED') {
-            // Operator responded (disarmed or silenced siren) → AMAN
             status = 'AMAN';
         }
         else {
             status = 'BAHAYA';
         }
     }
-    // Get latest impact warning
-    const latestImpact = await intrusiLog_1.default.findOne({
-        where: { device_id, event_type: 'IMPACT_WARNING' },
-        order: [['timestamp', 'DESC']]
+    const latestImpact = await drizzle_1.db.query.intrusi_logs.findFirst({
+        where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.intrusi_logs.device_id, device_id), (0, drizzle_orm_1.eq)(schema_1.intrusi_logs.event_type, 'IMPACT_WARNING')),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.intrusi_logs.timestamp)]
     });
-    // Only show WASPADA if system is ARMED and no clearing event after the warning
     if (status === 'AMAN' &&
         currentSystemState === 'ARMED' &&
         latestImpact &&
@@ -159,14 +149,21 @@ exports.getIntrusiStatus = getIntrusiStatus;
  * Update the acknowledgement status of an intrusion log.
  */
 const updateIntrusiLogStatus = async (logId, userId, status, notes) => {
-    const log = await intrusiLog_1.default.findByPk(logId);
-    if (!log)
+    const existing = await drizzle_1.db.query.intrusi_logs.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.intrusi_logs.id, logId)
+    });
+    if (!existing)
         throw new apiError_1.default(404, 'Log intrusi tidak ditemukan.');
-    log.status = status;
-    log.notes = notes || log.notes;
-    log.acknowledged_by = userId;
-    log.acknowledged_at = new Date();
-    await log.save();
-    return log;
+    const [updated] = await drizzle_1.db
+        .update(schema_1.intrusi_logs)
+        .set({
+        status,
+        notes: notes || existing.notes,
+        acknowledged_by: userId,
+        acknowledged_at: new Date()
+    })
+        .where((0, drizzle_orm_1.eq)(schema_1.intrusi_logs.id, logId))
+        .returning();
+    return updated;
 };
 exports.updateIntrusiLogStatus = updateIntrusiLogStatus;

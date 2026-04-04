@@ -2,12 +2,26 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processLingkunganAlert = exports.shouldSendLingkunganTelegram = void 0;
 // features/lingkungan/services/lingkunganAlertingService.ts
-const models_1 = require("../../../db/models");
+const drizzle_1 = require("../../../db/drizzle");
+const schema_1 = require("../../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const time_1 = require("../../../utils/time");
 const alertingService_1 = require("../../../services/alertingService");
+const env_1 = require("../../../config/env");
 const lingkunganTelegramState = new Map();
-const TELEGRAM_CRITICAL_REMINDER_MS = Number(process.env.TELEGRAM_CRITICAL_REMINDER_MS ?? 30 * 60 * 1000);
-const TELEGRAM_RECOVERY_COOLDOWN_MS = Number(process.env.TELEGRAM_RECOVERY_COOLDOWN_MS ?? 2 * 60 * 1000);
+const TELEGRAM_CRITICAL_REMINDER_MS = env_1.env.TELEGRAM_CRITICAL_REMINDER_MS;
+const TELEGRAM_RECOVERY_COOLDOWN_MS = env_1.env.TELEGRAM_RECOVERY_COOLDOWN_MS;
+// Prune stale entries every 30 minutes to avoid orphaned device entries
+setInterval(() => {
+    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
+    for (const [key, state] of lingkunganTelegramState) {
+        if (state.lastCriticalSentAt < cutoff &&
+            state.lastRecoverySentAt < cutoff &&
+            !state.alertActive) {
+            lingkunganTelegramState.delete(key);
+        }
+    }
+}, 30 * 60 * 1000);
 const shouldSendLingkunganTelegram = (deviceId, isAlert) => {
     if (!deviceId)
         return true;
@@ -50,15 +64,10 @@ exports.shouldSendLingkunganTelegram = shouldSendLingkunganTelegram;
  */
 const processLingkunganAlert = async (deviceId, alerts, data, alertType = 'FAILSAFE') => {
     console.log(`[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`);
-    const device = (await models_1.Device.findByPk(deviceId, {
-        include: [
-            {
-                model: models_1.Area,
-                as: 'area',
-                include: [{ model: models_1.Warehouse, as: 'warehouse' }]
-            }
-        ]
-    }));
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
+        with: { area: { with: { warehouse: true } } }
+    });
     if (!device || !device.area || !device.area.warehouse) {
         console.error(`[Alerting] GAGAL: Perangkat/relasi ${deviceId} tidak ditemukan.`);
         return;

@@ -1,7 +1,7 @@
 // backend/src/api/controllers/lingkunganController.ts
 import { Request, Response } from 'express';
 import * as lingkunganService from '../services/lingkunganService';
-import { AcknowledgeStatus } from '../models/lingkunganLog';
+import { type AcknowledgeStatus } from '../../../db/schema';
 import ApiError from '../../../utils/apiError';
 
 const handleError = (res: Response, error: unknown) => {

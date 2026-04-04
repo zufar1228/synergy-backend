@@ -1,17 +1,11 @@
 // features/lingkungan/services/lingkunganAlertingService.ts
-import {
-  Device,
-  Area,
-  Warehouse
-} from '../../../db/models';
+import { db } from '../../../db/drizzle';
+import { devices } from '../../../db/schema';
+import { eq } from 'drizzle-orm';
 import { formatTimestampWIB } from '../../../utils/time';
 import { notifySubscribers } from '../../../services/alertingService';
 
-interface DeviceWithRelations extends Device {
-  area: Area & {
-    warehouse: Warehouse;
-  };
-}
+import { env } from '../../../config/env';
 
 // Gatekeeper Telegram khusus lingkungan (lapis kedua anti-spam)
 type LingkunganTelegramState = {
@@ -21,11 +15,24 @@ type LingkunganTelegramState = {
 };
 
 const lingkunganTelegramState = new Map<string, LingkunganTelegramState>();
-const TELEGRAM_CRITICAL_REMINDER_MS = Number(
-  process.env.TELEGRAM_CRITICAL_REMINDER_MS ?? 30 * 60 * 1000
-);
-const TELEGRAM_RECOVERY_COOLDOWN_MS = Number(
-  process.env.TELEGRAM_RECOVERY_COOLDOWN_MS ?? 2 * 60 * 1000
+const TELEGRAM_CRITICAL_REMINDER_MS = env.TELEGRAM_CRITICAL_REMINDER_MS;
+const TELEGRAM_RECOVERY_COOLDOWN_MS = env.TELEGRAM_RECOVERY_COOLDOWN_MS;
+
+// Prune stale entries every 30 minutes to avoid orphaned device entries
+setInterval(
+  () => {
+    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
+    for (const [key, state] of lingkunganTelegramState) {
+      if (
+        state.lastCriticalSentAt < cutoff &&
+        state.lastRecoverySentAt < cutoff &&
+        !state.alertActive
+      ) {
+        lingkunganTelegramState.delete(key);
+      }
+    }
+  },
+  30 * 60 * 1000
 );
 
 export const shouldSendLingkunganTelegram = (
@@ -91,15 +98,10 @@ export const processLingkunganAlert = async (
     `[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`
   );
 
-  const device = (await Device.findByPk(deviceId, {
-    include: [
-      {
-        model: Area,
-        as: 'area',
-        include: [{ model: Warehouse, as: 'warehouse' }]
-      }
-    ]
-  })) as DeviceWithRelations | null;
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, deviceId),
+    with: { area: { with: { warehouse: true } } }
+  });
 
   if (!device || !device.area || !device.area.warehouse) {
     console.error(
@@ -110,7 +112,6 @@ export const processLingkunganAlert = async (
 
   const { area } = device;
   const { warehouse } = area;
-
   const timestamp = formatTimestampWIB();
 
   let incidentType = '';

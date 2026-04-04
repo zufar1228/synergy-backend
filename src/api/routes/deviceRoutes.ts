@@ -3,9 +3,11 @@
 import { Router } from 'express';
 import * as deviceController from '../controllers/deviceController';
 import { validate } from '../middlewares/validateRequest';
+import { roleBasedAuth } from '../middlewares/authMiddleware';
 import { z } from 'zod';
 
 const router = Router();
+const adminOnly = roleBasedAuth(['admin', 'super_admin']);
 
 // Daftar tipe sistem yang kita izinkan
 const systemTypes = z.enum(['keamanan', 'intrusi', 'lingkungan']);
@@ -35,9 +37,19 @@ router.get('/details', deviceController.getDeviceDetailsByArea);
 
 // Rute yang sudah ada
 router.get('/', deviceController.listDevices);
-router.post('/', validate(createDeviceSchema), deviceController.createDevice);
+router.post(
+  '/',
+  adminOnly,
+  validate(createDeviceSchema),
+  deviceController.createDevice
+);
 router.get('/:id', deviceController.getDeviceById);
-router.put('/:id', validate(updateDeviceSchema), deviceController.updateDevice);
-router.delete('/:id', deviceController.deleteDevice);
+router.put(
+  '/:id',
+  adminOnly,
+  validate(updateDeviceSchema),
+  deviceController.updateDevice
+);
+router.delete('/:id', adminOnly, deviceController.deleteDevice);
 
 export default router;

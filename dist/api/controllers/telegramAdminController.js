@@ -38,12 +38,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendTestAlert = exports.setupWebhook = exports.getWebhookInfo = exports.getSubscribers = exports.kickSubscriber = exports.createInvite = void 0;
 const telegramService = __importStar(require("../../services/telegramService"));
-const models_1 = require("../../db/models");
+const drizzle_1 = require("../../db/drizzle");
+const schema_1 = require("../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../../utils/apiError"));
 const time_1 = require("../../utils/time");
-/**
- * Handle errors consistently
- */
 const handleError = (res, error) => {
     if (error instanceof apiError_1.default) {
         return res.status(error.statusCode).json({
@@ -57,17 +56,13 @@ const handleError = (res, error) => {
         message: 'Terjadi kesalahan internal server'
     });
 };
-/**
- * 1. Generate single-use invite link
- * POST /api/telegram/invite
- */
 const createInvite = async (req, res) => {
     try {
         const result = await telegramService.createSingleUseInviteLink();
         res.json({
             success: true,
             invite_link: result.invite_link,
-            expires_at: new Date(Date.now() + 600 * 1000).toISOString(), // 10 minutes
+            expires_at: new Date(Date.now() + 600 * 1000).toISOString(),
             member_limit: 1,
         });
     }
@@ -76,11 +71,6 @@ const createInvite = async (req, res) => {
     }
 };
 exports.createInvite = createInvite;
-/**
- * 2. Kick member from Telegram group
- * POST /api/telegram/kick
- * Body: { user_id: number }
- */
 const kickSubscriber = async (req, res) => {
     try {
         const { user_id } = req.body;
@@ -90,7 +80,6 @@ const kickSubscriber = async (req, res) => {
                 message: 'User ID wajib diisi'
             });
         }
-        // Validate user_id is a number
         const telegramUserId = parseInt(user_id, 10);
         if (isNaN(telegramUserId)) {
             return res.status(400).json({
@@ -98,14 +87,12 @@ const kickSubscriber = async (req, res) => {
                 message: 'User ID harus berupa angka'
             });
         }
-        // Kick from Telegram group
         const success = await telegramService.kickMember(telegramUserId);
         if (success) {
-            // Update local database
-            await models_1.TelegramSubscriber.update({
-                status: 'kicked',
-                kicked_at: new Date()
-            }, { where: { user_id: telegramUserId } });
+            await drizzle_1.db
+                .update(schema_1.telegram_subscribers)
+                .set({ status: 'kicked', kicked_at: new Date() })
+                .where((0, drizzle_orm_1.eq)(schema_1.telegram_subscribers.user_id, telegramUserId));
             res.json({
                 success: true,
                 message: 'User berhasil di-kick dari grup Telegram'
@@ -123,28 +110,28 @@ const kickSubscriber = async (req, res) => {
     }
 };
 exports.kickSubscriber = kickSubscriber;
-/**
- * 3. List all Telegram subscribers
- * GET /api/telegram/members?include_inactive=true
- */
 const getSubscribers = async (req, res) => {
     try {
         const { include_inactive, status } = req.query;
-        // Build where clause
-        let whereClause = {};
+        let whereClause;
         if (status && typeof status === 'string') {
-            // Filter by specific status
-            whereClause.status = status;
+            whereClause = (0, drizzle_orm_1.eq)(schema_1.telegram_subscribers.status, status);
         }
         else if (include_inactive !== 'true') {
-            // Default: only active members
-            whereClause.status = 'active';
+            whereClause = (0, drizzle_orm_1.eq)(schema_1.telegram_subscribers.status, 'active');
         }
-        // If include_inactive=true, show all (no filter)
-        const subscribers = await models_1.TelegramSubscriber.findAll({
+        const subscribers = await drizzle_1.db.query.telegram_subscribers.findMany({
             where: whereClause,
-            order: [['joined_at', 'DESC']],
-            attributes: ['user_id', 'username', 'first_name', 'status', 'joined_at', 'left_at', 'kicked_at'],
+            orderBy: [(0, drizzle_orm_1.desc)(schema_1.telegram_subscribers.joined_at)],
+            columns: {
+                user_id: true,
+                username: true,
+                first_name: true,
+                status: true,
+                joined_at: true,
+                left_at: true,
+                kicked_at: true
+            }
         });
         res.json({
             success: true,
@@ -157,18 +144,11 @@ const getSubscribers = async (req, res) => {
     }
 };
 exports.getSubscribers = getSubscribers;
-/**
- * 4. Get webhook info (for debugging)
- * GET /api/telegram/webhook-info
- */
 const getWebhookInfo = async (req, res) => {
     try {
         const info = await telegramService.getWebhookInfo();
         if (info) {
-            res.json({
-                success: true,
-                data: info
-            });
+            res.json({ success: true, data: info });
         }
         else {
             res.status(500).json({
@@ -182,18 +162,11 @@ const getWebhookInfo = async (req, res) => {
     }
 };
 exports.getWebhookInfo = getWebhookInfo;
-/**
- * 5. Manually trigger webhook setup
- * POST /api/telegram/setup-webhook
- */
 const setupWebhook = async (req, res) => {
     try {
         const success = await telegramService.setWebhook();
         if (success) {
-            res.json({
-                success: true,
-                message: 'Webhook berhasil di-setup'
-            });
+            res.json({ success: true, message: 'Webhook berhasil di-setup' });
         }
         else {
             res.status(500).json({
@@ -207,10 +180,6 @@ const setupWebhook = async (req, res) => {
     }
 };
 exports.setupWebhook = setupWebhook;
-/**
- * 6. Send test alert to Telegram group
- * POST /api/telegram/test-alert
- */
 const sendTestAlert = async (req, res) => {
     try {
         const timestamp = (0, time_1.formatTimestampWIB)();

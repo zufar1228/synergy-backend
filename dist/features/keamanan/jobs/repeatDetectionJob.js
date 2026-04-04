@@ -41,18 +41,19 @@ exports.startRepeatDetectionJob = void 0;
 const node_cron_1 = __importDefault(require("node-cron"));
 const repeatDetectionService = __importStar(require("../services/repeatDetectionService"));
 const checkRepeatDetections = async () => {
-    console.log("[Cron Job] Menjalankan pemeriksaan deteksi berulang...");
+    console.log('[Cron Job] Menjalankan pemeriksaan deteksi berulang...');
     try {
         // Panggil service yang sudah kita buat
         await repeatDetectionService.findAndNotifyRepeatDetections();
     }
     catch (error) {
-        console.error("[Cron Job] Error saat memeriksa deteksi berulang:", error);
+        console.error('[Cron Job] Error saat memeriksa deteksi berulang:', error);
     }
 };
 // Jadwalkan untuk berjalan setiap menit: '*/1 * * * *'
 const startRepeatDetectionJob = () => {
-    node_cron_1.default.schedule("*/1 * * * *", checkRepeatDetections);
-    console.log("[Cron Job] Penjadwalan deteksi berulang (setiap menit) telah aktif.");
+    const task = node_cron_1.default.schedule('*/1 * * * *', checkRepeatDetections);
+    console.log('[Cron Job] Penjadwalan deteksi berulang (setiap menit) telah aktif.');
+    return task;
 };
 exports.startRepeatDetectionJob = startRepeatDetectionJob;

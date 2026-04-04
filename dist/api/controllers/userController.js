@@ -37,6 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.testPushNotification = exports.syncAllRoles = exports.getVapidPublicKey = exports.subscribeToPush = exports.updateMyPreferences = exports.getMyPreferences = exports.updateUserStatus = exports.updateUserRole = exports.updateMyProfile = exports.getMyProfile = exports.deleteUser = exports.listUsers = exports.inviteUser = exports.verifyAccess = void 0;
+const env_1 = require("../../config/env");
 const userService = __importStar(require("../../services/userService"));
 const webPushService = __importStar(require("../../services/webPushService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
@@ -61,9 +62,7 @@ const verifyAccess = async (req, res) => {
     }
     catch (error) {
         console.error('[verifyAccess] Error:', error);
-        res
-            .status(500)
-            .json({
+        res.status(500).json({
             authorized: false,
             message: 'Terjadi kesalahan saat memverifikasi akses.'
         });
@@ -227,7 +226,7 @@ const subscribeToPush = async (req, res) => {
 };
 exports.subscribeToPush = subscribeToPush;
 const getVapidPublicKey = (req, res) => {
-    res.status(200).json({ publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
+    res.status(200).json({ publicKey: env_1.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
 };
 exports.getVapidPublicKey = getVapidPublicKey;
 // Sync all roles from database to Supabase app_metadata

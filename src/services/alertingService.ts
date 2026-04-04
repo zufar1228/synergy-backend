@@ -1,6 +1,7 @@
-// backend/src/services/alertingService.ts
 // Shared notification dispatcher — domain-specific alert logic lives in features/
-import { UserNotificationPreference } from '../db/models';
+import { db } from '../db/drizzle';
+import { user_notification_preferences } from '../db/schema';
+import { eq, and } from 'drizzle-orm';
 import * as webPushService from './webPushService';
 import * as telegramService from './telegramService';
 import { shouldSendLingkunganTelegram } from '../features/lingkungan/services/lingkunganAlertingService';
@@ -15,18 +16,18 @@ export const notifySubscribers = async (
   emailProps: any
 ) => {
   // 1. Ambil User ID yang subscribe
-  const userIds = (
-    await UserNotificationPreference.findAll({
-      where: { system_type: systemType, is_enabled: true },
-      attributes: ['user_id']
-    })
-  ).map((sub) => sub.user_id);
+  const prefs = await db.query.user_notification_preferences.findMany({
+    where: and(
+      eq(user_notification_preferences.system_type, systemType),
+      eq(user_notification_preferences.is_enabled, true)
+    ),
+    columns: { user_id: true }
+  });
+  const userIds = prefs.map((sub) => sub.user_id);
 
   // === TASK 1: KIRIM KE TELEGRAM GROUP (SELALU, tidak tergantung subscriber) ===
   const telegramTask = (async () => {
     try {
-      // Check if this is an alert (not "back to normal" message)
-      // Alert subjects contain: PERINGATAN, 🚨
       const isAlert = subject.includes('PERINGATAN') || subject.includes('🚨');
 
       if (systemType === 'lingkungan') {
@@ -45,7 +46,6 @@ export const notifySubscribers = async (
       const emoji = isAlert ? '🚨' : '✅';
       const statusText = isAlert ? 'PERINGATAN BAHAYA' : 'KEMBALI NORMAL';
 
-      // Build detail text from emailProps.details if available
       let detailText = '';
       if (emailProps.details && Array.isArray(emailProps.details)) {
         detailText = emailProps.details
@@ -75,7 +75,6 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
     }
   })();
 
-  // Jika tidak ada subscriber, hanya kirim Telegram saja
   if (userIds.length === 0) {
     console.log(
       `[Alerting] No subscribers for ${systemType}, sending Telegram only.`
@@ -98,7 +97,6 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
       emailProps.areaName
     }. ${emailProps.incidentType || 'Status Update'}.`;
 
-    // Map menjadi array of promises
     const pushPromises = userIds.map((userId) =>
       webPushService.sendPushNotification(userId, {
         title: pushTitle,
@@ -106,12 +104,9 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
         url: `/dashboard`
       })
     );
-    // Jalankan paralel
     await Promise.all(pushPromises);
     console.log('[Alerting] All push notifications processed.');
   })();
 
-  // === EKSEKUSI SEMUANYA BERSAMAAN ===
-  // Push dan Telegram jalan paralel
   await Promise.all([pushTask, telegramTask]);
 };

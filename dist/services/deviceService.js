@@ -1,5 +1,4 @@
 "use strict";
-// backend/src/services/deviceService.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -38,64 +37,48 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateDeviceHeartbeat = exports.getDeviceByAreaAndSystem = exports.getDeviceById = exports.deleteDevice = exports.updateDevice = exports.createDevice = exports.getAllDevices = void 0;
-const models_1 = require("../db/models");
-const config_1 = require("../db/config");
+const drizzle_1 = require("../db/drizzle");
+const schema_1 = require("../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../utils/apiError"));
-const sequelize_1 = require("sequelize");
 const emqxService = __importStar(require("./emqxService"));
-// Ambil semua perangkat beserta relasi Area dan Gudang induknya
 const getAllDevices = async () => {
-    return await models_1.Device.findAll({
-        include: [
-            {
-                model: models_1.Area,
-                as: 'area',
-                attributes: ['id', 'name'],
-                include: [
-                    {
-                        model: models_1.Warehouse,
-                        as: 'warehouse',
-                        attributes: ['id', 'name']
-                    }
-                ]
+    return await drizzle_1.db.query.devices.findMany({
+        with: {
+            area: {
+                columns: { id: true, name: true },
+                with: { warehouse: { columns: { id: true, name: true } } }
             }
-        ],
-        order: [['name', 'ASC']]
+        },
+        orderBy: [(0, drizzle_orm_1.asc)(schema_1.devices.name)]
     });
 };
 exports.getAllDevices = getAllDevices;
-// Fungsi createDevice sudah ada dari langkah sebelumnya, kita biarkan
 const createDevice = async (deviceData) => {
-    const transaction = await config_1.sequelize.transaction();
     try {
-        const newDevice = await models_1.Device.create(deviceData, { transaction });
-        let mqttCredentials = null; // Default kredensial adalah null
-        // === PERUBAHAN DI SINI: Provisioning Bersyarat ===
-        // Hanya jalankan provisioning MQTT jika BUKAN tipe keamanan
-        if (deviceData.system_type !== 'keamanan') {
-            const deviceWithRelations = (await models_1.Device.findByPk(newDevice.id, {
-                include: [{ model: models_1.Area, as: 'area' }],
-                transaction
-            }));
-            if (!deviceWithRelations)
-                throw new Error('Gagal mengambil relasi untuk perangkat baru');
-            // Panggil service EMQX
-            mqttCredentials =
-                await emqxService.provisionDeviceInEMQX(deviceWithRelations);
-        }
-        // ===============================================
-        await transaction.commit();
-        // Kembalikan kredensial (bisa jadi null jika tipe 'keamanan')
-        return { device: newDevice, mqttCredentials };
+        return await drizzle_1.db.transaction(async (tx) => {
+            const [newDevice] = await tx
+                .insert(schema_1.devices)
+                .values(deviceData)
+                .returning();
+            let mqttCredentials = null;
+            if (deviceData.system_type !== 'keamanan') {
+                const deviceWithRelations = await tx.query.devices.findFirst({
+                    where: (0, drizzle_orm_1.eq)(schema_1.devices.id, newDevice.id),
+                    with: { area: true }
+                });
+                if (!deviceWithRelations)
+                    throw new Error('Gagal mengambil relasi untuk perangkat baru');
+                mqttCredentials = await emqxService.provisionDeviceInEMQX(deviceWithRelations);
+            }
+            return { device: newDevice, mqttCredentials };
+        });
     }
     catch (error) {
-        await transaction.rollback();
-        // === PERBAIKAN UTAMA DI SINI ===
-        // Cek nama error secara spesifik
-        if (error.name === 'SequelizeUniqueConstraintError') {
+        // PostgreSQL unique violation
+        if (error.code === '23505') {
             throw new apiError_1.default(409, `Perangkat dengan tipe sistem '${deviceData.system_type}' sudah ada di area ini.`);
         }
-        // =============================
         console.error('[Device Service] Failed to create device:', error);
         if (error instanceof apiError_1.default)
             throw error;
@@ -106,88 +89,82 @@ const createDevice = async (deviceData) => {
     }
 };
 exports.createDevice = createDevice;
-// Fungsi baru untuk update
 const updateDevice = async (id, data) => {
-    const device = await models_1.Device.findByPk(id);
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, id)
+    });
     if (!device)
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan');
-    // Mencegah perubahan system_type setelah dibuat
     if (data.system_type && data.system_type !== device.system_type) {
         throw new apiError_1.default(400, 'Tipe sistem (system_type) tidak dapat diubah setelah perangkat dibuat.');
     }
     try {
-        await device.update(data);
-        return device;
+        const [updated] = await drizzle_1.db
+            .update(schema_1.devices)
+            .set({ ...data, updated_at: new Date() })
+            .where((0, drizzle_orm_1.eq)(schema_1.devices.id, id))
+            .returning();
+        return updated;
     }
     catch (error) {
-        // PERBAIKAN: Gunakan UniqueConstraintError secara langsung
-        if (error instanceof sequelize_1.UniqueConstraintError) {
+        if (error.code === '23505') {
             throw new apiError_1.default(409, `Perangkat dengan tipe sistem '${data.system_type}' sudah ada di area ini.`);
         }
         throw error;
     }
 };
 exports.updateDevice = updateDevice;
-// Fungsi baru untuk delete
 const deleteDevice = async (id) => {
-    const device = await models_1.Device.findByPk(id);
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, id)
+    });
     if (!device)
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan');
-    // === PERUBAHAN DI SINI: De-provisioning Bersyarat ===
-    // Hanya hapus user EMQX jika BUKAN tipe keamanan
     if (device.system_type !== 'keamanan') {
         await emqxService.deprovisionDeviceInEMQX(id);
     }
-    // =================================================
-    // 2. Jika berhasil, baru hapus dari database kita
-    await device.destroy();
+    await drizzle_1.db.delete(schema_1.devices).where((0, drizzle_orm_1.eq)(schema_1.devices.id, id));
 };
 exports.deleteDevice = deleteDevice;
-// Fungsi baru untuk mengambil satu device by id
 const getDeviceById = async (id) => {
-    const device = await models_1.Device.findByPk(id, {
-        include: [{ model: models_1.Area, as: 'area' }] // Sertakan area untuk konteks
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, id),
+        with: { area: true }
     });
     if (!device)
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan');
     return device;
 };
 exports.getDeviceById = getDeviceById;
-// --- TAMBAHKAN FUNGSI BARU INI ---
 const getDeviceByAreaAndSystem = async (areaId, systemType) => {
-    const device = await models_1.Device.findOne({
-        where: {
-            area_id: areaId,
-            system_type: systemType
-        },
-        // Kita hanya perlu mengirim status penting
-        attributes: [
-            'id',
-            'name',
-            'status',
-            'fan_status',
-            'door_state',
-            'intrusi_system_state',
-            'siren_state',
-            'power_source',
-            'vbat_voltage',
-            'vbat_pct'
-        ]
-    });
-    if (!device) {
+    const result = await drizzle_1.db
+        .select({
+        id: schema_1.devices.id,
+        name: schema_1.devices.name,
+        status: schema_1.devices.status,
+        fan_state: schema_1.devices.fan_state,
+        door_state: schema_1.devices.door_state,
+        intrusi_system_state: schema_1.devices.intrusi_system_state,
+        siren_state: schema_1.devices.siren_state,
+        power_source: schema_1.devices.power_source,
+        vbat_voltage: schema_1.devices.vbat_voltage,
+        vbat_pct: schema_1.devices.vbat_pct
+    })
+        .from(schema_1.devices)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.devices.area_id, areaId), (0, drizzle_orm_1.eq)(schema_1.devices.system_type, systemType)))
+        .limit(1);
+    if (result.length === 0) {
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan untuk area dan tipe sistem ini.');
     }
-    return device;
+    return result[0];
 };
 exports.getDeviceByAreaAndSystem = getDeviceByAreaAndSystem;
-// Fungsi updateHeartbeat tetap ada
 const updateDeviceHeartbeat = async (deviceId, extraFields) => {
     try {
         const updateData = {
             status: 'Online',
             last_heartbeat: new Date()
         };
-        // Merge extra fields if provided (removes 40 lines of if-checks)
         if (extraFields) {
             for (const [key, value] of Object.entries(extraFields)) {
                 if (value !== undefined && value !== null) {
@@ -195,7 +172,7 @@ const updateDeviceHeartbeat = async (deviceId, extraFields) => {
                 }
             }
         }
-        await models_1.Device.update(updateData, { where: { id: deviceId } });
+        await drizzle_1.db.update(schema_1.devices).set(updateData).where((0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId));
         console.log(`[Device Service] Heartbeat updated for device ${deviceId}`);
     }
     catch (error) {

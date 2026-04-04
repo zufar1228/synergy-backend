@@ -2,13 +2,31 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processPowerAlert = exports.processIntrusiAlert = void 0;
 // features/intrusi/services/intrusiAlertingService.ts
-const models_1 = require("../../../db/models");
+const drizzle_1 = require("../../../db/drizzle");
+const schema_1 = require("../../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const time_1 = require("../../../utils/time");
 const alertingService_1 = require("../../../services/alertingService");
 // Cooldown to suppress duplicate Telegram alerts when the firmware sends both
 // UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
 const deviceIntrusiAlertState = new Map();
 const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const devicePowerState = new Map();
+// Prune stale entries every 30 minutes to avoid orphaned device entries
+setInterval(() => {
+    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
+    for (const [key, date] of deviceIntrusiAlertState) {
+        if (date.getTime() < cutoff)
+            deviceIntrusiAlertState.delete(key);
+    }
+    for (const [key, state] of devicePowerState) {
+        const lastActivity = state.lastBatteryCriticalSentAt?.getTime() ?? 0;
+        if (lastActivity < cutoff && state.lastPowerSource)
+            continue; // keep if has power state
+        if (lastActivity < cutoff)
+            devicePowerState.delete(key);
+    }
+}, 30 * 60 * 1000);
 /**
  * Process alarm events from the door security (intrusi) system.
  * Called for FORCED_ENTRY_ALARM and UNAUTHORIZED_OPEN events.
@@ -16,8 +34,6 @@ const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const processIntrusiAlert = async (deviceId, data) => {
     console.log(`[Alerting] 🚨 Intrusi alarm: ${data.type} for device ${deviceId}`);
     // Suppress duplicate alerts for the same device within the cooldown window.
-    // The firmware can emit both UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for
-    // a single incident, which would otherwise send two Telegram messages.
     const now = new Date();
     const lastSent = deviceIntrusiAlertState.get(deviceId);
     if (lastSent &&
@@ -26,15 +42,10 @@ const processIntrusiAlert = async (deviceId, data) => {
         return;
     }
     deviceIntrusiAlertState.set(deviceId, now);
-    const device = (await models_1.Device.findByPk(deviceId, {
-        include: [
-            {
-                model: models_1.Area,
-                as: 'area',
-                include: [{ model: models_1.Warehouse, as: 'warehouse' }]
-            }
-        ]
-    }));
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
+        with: { area: { with: { warehouse: true } } }
+    });
     if (!device || !device.area || !device.area.warehouse) {
         console.error(`[Alerting] GAGAL: Perangkat/relasi ${deviceId} tidak ditemukan.`);
         return;
@@ -88,7 +99,6 @@ exports.processIntrusiAlert = processIntrusiAlert;
 // ============================================================================
 // POWER & BATTERY ALERTS
 // ============================================================================
-const devicePowerState = new Map();
 const BATTERY_CRITICAL_PCT = 10;
 const BATTERY_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
 /**
@@ -126,15 +136,10 @@ const processPowerAlert = async (deviceId, data) => {
     devicePowerState.set(deviceId, state);
     if (!shouldAlert)
         return;
-    const device = (await models_1.Device.findByPk(deviceId, {
-        include: [
-            {
-                model: models_1.Area,
-                as: 'area',
-                include: [{ model: models_1.Warehouse, as: 'warehouse' }]
-            }
-        ]
-    }));
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
+        with: { area: { with: { warehouse: true } } }
+    });
     if (!device || !device.area || !device.area.warehouse) {
         console.error(`[Alerting] GAGAL: Perangkat/relasi ${deviceId} tidak ditemukan.`);
         return;

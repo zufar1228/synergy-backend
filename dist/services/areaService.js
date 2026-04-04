@@ -4,60 +4,62 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAreasByWarehouse = exports.deleteArea = exports.updateArea = exports.createArea = exports.getAllAreas = void 0;
-// backend/src/services/areaService.ts
-const models_1 = require("../db/models");
+const drizzle_1 = require("../db/drizzle");
+const schema_1 = require("../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const getAllAreas = async () => {
-    // Kita 'include' Warehouse untuk bisa menampilkan nama gudang induknya di UI
-    const areas = await models_1.Area.findAll({
-        include: [
-            {
-                model: models_1.Warehouse,
-                as: "warehouse",
-                attributes: ["id", "name"],
-            },
-        ],
-        order: [["name", "ASC"]],
+    return await drizzle_1.db.query.areas.findMany({
+        with: {
+            warehouse: { columns: { id: true, name: true } }
+        },
+        orderBy: [(0, drizzle_orm_1.asc)(schema_1.areas.name)]
     });
-    return areas;
 };
 exports.getAllAreas = getAllAreas;
 const createArea = async (data) => {
-    // Cek apakah warehouse_id valid
-    const warehouse = await models_1.Warehouse.findByPk(data.warehouse_id);
-    if (!warehouse) {
-        throw new apiError_1.default(400, "Warehouse ID tidak valid");
-    }
-    const area = await models_1.Area.create(data);
+    const warehouse = await drizzle_1.db.query.warehouses.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.warehouses.id, data.warehouse_id)
+    });
+    if (!warehouse)
+        throw new apiError_1.default(400, 'Warehouse ID tidak valid');
+    const [area] = await drizzle_1.db
+        .insert(schema_1.areas)
+        .values({ warehouse_id: data.warehouse_id, name: data.name })
+        .returning();
     return area;
 };
 exports.createArea = createArea;
 const updateArea = async (id, data) => {
-    const area = await models_1.Area.findByPk(id);
+    const area = await drizzle_1.db.query.areas.findFirst({ where: (0, drizzle_orm_1.eq)(schema_1.areas.id, id) });
     if (!area)
-        throw new apiError_1.default(404, "Area not found");
-    // Jika warehouse_id diubah, cek validitasnya
+        throw new apiError_1.default(404, 'Area not found');
     if (data.warehouse_id) {
-        const warehouse = await models_1.Warehouse.findByPk(data.warehouse_id);
+        const warehouse = await drizzle_1.db.query.warehouses.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.warehouses.id, data.warehouse_id)
+        });
         if (!warehouse)
-            throw new apiError_1.default(400, "Warehouse ID tidak valid");
+            throw new apiError_1.default(400, 'Warehouse ID tidak valid');
     }
-    await area.update(data);
-    return area;
+    const [updated] = await drizzle_1.db
+        .update(schema_1.areas)
+        .set({ ...data, updated_at: new Date() })
+        .where((0, drizzle_orm_1.eq)(schema_1.areas.id, id))
+        .returning();
+    return updated;
 };
 exports.updateArea = updateArea;
 const deleteArea = async (id) => {
-    const area = await models_1.Area.findByPk(id);
+    const area = await drizzle_1.db.query.areas.findFirst({ where: (0, drizzle_orm_1.eq)(schema_1.areas.id, id) });
     if (!area)
-        throw new apiError_1.default(404, "Area not found");
-    await area.destroy();
+        throw new apiError_1.default(404, 'Area not found');
+    await drizzle_1.db.delete(schema_1.areas).where((0, drizzle_orm_1.eq)(schema_1.areas.id, id));
 };
 exports.deleteArea = deleteArea;
 const getAreasByWarehouse = async (warehouseId) => {
-    const areas = await models_1.Area.findAll({
-        where: { warehouse_id: warehouseId },
-        order: [["name", "ASC"]],
+    return await drizzle_1.db.query.areas.findMany({
+        where: (0, drizzle_orm_1.eq)(schema_1.areas.warehouse_id, warehouseId),
+        orderBy: [(0, drizzle_orm_1.asc)(schema_1.areas.name)]
     });
-    return areas;
 };
 exports.getAreasByWarehouse = getAreasByWarehouse;

@@ -3,11 +3,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-require("dotenv/config");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
+const env_1 = require("./config/env");
 const models_1 = require("./db/models");
+const drizzle_1 = require("./db/drizzle");
 const deviceRoutes_1 = __importDefault(require("./api/routes/deviceRoutes"));
 const warehouseRoutes_1 = __importDefault(require("./api/routes/warehouseRoutes"));
 const analyticsRoutes_1 = __importDefault(require("./api/routes/analyticsRoutes"));
@@ -26,10 +27,11 @@ const lingkunganRoutes_1 = __importDefault(require("./features/lingkungan/routes
 const telegramRoutes_1 = __importDefault(require("./api/routes/telegramRoutes"));
 const telegramService_1 = require("./services/telegramService");
 const app = (0, express_1.default)();
-// Azure sets PORT as a string; ensure numeric and bind to all interfaces
-const PORT = parseInt(process.env.PORT || '5001', 10);
-const HOST = process.env.HOST || '0.0.0.0';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const PORT = env_1.env.PORT;
+const HOST = env_1.env.HOST;
+const FRONTEND_URL = env_1.env.FRONTEND_URL;
+// Trust first proxy (Azure App Service, nginx, etc.) so req.ip is correct
+app.set('trust proxy', 1);
 // Middlewares
 app.use((0, cors_1.default)({
     origin: FRONTEND_URL,
@@ -51,7 +53,7 @@ app.get('/', (req, res) => {
     res.status(200).json({
         message: '🚀 Backend TypeScript API is running!',
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
+        environment: env_1.env.NODE_ENV,
         port: PORT
     });
 });
@@ -86,37 +88,41 @@ app.use('/api/alerts', authMiddleware_1.authMiddleware, alertRoutes_1.default);
 app.use('/api/security-logs', authMiddleware_1.authMiddleware, keamananRoutes_1.default);
 app.use('/api/intrusi', authMiddleware_1.authMiddleware, intrusiRoutes_1.default);
 app.use('/api/lingkungan', authMiddleware_1.authMiddleware, lingkunganRoutes_1.default);
+// Telegram webhook gets a stricter rate limit to prevent abuse
+app.use('/api/telegram/webhook', (0, express_rate_limit_1.default)({
+    windowMs: 60 * 1000, // 1 minute
+    max: 60, // max 60 updates/min from Telegram
+    standardHeaders: true,
+    legacyHeaders: false
+}));
 app.use('/api/telegram', telegramRoutes_1.default); // has per-route auth (webhook must stay public)
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     res.status(500).json({
         error: 'Internal Server Error',
-        message: process.env.NODE_ENV === 'development' ? err.message : undefined
+        message: env_1.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
-app.listen(PORT, HOST, () => {
+// Track cron tasks for graceful shutdown
+let cronTasks = [];
+const server = app.listen(PORT, HOST, () => {
     console.log(`✅ Server is listening on ${HOST}:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Environment: ${env_1.env.NODE_ENV}`);
     // Initialize services in background (NON-BLOCKING)
     setImmediate(async () => {
         const initializeServices = async () => {
             try {
-                // Database - skip in production or add timeout
-                if (process.env.NODE_ENV !== 'production') {
-                    console.log('🔄 Initializing database...');
-                    await Promise.race([
-                        (0, models_1.syncDatabase)(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Database sync timeout')), 15000))
-                    ]).catch((err) => {
-                        console.error('⚠️ Database sync failed:', err?.message);
-                        console.log('⚠️ Continuing without sync...');
-                    });
-                    console.log('✅ Database initialized');
-                }
-                else {
-                    console.log('ℹ️ Production: skipping database sync');
-                }
+                // Database connection check
+                console.log('🔄 Checking database connection...');
+                await Promise.race([
+                    (0, models_1.initDatabase)(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Database connection timeout')), 15000))
+                ]).catch((err) => {
+                    console.error('⚠️ Database connection failed:', err?.message);
+                    console.log('⚠️ Continuing without database...');
+                });
+                console.log('✅ Database connected');
                 // MQTT
                 console.log('🔄 Initializing MQTT client...');
                 try {
@@ -129,17 +135,16 @@ app.listen(PORT, HOST, () => {
                 // Jobs
                 console.log('🔄 Starting jobs...');
                 try {
-                    (0, heartbeatChecker_1.startHeartbeatJob)();
-                    (0, repeatDetectionJob_1.startRepeatDetectionJob)();
-                    (0, disarmReminderJob_1.startDisarmReminderJob)();
+                    cronTasks.push((0, heartbeatChecker_1.startHeartbeatJob)());
+                    cronTasks.push((0, repeatDetectionJob_1.startRepeatDetectionJob)());
+                    cronTasks.push((0, disarmReminderJob_1.startDisarmReminderJob)());
                     console.log('✅ Jobs started');
                 }
                 catch (err) {
                     console.error('⚠️ Jobs failed:', err.message);
                 }
                 // Telegram Webhook Setup (only if configured)
-                if (process.env.TELEGRAM_BOT_TOKEN &&
-                    process.env.TELEGRAM_WEBHOOK_URL) {
+                if (env_1.env.TELEGRAM_BOT_TOKEN && env_1.env.TELEGRAM_WEBHOOK_URL) {
                     console.log('🔄 Setting up Telegram webhook...');
                     try {
                         await (0, telegramService_1.setWebhook)();
@@ -161,3 +166,38 @@ app.listen(PORT, HOST, () => {
         initializeServices();
     });
 });
+// ─── Graceful Shutdown ────────────────────────────────────
+const gracefulShutdown = async (signal) => {
+    console.log(`\n🛑 ${signal} received. Shutting down gracefully...`);
+    // 1. Stop accepting new connections
+    server.close(() => {
+        console.log('✅ HTTP server closed');
+    });
+    // 2. Stop cron jobs
+    for (const task of cronTasks) {
+        task.stop();
+    }
+    console.log('✅ Cron jobs stopped');
+    // 3. Disconnect MQTT
+    try {
+        if (client_1.client && client_1.client.connected) {
+            client_1.client.end(false);
+            console.log('✅ MQTT client disconnected');
+        }
+    }
+    catch (err) {
+        console.error('⚠️ Error disconnecting MQTT:', err);
+    }
+    // 4. Drain database pool
+    try {
+        await drizzle_1.pool.end();
+        console.log('✅ Database pool drained');
+    }
+    catch (err) {
+        console.error('⚠️ Error draining DB pool:', err);
+    }
+    console.log('👋 Shutdown complete.');
+    process.exit(0);
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

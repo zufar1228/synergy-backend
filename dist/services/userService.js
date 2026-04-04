@@ -37,24 +37,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateUserPreferences = exports.syncAllRolesToSupabase = exports.getUserPreferences = exports.updateUserProfile = exports.updateUserStatus = exports.updateUserRole = exports.getUserProfile = exports.deleteUser = exports.getAllUsers = exports.inviteUser = exports.verifyUserAccess = void 0;
-// backend/src/services/userService.ts
 const supabaseAdmin_1 = require("../config/supabaseAdmin");
+const env_1 = require("../config/env");
 const notificationService_1 = require("./notificationService");
-const models_1 = require("../db/models");
+const drizzle_1 = require("../db/drizzle");
+const schema_1 = require("../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../utils/apiError"));
-const config_1 = require("../db/config");
 const telegramService = __importStar(require("./telegramService"));
-/**
- * Verifies if a user is authorized to access the system.
- * A user is authorized only if they have an entry in the user_roles table,
- * which means they were invited through the user management page or manually added.
- *
- * If user is not authorized, they will be deleted from Supabase Auth.
- */
 const verifyUserAccess = async (userId) => {
-    const userRole = await models_1.UserRole.findOne({ where: { user_id: userId } });
+    const userRole = await drizzle_1.db.query.user_roles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.user_roles.user_id, userId)
+    });
     if (!userRole) {
-        // User was not invited - delete them from Supabase Auth
         console.log(`[verifyUserAccess] User ${userId} not found in user_roles table. Deleting unauthorized user.`);
         try {
             await supabaseAdmin_1.supabaseAdmin.auth.admin.deleteUser(userId);
@@ -68,22 +63,20 @@ const verifyUserAccess = async (userId) => {
             message: 'Anda tidak memiliki akses. Silakan hubungi administrator untuk mendapatkan undangan.'
         };
     }
-    return {
-        authorized: true,
-        message: 'User authorized'
-    };
+    return { authorized: true, message: 'User authorized' };
 };
 exports.verifyUserAccess = verifyUserAccess;
 const touchSecurityTimestamp = async (userId) => {
-    await models_1.Profile.update({ security_timestamp: new Date() }, { where: { id: userId } });
+    await drizzle_1.db
+        .update(schema_1.profiles)
+        .set({ security_timestamp: new Date(), updated_at: new Date() })
+        .where((0, drizzle_orm_1.eq)(schema_1.profiles.id, userId));
 };
 const inviteUser = async (email, role) => {
     const { data, error: linkError } = await supabaseAdmin_1.supabaseAdmin.auth.admin.generateLink({
         type: 'invite',
         email: email,
-        options: {
-            redirectTo: process.env.FRONTEND_URL + '/setup-account'
-        }
+        options: { redirectTo: env_1.env.FRONTEND_URL + '/setup-account' }
     });
     if (linkError) {
         if (linkError.message.includes('already been registered')) {
@@ -94,26 +87,21 @@ const inviteUser = async (email, role) => {
     const invitedUser = data.user;
     const inviteLink = data.properties.action_link;
     try {
-        // === PERBAIKAN: Ganti 'upsert' dengan logika 'find-then-update-or-create' ===
-        const [userRole, created] = await models_1.UserRole.findOrCreate({
-            where: { user_id: invitedUser.id },
-            defaults: { user_id: invitedUser.id, role: role }
+        // Upsert user role (insert or update on conflict)
+        await drizzle_1.db
+            .insert(schema_1.user_roles)
+            .values({ user_id: invitedUser.id, role })
+            .onConflictDoUpdate({
+            target: schema_1.user_roles.user_id,
+            set: { role }
         });
-        // Jika tidak dibuat (artinya sudah ada), maka update
-        if (!created) {
-            await userRole.update({ role: role });
-        }
-        // === SYNC ROLE KE SUPABASE APP_METADATA ===
-        // Ini akan membuat JWT mengandung role yang benar
+        // Sync role to Supabase app_metadata
         await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(invitedUser.id, {
-            app_metadata: { role: role }
+            app_metadata: { role }
         });
-        // ===================================================================
     }
     catch (dbError) {
-        // Tambahkan log detail untuk debugging di masa depan
         console.error('!!! DEBUG: Database error while saving user role:', dbError);
-        // Bersihkan user yang baru dibuat di Supabase Auth jika penyimpanan peran gagal
         await supabaseAdmin_1.supabaseAdmin.auth.admin.deleteUser(invitedUser.id);
         throw new apiError_1.default(500, 'Gagal menyimpan peran pengguna.');
     }
@@ -121,41 +109,37 @@ const inviteUser = async (email, role) => {
     return invitedUser;
 };
 exports.inviteUser = inviteUser;
-// Fungsi untuk mengambil semua pengguna
 const getAllUsers = async (requestingUserId) => {
     const { data: { users }, error } = await supabaseAdmin_1.supabaseAdmin.auth.admin.listUsers();
     if (error)
         throw new apiError_1.default(500, 'Gagal mengambil daftar pengguna.');
-    const roles = await models_1.UserRole.findAll();
+    const roles = await drizzle_1.db.query.user_roles.findMany();
     const rolesMap = new Map(roles.map((r) => [r.user_id, r.role]));
-    // Batch-fetch all profiles in one query (fixes N+1)
     const userIds = users.map((u) => u.id);
-    const profiles = await models_1.Profile.findAll({ where: { id: userIds } });
-    const profileMap = new Map(profiles.map((p) => [p.id, p]));
-    // Gabungkan data auth dengan roles dan profile pictures
+    const allProfiles = await drizzle_1.db.query.profiles.findMany({
+        where: (0, drizzle_orm_1.inArray)(schema_1.profiles.id, userIds)
+    });
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const usersWithRolesAndProfiles = users.map((user) => {
         const role = rolesMap.get(user.id) || 'user';
         const profile = profileMap.get(user.id);
         return {
             ...user,
-            role: role,
+            role,
             username: profile?.username,
             avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture,
             full_name: user.user_metadata?.full_name
         };
     });
-    // Filter untuk tidak menampilkan super_admin lain DAN tidak menampilkan diri sendiri
     return usersWithRolesAndProfiles.filter((user) => user.role !== 'super_admin' && user.id !== requestingUserId);
 };
 exports.getAllUsers = getAllUsers;
-// Fungsi untuk menghapus pengguna
 const deleteUser = async (userId) => {
-    // 1. Ambil data profil user sebelum dihapus (untuk cek Telegram ID)
-    const profile = await models_1.Profile.findByPk(userId);
-    // 2. AUTO-KICK TELEGRAM (jika user terhubung ke Telegram)
+    const profile = await drizzle_1.db.query.profiles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.profiles.id, userId)
+    });
     if (profile?.telegram_user_id) {
         console.log(`[AutoKick] Attempting to kick Telegram user: ${profile.telegram_user_id}`);
-        // Best effort strategy - tidak blocking proses delete
         telegramService
             .kickMember(profile.telegram_user_id)
             .then((success) => {
@@ -163,68 +147,67 @@ const deleteUser = async (userId) => {
                 console.log(`[AutoKick] ✅ Successfully kicked Telegram user: ${profile.telegram_user_id}`);
             }
             else {
-                console.log(`[AutoKick] ⚠️ Failed to kick Telegram user (might not be in group): ${profile.telegram_user_id}`);
+                console.log(`[AutoKick] ⚠️ Failed to kick Telegram user: ${profile.telegram_user_id}`);
             }
         })
             .catch((err) => console.error('[AutoKick] ❌ Error:', err));
     }
-    // 3. Hapus dari Supabase Auth
     const { error } = await supabaseAdmin_1.supabaseAdmin.auth.admin.deleteUser(userId);
     if (error)
         throw new apiError_1.default(500, `Gagal menghapus pengguna: ${error.message}`);
 };
 exports.deleteUser = deleteUser;
 const getUserProfile = async (userId) => {
-    let profile = await models_1.Profile.findByPk(userId);
-    // Jika profil belum ada untuk pengguna baru, buatkan satu
+    let profile = await drizzle_1.db.query.profiles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.profiles.id, userId)
+    });
     if (!profile) {
-        // Ambil detail pengguna dari Supabase Auth untuk mendapatkan email
         const { data: { user } } = await supabaseAdmin_1.supabaseAdmin.auth.admin.getUserById(userId);
         if (!user)
             throw new apiError_1.default(404, 'User not found');
-        // Gunakan bagian sebelum '@' dari email sebagai username default
         const defaultUsername = user.email?.split('@')[0] || `user-${userId.substring(0, 8)}`;
-        profile = await models_1.Profile.create({
+        const [created] = await drizzle_1.db
+            .insert(schema_1.profiles)
+            .values({
             id: userId,
             username: defaultUsername,
             security_timestamp: new Date()
-        });
+        })
+            .returning();
+        profile = created;
     }
-    // Ambil data lengkap dari Supabase Auth termasuk avatar/profile picture
     const { data: { user: authUser }, error: authError } = await supabaseAdmin_1.supabaseAdmin.auth.admin.getUserById(userId);
     if (authError) {
         console.error('Error fetching auth user data:', authError);
     }
-    // Ambil role dari tabel UserRole
-    const userRole = await models_1.UserRole.findOne({ where: { user_id: userId } });
-    // Gabungkan data profil database dengan data auth (termasuk avatar)
-    const fullProfile = {
-        ...profile.toJSON(),
+    const userRole = await drizzle_1.db.query.user_roles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.user_roles.user_id, userId)
+    });
+    return {
+        ...profile,
         email: authUser?.email,
-        role: userRole?.role || 'user', // Default ke 'user' jika tidak ditemukan
+        role: userRole?.role || 'user',
         avatar_url: authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture,
         full_name: authUser?.user_metadata?.full_name
-        // Tambahkan data auth lainnya yang mungkin diperlukan
     };
-    return fullProfile;
 };
 exports.getUserProfile = getUserProfile;
-// Fungsi BARU untuk memperbarui profil pengguna saat ini
 const updateUserRole = async (userId, newRole) => {
-    // Cegah perubahan peran pada diri sendiri atau pengguna lain jika tidak sengaja
-    const targetUserRole = await models_1.UserRole.findOne({ where: { user_id: userId } });
+    const targetUserRole = await drizzle_1.db.query.user_roles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.user_roles.user_id, userId)
+    });
     if (targetUserRole && targetUserRole.role === 'super_admin') {
         throw new apiError_1.default(403, 'Tidak dapat mengubah peran super_admin.');
     }
-    const [role, created] = await models_1.UserRole.findOrCreate({
-        where: { user_id: userId },
-        defaults: { user_id: userId, role: newRole }
-    });
-    if (!created) {
-        await role.update({ role: newRole });
-        await touchSecurityTimestamp(userId);
-    }
-    // === SYNC ROLE KE SUPABASE APP_METADATA ===
+    const [role] = await drizzle_1.db
+        .insert(schema_1.user_roles)
+        .values({ user_id: userId, role: newRole })
+        .onConflictDoUpdate({
+        target: schema_1.user_roles.user_id,
+        set: { role: newRole }
+    })
+        .returning();
+    await touchSecurityTimestamp(userId);
     await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(userId, {
         app_metadata: { role: newRole }
     });
@@ -232,49 +215,45 @@ const updateUserRole = async (userId, newRole) => {
 };
 exports.updateUserRole = updateUserRole;
 const updateUserStatus = async (userId, status) => {
-    // === PERBAIKI LOGIKA DI SINI ===
-    const ban_duration = status === 'inactive'
-        ? '876000h' // Ban untuk 876,000 jam (setara 100 tahun)
-        : '0s'; // '0s' untuk langsung meng-unban
-    const { data, error } = await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(userId, {
-        ban_duration: ban_duration
-    });
+    const ban_duration = status === 'inactive' ? '876000h' : '0s';
+    const { data, error } = await supabaseAdmin_1.supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration });
     await touchSecurityTimestamp(userId);
     if (error) {
         throw new apiError_1.default(500, `Gagal mengubah status pengguna: ${error.message}`);
     }
-    // Pastikan data dan user ada sebelum dikembalikan
     if (!data || !data.user) {
         throw new apiError_1.default(404, 'Pengguna tidak ditemukan saat mencoba mengubah status.');
     }
     return data.user;
 };
 exports.updateUserStatus = updateUserStatus;
-// TAMBAHKAN FUNGSI INI KEMBALI
 const updateUserProfile = async (userId, data) => {
-    const profile = await models_1.Profile.findByPk(userId);
+    const profile = await drizzle_1.db.query.profiles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.profiles.id, userId)
+    });
     if (!profile)
         throw new apiError_1.default(404, 'Profil tidak ditemukan.');
-    await profile.update({
+    const [updated] = await drizzle_1.db
+        .update(schema_1.profiles)
+        .set({
         ...data,
-        // PENTING: Update security_timestamp untuk memaksa logout sesi lain
-        security_timestamp: new Date()
-    });
-    return profile;
+        security_timestamp: new Date(),
+        updated_at: new Date()
+    })
+        .where((0, drizzle_orm_1.eq)(schema_1.profiles.id, userId))
+        .returning();
+    return updated;
 };
 exports.updateUserProfile = updateUserProfile;
 const getUserPreferences = async (userId) => {
-    const preferences = await models_1.UserNotificationPreference.findAll({
-        where: { user_id: userId },
-        attributes: ['system_type', 'is_enabled']
+    return await drizzle_1.db.query.user_notification_preferences.findMany({
+        where: (0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.user_id, userId),
+        columns: { system_type: true, is_enabled: true }
     });
-    return preferences;
 };
 exports.getUserPreferences = getUserPreferences;
-// === SYNC ALL ROLES TO SUPABASE APP_METADATA ===
-// Berguna jika role diubah langsung di database tanpa melalui API
 const syncAllRolesToSupabase = async () => {
-    const roles = await models_1.UserRole.findAll();
+    const roles = await drizzle_1.db.query.user_roles.findMany();
     const results = { success: 0, failed: 0, details: [] };
     for (const role of roles) {
         try {
@@ -302,36 +281,31 @@ const syncAllRolesToSupabase = async () => {
 };
 exports.syncAllRolesToSupabase = syncAllRolesToSupabase;
 const updateUserPreferences = async (userId, preferences) => {
-    const transaction = await config_1.sequelize.transaction();
     try {
-        for (const pref of preferences) {
-            // === PERBAIKAN: Ganti 'upsert' dengan 'findOrCreate' + 'update' ===
-            // 1. Coba cari atau buat entri baru
-            const [preference, created] = await models_1.UserNotificationPreference.findOrCreate({
-                where: {
-                    user_id: userId,
-                    system_type: pref.system_type
-                },
-                defaults: {
-                    user_id: userId,
-                    system_type: pref.system_type,
-                    is_enabled: pref.is_enabled
-                },
-                transaction: transaction // Pastikan menggunakan transaksi
-            });
-            // 2. Jika tidak dibuat (artinya sudah ada), maka update nilainya
-            if (!created) {
-                await preference.update({ is_enabled: pref.is_enabled }, { transaction: transaction });
+        await drizzle_1.db.transaction(async (tx) => {
+            for (const pref of preferences) {
+                const existing = await tx.query.user_notification_preferences.findFirst({
+                    where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.user_id, userId), (0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.system_type, pref.system_type))
+                });
+                if (existing) {
+                    await tx
+                        .update(schema_1.user_notification_preferences)
+                        .set({ is_enabled: pref.is_enabled, updated_at: new Date() })
+                        .where((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.id, existing.id));
+                }
+                else {
+                    await tx.insert(schema_1.user_notification_preferences).values({
+                        user_id: userId,
+                        system_type: pref.system_type,
+                        is_enabled: pref.is_enabled
+                    });
+                }
             }
-            // ==========================================================
-        }
-        await transaction.commit();
-        return (0, exports.getUserPreferences)(userId); // Kembalikan data yang sudah diperbarui
+        });
+        return (0, exports.getUserPreferences)(userId);
     }
     catch (error) {
-        // Tambahkan log ini untuk melihat error spesifik di terminal backend jika terjadi lagi
         console.error('!!! DEBUG: Gagal saat update preferensi:', error);
-        await transaction.rollback();
         throw new apiError_1.default(500, 'Gagal menyimpan preferensi.');
     }
 };

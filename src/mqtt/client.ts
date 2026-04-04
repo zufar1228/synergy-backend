@@ -1,5 +1,6 @@
 // backend/src/mqtt/client.ts
 import mqtt from 'mqtt';
+import { env } from '../config/env';
 import * as intrusiService from '../features/intrusi/services/intrusiService';
 import * as lingkunganService from '../features/lingkungan/services/lingkunganService';
 import { updateDeviceHeartbeat } from '../services/deviceService';
@@ -7,8 +8,7 @@ import * as intrusiAlertingService from '../features/intrusi/services/intrusiAle
 
 // Simple log-level utility
 const LOG_LEVEL =
-  process.env.LOG_LEVEL ||
-  (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
+  env.LOG_LEVEL ?? (env.NODE_ENV === 'production' ? 'info' : 'debug');
 const LEVELS: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 const currentLevel = LEVELS[LOG_LEVEL] ?? 1;
 
@@ -22,23 +22,10 @@ const log = {
     currentLevel <= 3 && console.error('[MQTT]', ...args)
 };
 
-// Environment variables
-const MQTT_HOST = process.env.MQTT_HOST;
-const MQTT_USERNAME = process.env.MQTT_USERNAME;
-const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
-
-// Validate
-log.info('Checking env vars:', {
-  MQTT_HOST: MQTT_HOST ? '✅' : '❌',
-  MQTT_USERNAME: MQTT_USERNAME ? '✅' : '❌',
-  MQTT_PASSWORD: MQTT_PASSWORD ? '✅' : '❌'
-});
-
-if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD) {
-  throw new Error(
-    'Missing required MQTT environment variables (MQTT_HOST, MQTT_USERNAME, MQTT_PASSWORD)'
-  );
-}
+// Environment variables (validated by env.ts)
+const MQTT_HOST = env.MQTT_HOST;
+const MQTT_USERNAME = env.MQTT_USERNAME;
+const MQTT_PASSWORD = env.MQTT_PASSWORD;
 
 const MQTT_BROKER_URL = `mqtts://${MQTT_HOST}:8883`;
 
@@ -60,6 +47,32 @@ let isConnected = false;
 // 120s is sufficient since device heartbeats (every 60s) also keep the broker awake.
 const BROKER_KEEPALIVE_INTERVAL_MS = 120_000; // 120 seconds
 const HEALTH_CHECK_INTERVAL_MS = 60_000; // 60 seconds
+
+// --- QoS 1 message deduplication ---
+// Keeps track of recently processed messages to discard duplicates.
+const DEDUP_WINDOW_MS = 10_000; // 10 seconds
+const recentMessages = new Map<string, number>(); // key → timestamp
+
+const isDuplicate = (
+  deviceId: string,
+  topicSuffix: string,
+  payloadHash: string
+): boolean => {
+  const key = `${deviceId}:${topicSuffix}:${payloadHash}`;
+  const now = Date.now();
+  const prev = recentMessages.get(key);
+  if (prev && now - prev < DEDUP_WINDOW_MS) return true;
+  recentMessages.set(key, now);
+  return false;
+};
+
+// Periodically prune stale dedup entries to prevent memory leak
+setInterval(() => {
+  const cutoff = Date.now() - DEDUP_WINDOW_MS;
+  for (const [key, ts] of recentMessages) {
+    if (ts < cutoff) recentMessages.delete(key);
+  }
+}, DEDUP_WINDOW_MS);
 
 const stopTimers = () => {
   if (keepaliveInterval) {
@@ -89,11 +102,15 @@ const startBrokerKeepalive = () => {
   }, BROKER_KEEPALIVE_INTERVAL_MS);
 };
 
+// Stable client ID so the broker can resume our session on reconnect
+const MQTT_CLIENT_ID = `synergy-backend-${env.NODE_ENV ?? 'dev'}`;
+
 const createClient = (): mqtt.MqttClient => {
   const options: mqtt.IClientOptions = {
+    clientId: MQTT_CLIENT_ID,
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clean: true,
+    clean: false,
     reconnectPeriod: 5000,
     connectTimeout: 30000,
     keepalive: 60
@@ -253,10 +270,17 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
           // the MANUAL command).
           if (statusData.mode !== undefined) {
             try {
-              const { Device } = await import('../db/models');
-              const currentDevice = await Device.findByPk(deviceId, {
-                attributes: ['control_mode', 'manual_override_until']
-              });
+              const { db } = await import('../db/drizzle');
+              const { devices } = await import('../db/schema');
+              const { eq } = await import('drizzle-orm');
+              const [currentDevice] = await db
+                .select({
+                  control_mode: devices.control_mode,
+                  manual_override_until: devices.manual_override_until
+                })
+                .from(devices)
+                .where(eq(devices.id, deviceId))
+                .limit(1);
               const hasActiveOverride =
                 currentDevice &&
                 currentDevice.control_mode === 'MANUAL' &&
@@ -311,6 +335,13 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
         log.debug('Sensor data from', deviceId, 'type:', systemType);
 
         const data = JSON.parse(message);
+
+        // QoS 1 dedup: skip if we already processed an identical message recently
+        const payloadHash = `${data.type ?? ''}|${data.temperature ?? ''}|${data.humidity ?? ''}|${data.co2 ?? ''}|${data.door ?? ''}`;
+        if (isDuplicate(deviceId, systemType, payloadHash)) {
+          log.debug('Duplicate QoS 1 message skipped for', deviceId);
+          return;
+        }
 
         if (systemType === 'intrusi') {
           // Derive siren_state from event type

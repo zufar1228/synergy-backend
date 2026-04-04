@@ -1,12 +1,13 @@
-import 'dotenv/config';
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { syncDatabase } from './db/models';
+import { env } from './config/env';
+import { initDatabase } from './db/models';
+import { pool } from './db/drizzle';
 import deviceRoutes from './api/routes/deviceRoutes';
 import warehouseRoutes from './api/routes/warehouseRoutes';
 import analyticsRoutes from './api/routes/analyticsRoutes';
-import { initializeMqttClient } from './mqtt/client';
+import { initializeMqttClient, client as mqttClient } from './mqtt/client';
 import { startHeartbeatJob } from './jobs/heartbeatChecker';
 import { startRepeatDetectionJob } from './features/keamanan/jobs/repeatDetectionJob';
 import { startDisarmReminderJob } from './features/intrusi/jobs/disarmReminderJob';
@@ -23,10 +24,12 @@ import { setWebhook as setupTelegramWebhook } from './services/telegramService';
 
 const app: Express = express();
 
-// Azure sets PORT as a string; ensure numeric and bind to all interfaces
-const PORT: number = parseInt(process.env.PORT || '5001', 10);
-const HOST = process.env.HOST || '0.0.0.0';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const PORT = env.PORT;
+const HOST = env.HOST;
+const FRONTEND_URL = env.FRONTEND_URL;
+
+// Trust first proxy (Azure App Service, nginx, etc.) so req.ip is correct
+app.set('trust proxy', 1);
 
 // Middlewares
 app.use(
@@ -55,7 +58,7 @@ app.get('/', (req: Request, res: Response) => {
   res.status(200).json({
     message: '🚀 Backend TypeScript API is running!',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
+    environment: env.NODE_ENV,
     port: PORT
   });
 });
@@ -94,6 +97,17 @@ app.use('/api/alerts', authMiddleware, alertRoutes);
 app.use('/api/security-logs', authMiddleware, keamananRoutes);
 app.use('/api/intrusi', authMiddleware, intrusiRoutes);
 app.use('/api/lingkungan', authMiddleware, lingkunganRoutes);
+
+// Telegram webhook gets a stricter rate limit to prevent abuse
+app.use(
+  '/api/telegram/webhook',
+  rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 60, // max 60 updates/min from Telegram
+    standardHeaders: true,
+    legacyHeaders: false
+  })
+);
 app.use('/api/telegram', telegramRoutes); // has per-route auth (webhook must stay public)
 
 // ✅ TAMBAHAN: Error handling untuk production
@@ -101,37 +115,36 @@ app.use((err: any, req: Request, res: Response, next: any) => {
   console.error('Error:', err);
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    message: env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-app.listen(PORT, HOST, () => {
+// Track cron tasks for graceful shutdown
+let cronTasks: ReturnType<typeof import('node-cron').schedule>[] = [];
+
+const server = app.listen(PORT, HOST, () => {
   console.log(`✅ Server is listening on ${HOST}:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Environment: ${env.NODE_ENV}`);
 
   // Initialize services in background (NON-BLOCKING)
   setImmediate(async () => {
     const initializeServices = async () => {
       try {
-        // Database - skip in production or add timeout
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('🔄 Initializing database...');
-          await Promise.race([
-            syncDatabase(),
-            new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error('Database sync timeout')),
-                15000
-              )
+        // Database connection check
+        console.log('🔄 Checking database connection...');
+        await Promise.race([
+          initDatabase(),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('Database connection timeout')),
+              15000
             )
-          ]).catch((err) => {
-            console.error('⚠️ Database sync failed:', err?.message);
-            console.log('⚠️ Continuing without sync...');
-          });
-          console.log('✅ Database initialized');
-        } else {
-          console.log('ℹ️ Production: skipping database sync');
-        }
+          )
+        ]).catch((err) => {
+          console.error('⚠️ Database connection failed:', err?.message);
+          console.log('⚠️ Continuing without database...');
+        });
+        console.log('✅ Database connected');
 
         // MQTT
         console.log('🔄 Initializing MQTT client...');
@@ -145,19 +158,16 @@ app.listen(PORT, HOST, () => {
         // Jobs
         console.log('🔄 Starting jobs...');
         try {
-          startHeartbeatJob();
-          startRepeatDetectionJob();
-          startDisarmReminderJob();
+          cronTasks.push(startHeartbeatJob());
+          cronTasks.push(startRepeatDetectionJob());
+          cronTasks.push(startDisarmReminderJob());
           console.log('✅ Jobs started');
         } catch (err: any) {
           console.error('⚠️ Jobs failed:', err.message);
         }
 
         // Telegram Webhook Setup (only if configured)
-        if (
-          process.env.TELEGRAM_BOT_TOKEN &&
-          process.env.TELEGRAM_WEBHOOK_URL
-        ) {
+        if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_URL) {
           console.log('🔄 Setting up Telegram webhook...');
           try {
             await setupTelegramWebhook();
@@ -181,3 +191,42 @@ app.listen(PORT, HOST, () => {
   });
 });
 
+// ─── Graceful Shutdown ────────────────────────────────────
+const gracefulShutdown = async (signal: string) => {
+  console.log(`\n🛑 ${signal} received. Shutting down gracefully...`);
+
+  // 1. Stop accepting new connections
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+  });
+
+  // 2. Stop cron jobs
+  for (const task of cronTasks) {
+    task.stop();
+  }
+  console.log('✅ Cron jobs stopped');
+
+  // 3. Disconnect MQTT
+  try {
+    if (mqttClient && mqttClient.connected) {
+      mqttClient.end(false);
+      console.log('✅ MQTT client disconnected');
+    }
+  } catch (err) {
+    console.error('⚠️ Error disconnecting MQTT:', err);
+  }
+
+  // 4. Drain database pool
+  try {
+    await pool.end();
+    console.log('✅ Database pool drained');
+  } catch (err) {
+    console.error('⚠️ Error draining DB pool:', err);
+  }
+
+  console.log('👋 Shutdown complete.');
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

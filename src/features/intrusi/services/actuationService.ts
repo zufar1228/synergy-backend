@@ -1,12 +1,9 @@
 // backend/src/services/actuationService.ts
-import { client as mqttClient } from '../../../mqtt/client'; // <-- Impor client MQTT yang sudah diekspor
-import { Device, Area } from '../../../db/models';
+import { client as mqttClient } from '../../../mqtt/client';
+import { db } from '../../../db/drizzle';
+import { devices, areas } from '../../../db/schema';
+import { eq } from 'drizzle-orm';
 import ApiError from '../../../utils/apiError';
-
-// Definisikan tipe untuk hasil query dengan relasi
-interface DeviceWithArea extends Device {
-  area: Area;
-}
 
 // ============================================================================
 // INTRUSI (Door Security System) Commands — Spec v18
@@ -20,8 +17,6 @@ export type IntrusiCommand =
 
 /**
  * Mengirim perintah ke perangkat intrusi (door security) via MQTT.
- * @param deviceId UUID perangkat
- * @param command Objek perintah sesuai spec v18
  */
 export const sendIntrusiCommand = async (
   deviceId: string,
@@ -31,10 +26,10 @@ export const sendIntrusiCommand = async (
     `[Actuation] 🔒 sendIntrusiCommand CALLED: deviceId=${deviceId}, cmd=${command.cmd}`
   );
 
-  // 1. Ambil detail perangkat + relasi area
-  const device = (await Device.findByPk(deviceId, {
-    include: [{ model: Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
-  })) as DeviceWithArea | null;
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, deviceId),
+    with: { area: { columns: { id: true, warehouse_id: true } } }
+  });
 
   if (!device) {
     throw new ApiError(404, 'Perangkat tidak ditemukan.');
@@ -46,21 +41,14 @@ export const sendIntrusiCommand = async (
     );
   }
 
-  // 2. Bangun topik MQTT
   const topic = `warehouses/${device.area.warehouse_id}/areas/${device.area.id}/devices/${device.id}/commands`;
   const payload = JSON.stringify(command);
 
-  // 3. Publish perintah ke broker MQTT
   mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
     if (err) {
-      console.error(
-        `[Actuation] Gagal mengirim perintah intrusi ke ${topic}:`,
-        err
-      );
+      console.error(`[Actuation] Gagal mengirim perintah intrusi ke ${topic}:`, err);
     } else {
-      console.log(
-        `[Actuation] Perintah intrusi '${payload}' terkirim ke ${topic}`
-      );
+      console.log(`[Actuation] Perintah intrusi '${payload}' terkirim ke ${topic}`);
     }
   });
 };

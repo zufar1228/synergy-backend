@@ -1,16 +1,16 @@
 // backend/src/services/emqxService.ts
 import axios from 'axios';
-import 'dotenv/config';
+import { env } from '../config/env';
 
-const API_BASE_URL = process.env.EMQX_API_URL;
-if (!process.env.EMQX_APP_ID || !process.env.EMQX_APP_SECRET) {
+const API_BASE_URL = env.EMQX_API_URL;
+if (!env.EMQX_APP_ID || !env.EMQX_APP_SECRET) {
   throw new Error(
     'EMQX_APP_ID and EMQX_APP_SECRET must be set in environment variables'
   );
 }
 const AUTH = {
-  username: process.env.EMQX_APP_ID as string,
-  password: process.env.EMQX_APP_SECRET as string
+  username: env.EMQX_APP_ID,
+  password: env.EMQX_APP_SECRET
 };
 
 console.log('[EMQX] Service module loaded.');

@@ -1,6 +1,7 @@
-// backend/src/services/areaService.ts
-import { Area, Warehouse } from "../db/models";
-import ApiError from "../utils/apiError";
+import { db } from '../db/drizzle';
+import { areas, warehouses } from '../db/schema';
+import { eq, asc } from 'drizzle-orm';
+import ApiError from '../utils/apiError';
 
 interface AreaCreationAttributes {
   name: string;
@@ -8,27 +9,24 @@ interface AreaCreationAttributes {
 }
 
 export const getAllAreas = async () => {
-  // Kita 'include' Warehouse untuk bisa menampilkan nama gudang induknya di UI
-  const areas = await Area.findAll({
-    include: [
-      {
-        model: Warehouse,
-        as: "warehouse",
-        attributes: ["id", "name"],
-      },
-    ],
-    order: [["name", "ASC"]],
+  return await db.query.areas.findMany({
+    with: {
+      warehouse: { columns: { id: true, name: true } }
+    },
+    orderBy: [asc(areas.name)]
   });
-  return areas;
 };
 
 export const createArea = async (data: AreaCreationAttributes) => {
-  // Cek apakah warehouse_id valid
-  const warehouse = await Warehouse.findByPk(data.warehouse_id);
-  if (!warehouse) {
-    throw new ApiError(400, "Warehouse ID tidak valid");
-  }
-  const area = await Area.create(data);
+  const warehouse = await db.query.warehouses.findFirst({
+    where: eq(warehouses.id, data.warehouse_id)
+  });
+  if (!warehouse) throw new ApiError(400, 'Warehouse ID tidak valid');
+
+  const [area] = await db
+    .insert(areas)
+    .values({ warehouse_id: data.warehouse_id, name: data.name })
+    .returning();
   return area;
 };
 
@@ -36,29 +34,33 @@ export const updateArea = async (
   id: string,
   data: Partial<AreaCreationAttributes>
 ) => {
-  const area = await Area.findByPk(id);
-  if (!area) throw new ApiError(404, "Area not found");
+  const area = await db.query.areas.findFirst({ where: eq(areas.id, id) });
+  if (!area) throw new ApiError(404, 'Area not found');
 
-  // Jika warehouse_id diubah, cek validitasnya
   if (data.warehouse_id) {
-    const warehouse = await Warehouse.findByPk(data.warehouse_id);
-    if (!warehouse) throw new ApiError(400, "Warehouse ID tidak valid");
+    const warehouse = await db.query.warehouses.findFirst({
+      where: eq(warehouses.id, data.warehouse_id)
+    });
+    if (!warehouse) throw new ApiError(400, 'Warehouse ID tidak valid');
   }
 
-  await area.update(data);
-  return area;
+  const [updated] = await db
+    .update(areas)
+    .set({ ...data, updated_at: new Date() })
+    .where(eq(areas.id, id))
+    .returning();
+  return updated;
 };
 
 export const deleteArea = async (id: string) => {
-  const area = await Area.findByPk(id);
-  if (!area) throw new ApiError(404, "Area not found");
-  await area.destroy();
+  const area = await db.query.areas.findFirst({ where: eq(areas.id, id) });
+  if (!area) throw new ApiError(404, 'Area not found');
+  await db.delete(areas).where(eq(areas.id, id));
 };
 
 export const getAreasByWarehouse = async (warehouseId: string) => {
-  const areas = await Area.findAll({
-    where: { warehouse_id: warehouseId },
-    order: [["name", "ASC"]],
+  return await db.query.areas.findMany({
+    where: eq(areas.warehouse_id, warehouseId),
+    orderBy: [asc(areas.name)]
   });
-  return areas;
 };

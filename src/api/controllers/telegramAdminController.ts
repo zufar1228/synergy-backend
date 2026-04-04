@@ -1,13 +1,12 @@
 // backend/src/api/controllers/telegramAdminController.ts
 import { Request, Response } from 'express';
 import * as telegramService from '../../services/telegramService';
-import { TelegramSubscriber } from '../../db/models';
+import { db } from '../../db/drizzle';
+import { telegram_subscribers } from '../../db/schema';
+import { eq, desc } from 'drizzle-orm';
 import ApiError from '../../utils/apiError';
 import { formatTimestampWIB } from '../../utils/time';
 
-/**
- * Handle errors consistently
- */
 const handleError = (res: Response, error: unknown) => {
   if (error instanceof ApiError) {
     return res.status(error.statusCode).json({ 
@@ -23,10 +22,6 @@ const handleError = (res: Response, error: unknown) => {
   });
 };
 
-/**
- * 1. Generate single-use invite link
- * POST /api/telegram/invite
- */
 export const createInvite = async (req: Request, res: Response) => {
   try {
     const result = await telegramService.createSingleUseInviteLink();
@@ -34,7 +29,7 @@ export const createInvite = async (req: Request, res: Response) => {
     res.json({
       success: true,
       invite_link: result.invite_link,
-      expires_at: new Date(Date.now() + 600 * 1000).toISOString(), // 10 minutes
+      expires_at: new Date(Date.now() + 600 * 1000).toISOString(),
       member_limit: 1,
     });
   } catch (error) {
@@ -42,11 +37,6 @@ export const createInvite = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * 2. Kick member from Telegram group
- * POST /api/telegram/kick
- * Body: { user_id: number }
- */
 export const kickSubscriber = async (req: Request, res: Response) => {
   try {
     const { user_id } = req.body;
@@ -58,7 +48,6 @@ export const kickSubscriber = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate user_id is a number
     const telegramUserId = parseInt(user_id, 10);
     if (isNaN(telegramUserId)) {
       return res.status(400).json({ 
@@ -67,18 +56,13 @@ export const kickSubscriber = async (req: Request, res: Response) => {
       });
     }
 
-    // Kick from Telegram group
     const success = await telegramService.kickMember(telegramUserId);
     
     if (success) {
-      // Update local database
-      await TelegramSubscriber.update(
-        { 
-          status: 'kicked', 
-          kicked_at: new Date() 
-        },
-        { where: { user_id: telegramUserId } }
-      );
+      await db
+        .update(telegram_subscribers)
+        .set({ status: 'kicked', kicked_at: new Date() })
+        .where(eq(telegram_subscribers.user_id, telegramUserId));
       
       res.json({ 
         success: true, 
@@ -95,30 +79,30 @@ export const kickSubscriber = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * 3. List all Telegram subscribers
- * GET /api/telegram/members?include_inactive=true
- */
 export const getSubscribers = async (req: Request, res: Response) => {
   try {
     const { include_inactive, status } = req.query;
     
-    // Build where clause
-    let whereClause: any = {};
+    let whereClause;
     
     if (status && typeof status === 'string') {
-      // Filter by specific status
-      whereClause.status = status;
+      whereClause = eq(telegram_subscribers.status, status as any);
     } else if (include_inactive !== 'true') {
-      // Default: only active members
-      whereClause.status = 'active';
+      whereClause = eq(telegram_subscribers.status, 'active');
     }
-    // If include_inactive=true, show all (no filter)
     
-    const subscribers = await TelegramSubscriber.findAll({
+    const subscribers = await db.query.telegram_subscribers.findMany({
       where: whereClause,
-      order: [['joined_at', 'DESC']],
-      attributes: ['user_id', 'username', 'first_name', 'status', 'joined_at', 'left_at', 'kicked_at'],
+      orderBy: [desc(telegram_subscribers.joined_at)],
+      columns: {
+        user_id: true,
+        username: true,
+        first_name: true,
+        status: true,
+        joined_at: true,
+        left_at: true,
+        kicked_at: true
+      }
     });
     
     res.json({ 
@@ -131,19 +115,12 @@ export const getSubscribers = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * 4. Get webhook info (for debugging)
- * GET /api/telegram/webhook-info
- */
 export const getWebhookInfo = async (req: Request, res: Response) => {
   try {
     const info = await telegramService.getWebhookInfo();
     
     if (info) {
-      res.json({
-        success: true,
-        data: info
-      });
+      res.json({ success: true, data: info });
     } else {
       res.status(500).json({
         success: false,
@@ -155,19 +132,12 @@ export const getWebhookInfo = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * 5. Manually trigger webhook setup
- * POST /api/telegram/setup-webhook
- */
 export const setupWebhook = async (req: Request, res: Response) => {
   try {
     const success = await telegramService.setWebhook();
     
     if (success) {
-      res.json({
-        success: true,
-        message: 'Webhook berhasil di-setup'
-      });
+      res.json({ success: true, message: 'Webhook berhasil di-setup' });
     } else {
       res.status(500).json({
         success: false,
@@ -179,10 +149,6 @@ export const setupWebhook = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * 6. Send test alert to Telegram group
- * POST /api/telegram/test-alert
- */
 export const sendTestAlert = async (req: Request, res: Response) => {
   try {
     const timestamp = formatTimestampWIB();

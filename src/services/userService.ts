@@ -1,30 +1,24 @@
-// backend/src/services/userService.ts
 import { supabaseAdmin } from '../config/supabaseAdmin';
+import { env } from '../config/env';
 import { sendInviteEmail } from './notificationService';
-import { Profile, UserRole, UserNotificationPreference } from '../db/models';
+import { db } from '../db/drizzle';
+import { profiles, user_roles, user_notification_preferences } from '../db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
 import ApiError from '../utils/apiError';
 import { User } from '@supabase/supabase-js';
-import { sequelize } from '../db/config';
 import * as telegramService from './telegramService';
 
-/**
- * Verifies if a user is authorized to access the system.
- * A user is authorized only if they have an entry in the user_roles table,
- * which means they were invited through the user management page or manually added.
- *
- * If user is not authorized, they will be deleted from Supabase Auth.
- */
 export const verifyUserAccess = async (
   userId: string
 ): Promise<{ authorized: boolean; message: string }> => {
-  const userRole = await UserRole.findOne({ where: { user_id: userId } });
+  const userRole = await db.query.user_roles.findFirst({
+    where: eq(user_roles.user_id, userId)
+  });
 
   if (!userRole) {
-    // User was not invited - delete them from Supabase Auth
     console.log(
       `[verifyUserAccess] User ${userId} not found in user_roles table. Deleting unauthorized user.`
     );
-
     try {
       await supabaseAdmin.auth.admin.deleteUser(userId);
       console.log(
@@ -36,7 +30,6 @@ export const verifyUserAccess = async (
         deleteError
       );
     }
-
     return {
       authorized: false,
       message:
@@ -44,17 +37,14 @@ export const verifyUserAccess = async (
     };
   }
 
-  return {
-    authorized: true,
-    message: 'User authorized'
-  };
+  return { authorized: true, message: 'User authorized' };
 };
 
 const touchSecurityTimestamp = async (userId: string) => {
-  await Profile.update(
-    { security_timestamp: new Date() },
-    { where: { id: userId } }
-  );
+  await db
+    .update(profiles)
+    .set({ security_timestamp: new Date(), updated_at: new Date() })
+    .where(eq(profiles.id, userId));
 };
 
 export const inviteUser = async (
@@ -65,9 +55,7 @@ export const inviteUser = async (
     await supabaseAdmin.auth.admin.generateLink({
       type: 'invite',
       email: email,
-      options: {
-        redirectTo: process.env.FRONTEND_URL + '/setup-account'
-      }
+      options: { redirectTo: env.FRONTEND_URL + '/setup-account' }
     });
 
   if (linkError) {
@@ -81,38 +69,29 @@ export const inviteUser = async (
   const inviteLink = data.properties.action_link;
 
   try {
-    // === PERBAIKAN: Ganti 'upsert' dengan logika 'find-then-update-or-create' ===
-    const [userRole, created] = await UserRole.findOrCreate({
-      where: { user_id: invitedUser.id },
-      defaults: { user_id: invitedUser.id, role: role }
-    });
+    // Upsert user role (insert or update on conflict)
+    await db
+      .insert(user_roles)
+      .values({ user_id: invitedUser.id, role })
+      .onConflictDoUpdate({
+        target: user_roles.user_id,
+        set: { role }
+      });
 
-    // Jika tidak dibuat (artinya sudah ada), maka update
-    if (!created) {
-      await userRole.update({ role: role });
-    }
-
-    // === SYNC ROLE KE SUPABASE APP_METADATA ===
-    // Ini akan membuat JWT mengandung role yang benar
+    // Sync role to Supabase app_metadata
     await supabaseAdmin.auth.admin.updateUserById(invitedUser.id, {
-      app_metadata: { role: role }
+      app_metadata: { role }
     });
-    // ===================================================================
   } catch (dbError) {
-    // Tambahkan log detail untuk debugging di masa depan
     console.error('!!! DEBUG: Database error while saving user role:', dbError);
-
-    // Bersihkan user yang baru dibuat di Supabase Auth jika penyimpanan peran gagal
     await supabaseAdmin.auth.admin.deleteUser(invitedUser.id);
     throw new ApiError(500, 'Gagal menyimpan peran pengguna.');
   }
 
   await sendInviteEmail({ to: email, inviteLink: inviteLink });
-
   return invitedUser;
 };
 
-// Fungsi untuk mengambil semua pengguna
 export const getAllUsers = async (requestingUserId: string) => {
   const {
     data: { users },
@@ -120,47 +99,43 @@ export const getAllUsers = async (requestingUserId: string) => {
   } = await supabaseAdmin.auth.admin.listUsers();
   if (error) throw new ApiError(500, 'Gagal mengambil daftar pengguna.');
 
-  const roles = await UserRole.findAll();
+  const roles = await db.query.user_roles.findMany();
   const rolesMap = new Map(roles.map((r) => [r.user_id, r.role]));
 
-  // Batch-fetch all profiles in one query (fixes N+1)
   const userIds = users.map((u: User) => u.id);
-  const profiles = await Profile.findAll({ where: { id: userIds } });
-  const profileMap = new Map(profiles.map((p) => [p.id, p]));
+  const allProfiles = await db.query.profiles.findMany({
+    where: inArray(profiles.id, userIds)
+  });
+  const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
-  // Gabungkan data auth dengan roles dan profile pictures
   const usersWithRolesAndProfiles = users.map((user: User) => {
     const role = rolesMap.get(user.id) || 'user';
     const profile = profileMap.get(user.id);
 
     return {
       ...user,
-      role: role,
+      role,
       username: profile?.username,
       avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture,
       full_name: user.user_metadata?.full_name
     };
   });
 
-  // Filter untuk tidak menampilkan super_admin lain DAN tidak menampilkan diri sendiri
   return usersWithRolesAndProfiles.filter(
     (user: User & { role: string }) =>
       user.role !== 'super_admin' && user.id !== requestingUserId
   );
 };
 
-// Fungsi untuk menghapus pengguna
 export const deleteUser = async (userId: string) => {
-  // 1. Ambil data profil user sebelum dihapus (untuk cek Telegram ID)
-  const profile = await Profile.findByPk(userId);
+  const profile = await db.query.profiles.findFirst({
+    where: eq(profiles.id, userId)
+  });
 
-  // 2. AUTO-KICK TELEGRAM (jika user terhubung ke Telegram)
   if (profile?.telegram_user_id) {
     console.log(
       `[AutoKick] Attempting to kick Telegram user: ${profile.telegram_user_id}`
     );
-
-    // Best effort strategy - tidak blocking proses delete
     telegramService
       .kickMember(profile.telegram_user_id)
       .then((success) => {
@@ -170,42 +145,43 @@ export const deleteUser = async (userId: string) => {
           );
         } else {
           console.log(
-            `[AutoKick] ⚠️ Failed to kick Telegram user (might not be in group): ${profile.telegram_user_id}`
+            `[AutoKick] ⚠️ Failed to kick Telegram user: ${profile.telegram_user_id}`
           );
         }
       })
       .catch((err) => console.error('[AutoKick] ❌ Error:', err));
   }
 
-  // 3. Hapus dari Supabase Auth
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (error)
     throw new ApiError(500, `Gagal menghapus pengguna: ${error.message}`);
 };
 
 export const getUserProfile = async (userId: string) => {
-  let profile = await Profile.findByPk(userId);
+  let profile = await db.query.profiles.findFirst({
+    where: eq(profiles.id, userId)
+  });
 
-  // Jika profil belum ada untuk pengguna baru, buatkan satu
   if (!profile) {
-    // Ambil detail pengguna dari Supabase Auth untuk mendapatkan email
     const {
       data: { user }
     } = await supabaseAdmin.auth.admin.getUserById(userId);
     if (!user) throw new ApiError(404, 'User not found');
 
-    // Gunakan bagian sebelum '@' dari email sebagai username default
     const defaultUsername =
       user.email?.split('@')[0] || `user-${userId.substring(0, 8)}`;
 
-    profile = await Profile.create({
-      id: userId,
-      username: defaultUsername,
-      security_timestamp: new Date()
-    });
+    const [created] = await db
+      .insert(profiles)
+      .values({
+        id: userId,
+        username: defaultUsername,
+        security_timestamp: new Date()
+      })
+      .returning();
+    profile = created;
   }
 
-  // Ambil data lengkap dari Supabase Auth termasuk avatar/profile picture
   const {
     data: { user: authUser },
     error: authError
@@ -215,45 +191,42 @@ export const getUserProfile = async (userId: string) => {
     console.error('Error fetching auth user data:', authError);
   }
 
-  // Ambil role dari tabel UserRole
-  const userRole = await UserRole.findOne({ where: { user_id: userId } });
+  const userRole = await db.query.user_roles.findFirst({
+    where: eq(user_roles.user_id, userId)
+  });
 
-  // Gabungkan data profil database dengan data auth (termasuk avatar)
-  const fullProfile = {
-    ...profile.toJSON(),
+  return {
+    ...profile,
     email: authUser?.email,
-    role: userRole?.role || 'user', // Default ke 'user' jika tidak ditemukan
+    role: userRole?.role || 'user',
     avatar_url:
       authUser?.user_metadata?.avatar_url || authUser?.user_metadata?.picture,
     full_name: authUser?.user_metadata?.full_name
-    // Tambahkan data auth lainnya yang mungkin diperlukan
   };
-
-  return fullProfile;
 };
 
-// Fungsi BARU untuk memperbarui profil pengguna saat ini
 export const updateUserRole = async (
   userId: string,
   newRole: 'admin' | 'user' | 'super_admin'
 ) => {
-  // Cegah perubahan peran pada diri sendiri atau pengguna lain jika tidak sengaja
-  const targetUserRole = await UserRole.findOne({ where: { user_id: userId } });
+  const targetUserRole = await db.query.user_roles.findFirst({
+    where: eq(user_roles.user_id, userId)
+  });
   if (targetUserRole && targetUserRole.role === 'super_admin') {
     throw new ApiError(403, 'Tidak dapat mengubah peran super_admin.');
   }
 
-  const [role, created] = await UserRole.findOrCreate({
-    where: { user_id: userId },
-    defaults: { user_id: userId, role: newRole }
-  });
+  const [role] = await db
+    .insert(user_roles)
+    .values({ user_id: userId, role: newRole })
+    .onConflictDoUpdate({
+      target: user_roles.user_id,
+      set: { role: newRole }
+    })
+    .returning();
 
-  if (!created) {
-    await role.update({ role: newRole });
-    await touchSecurityTimestamp(userId);
-  }
+  await touchSecurityTimestamp(userId);
 
-  // === SYNC ROLE KE SUPABASE APP_METADATA ===
   await supabaseAdmin.auth.admin.updateUserById(userId, {
     app_metadata: { role: newRole }
   });
@@ -265,17 +238,11 @@ export const updateUserStatus = async (
   userId: string,
   status: 'active' | 'inactive'
 ) => {
-  // === PERBAIKI LOGIKA DI SINI ===
-  const ban_duration =
-    status === 'inactive'
-      ? '876000h' // Ban untuk 876,000 jam (setara 100 tahun)
-      : '0s'; // '0s' untuk langsung meng-unban
+  const ban_duration = status === 'inactive' ? '876000h' : '0s';
 
   const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
     userId,
-    {
-      ban_duration: ban_duration
-    }
+    { ban_duration }
   );
 
   await touchSecurityTimestamp(userId);
@@ -283,8 +250,6 @@ export const updateUserStatus = async (
   if (error) {
     throw new ApiError(500, `Gagal mengubah status pengguna: ${error.message}`);
   }
-
-  // Pastikan data dan user ada sebelum dikembalikan
   if (!data || !data.user) {
     throw new ApiError(
       404,
@@ -295,33 +260,36 @@ export const updateUserStatus = async (
   return data.user;
 };
 
-// TAMBAHKAN FUNGSI INI KEMBALI
 export const updateUserProfile = async (
   userId: string,
   data: { username: string }
 ) => {
-  const profile = await Profile.findByPk(userId);
-  if (!profile) throw new ApiError(404, 'Profil tidak ditemukan.');
-  await profile.update({
-    ...data,
-    // PENTING: Update security_timestamp untuk memaksa logout sesi lain
-    security_timestamp: new Date()
+  const profile = await db.query.profiles.findFirst({
+    where: eq(profiles.id, userId)
   });
-  return profile;
+  if (!profile) throw new ApiError(404, 'Profil tidak ditemukan.');
+
+  const [updated] = await db
+    .update(profiles)
+    .set({
+      ...data,
+      security_timestamp: new Date(),
+      updated_at: new Date()
+    })
+    .where(eq(profiles.id, userId))
+    .returning();
+  return updated;
 };
 
 export const getUserPreferences = async (userId: string) => {
-  const preferences = await UserNotificationPreference.findAll({
-    where: { user_id: userId },
-    attributes: ['system_type', 'is_enabled']
+  return await db.query.user_notification_preferences.findMany({
+    where: eq(user_notification_preferences.user_id, userId),
+    columns: { system_type: true, is_enabled: true }
   });
-  return preferences;
 };
 
-// === SYNC ALL ROLES TO SUPABASE APP_METADATA ===
-// Berguna jika role diubah langsung di database tanpa melalui API
 export const syncAllRolesToSupabase = async () => {
-  const roles = await UserRole.findAll();
+  const roles = await db.query.user_roles.findMany();
   const results = { success: 0, failed: 0, details: [] as any[] };
 
   for (const role of roles) {
@@ -353,43 +321,35 @@ export const updateUserPreferences = async (
   userId: string,
   preferences: { system_type: string; is_enabled: boolean }[]
 ) => {
-  const transaction = await sequelize.transaction();
   try {
-    for (const pref of preferences) {
-      // === PERBAIKAN: Ganti 'upsert' dengan 'findOrCreate' + 'update' ===
+    await db.transaction(async (tx) => {
+      for (const pref of preferences) {
+        const existing =
+          await tx.query.user_notification_preferences.findFirst({
+            where: and(
+              eq(user_notification_preferences.user_id, userId),
+              eq(user_notification_preferences.system_type, pref.system_type)
+            )
+          });
 
-      // 1. Coba cari atau buat entri baru
-      const [preference, created] =
-        await UserNotificationPreference.findOrCreate({
-          where: {
-            user_id: userId,
-            system_type: pref.system_type
-          },
-          defaults: {
+        if (existing) {
+          await tx
+            .update(user_notification_preferences)
+            .set({ is_enabled: pref.is_enabled, updated_at: new Date() })
+            .where(eq(user_notification_preferences.id, existing.id));
+        } else {
+          await tx.insert(user_notification_preferences).values({
             user_id: userId,
             system_type: pref.system_type,
             is_enabled: pref.is_enabled
-          },
-          transaction: transaction // Pastikan menggunakan transaksi
-        });
-
-      // 2. Jika tidak dibuat (artinya sudah ada), maka update nilainya
-      if (!created) {
-        await preference.update(
-          { is_enabled: pref.is_enabled },
-          { transaction: transaction }
-        );
+          });
+        }
       }
-      // ==========================================================
-    }
+    });
 
-    await transaction.commit();
-    return getUserPreferences(userId); // Kembalikan data yang sudah diperbarui
+    return getUserPreferences(userId);
   } catch (error) {
-    // Tambahkan log ini untuk melihat error spesifik di terminal backend jika terjadi lagi
     console.error('!!! DEBUG: Gagal saat update preferensi:', error);
-
-    await transaction.rollback();
     throw new ApiError(500, 'Gagal menyimpan preferensi.');
   }
 };

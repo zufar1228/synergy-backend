@@ -1,13 +1,7 @@
-import { Sequelize } from "sequelize";
-import "dotenv/config";
+import { Sequelize } from 'sequelize';
+import { env } from '../config/env';
 
-const dbUrl = process.env.DATABASE_URL;
-
-if (!dbUrl) {
-  throw new Error("DATABASE_URL environment variable is not set!");
-}
-
-export const sequelize = new Sequelize(dbUrl, {
-  dialect: "postgres",
-  logging: false, // Set ke `console.log` untuk debug query SQL
+export const sequelize = new Sequelize(env.DATABASE_URL, {
+  dialect: 'postgres',
+  logging: false
 });

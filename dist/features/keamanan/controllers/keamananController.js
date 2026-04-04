@@ -45,10 +45,10 @@ const handleError = (res, error) => {
         return res.status(error.statusCode).json({ message: error.message });
     }
     // Log error yang tidak terduga untuk debugging
-    console.error("Unhandled Error in KeamananController:", error);
+    console.error('Unhandled Error in KeamananController:', error);
     return res
         .status(500)
-        .json({ message: "An unexpected internal server error occurred." });
+        .json({ message: 'An unexpected internal server error occurred.' });
 };
 const updateStatus = async (req, res) => {
     try {
@@ -56,10 +56,10 @@ const updateStatus = async (req, res) => {
         const { status, notes } = req.body;
         const userId = req.user?.id;
         if (!userId) {
-            throw new apiError_1.default(401, "User tidak terautentikasi.");
+            throw new apiError_1.default(401, 'User tidak terautentikasi.');
         }
         if (!status) {
-            return res.status(400).json({ message: "Status wajib diisi." });
+            return res.status(400).json({ message: 'Status wajib diisi.' });
         }
         const updatedLog = await keamananService.updateKeamananLogStatus(id, userId, status, notes);
         res.status(200).json(updatedLog);
@@ -71,12 +71,16 @@ const updateStatus = async (req, res) => {
 exports.updateStatus = updateStatus;
 const triggerRepeatDetection = async (req, res) => {
     try {
-        console.log("[KeamananController] Triggering repeat detection notifications...");
+        console.log('[KeamananController] Triggering repeat detection notifications...');
         await (0, repeatDetectionService_1.findAndNotifyRepeatDetections)();
-        res.status(200).json({ message: "Repeat detection notifications triggered successfully" });
+        res
+            .status(200)
+            .json({
+            message: 'Repeat detection notifications triggered successfully'
+        });
     }
     catch (error) {
-        console.error("[KeamananController] Error triggering repeat detection:", error);
+        console.error('[KeamananController] Error triggering repeat detection:', error);
         handleError(res, error);
     }
 };

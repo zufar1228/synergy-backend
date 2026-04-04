@@ -39,13 +39,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.client = exports.initializeMqttClient = void 0;
 // backend/src/mqtt/client.ts
 const mqtt_1 = __importDefault(require("mqtt"));
+const env_1 = require("../config/env");
 const intrusiService = __importStar(require("../features/intrusi/services/intrusiService"));
 const lingkunganService = __importStar(require("../features/lingkungan/services/lingkunganService"));
 const deviceService_1 = require("../services/deviceService");
 const intrusiAlertingService = __importStar(require("../features/intrusi/services/intrusiAlertingService"));
 // Simple log-level utility
-const LOG_LEVEL = process.env.LOG_LEVEL ||
-    (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
+const LOG_LEVEL = env_1.env.LOG_LEVEL ?? (env_1.env.NODE_ENV === 'production' ? 'info' : 'debug');
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 const currentLevel = LEVELS[LOG_LEVEL] ?? 1;
 const log = {
@@ -54,19 +54,10 @@ const log = {
     warn: (...args) => currentLevel <= 2 && console.warn('[MQTT]', ...args),
     error: (...args) => currentLevel <= 3 && console.error('[MQTT]', ...args)
 };
-// Environment variables
-const MQTT_HOST = process.env.MQTT_HOST;
-const MQTT_USERNAME = process.env.MQTT_USERNAME;
-const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
-// Validate
-log.info('Checking env vars:', {
-    MQTT_HOST: MQTT_HOST ? '✅' : '❌',
-    MQTT_USERNAME: MQTT_USERNAME ? '✅' : '❌',
-    MQTT_PASSWORD: MQTT_PASSWORD ? '✅' : '❌'
-});
-if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD) {
-    throw new Error('Missing required MQTT environment variables (MQTT_HOST, MQTT_USERNAME, MQTT_PASSWORD)');
-}
+// Environment variables (validated by env.ts)
+const MQTT_HOST = env_1.env.MQTT_HOST;
+const MQTT_USERNAME = env_1.env.MQTT_USERNAME;
+const MQTT_PASSWORD = env_1.env.MQTT_PASSWORD;
 const MQTT_BROKER_URL = `mqtts://${MQTT_HOST}:8883`;
 log.info(`Broker: ${MQTT_BROKER_URL}, User: ${MQTT_USERNAME}`);
 // Module-scoped client
@@ -80,8 +71,30 @@ let lastConnectedAt = null;
 let isConnected = false;
 // Keepalive interval in ms — sends a lightweight ping to prevent EMQX Cloud
 // Serverless from going idle and shutting down the broker.
-const BROKER_KEEPALIVE_INTERVAL_MS = 30000; // 30 seconds
+// 120s is sufficient since device heartbeats (every 60s) also keep the broker awake.
+const BROKER_KEEPALIVE_INTERVAL_MS = 120000; // 120 seconds
 const HEALTH_CHECK_INTERVAL_MS = 60000; // 60 seconds
+// --- QoS 1 message deduplication ---
+// Keeps track of recently processed messages to discard duplicates.
+const DEDUP_WINDOW_MS = 10000; // 10 seconds
+const recentMessages = new Map(); // key → timestamp
+const isDuplicate = (deviceId, topicSuffix, payloadHash) => {
+    const key = `${deviceId}:${topicSuffix}:${payloadHash}`;
+    const now = Date.now();
+    const prev = recentMessages.get(key);
+    if (prev && now - prev < DEDUP_WINDOW_MS)
+        return true;
+    recentMessages.set(key, now);
+    return false;
+};
+// Periodically prune stale dedup entries to prevent memory leak
+setInterval(() => {
+    const cutoff = Date.now() - DEDUP_WINDOW_MS;
+    for (const [key, ts] of recentMessages) {
+        if (ts < cutoff)
+            recentMessages.delete(key);
+    }
+}, DEDUP_WINDOW_MS);
 const stopTimers = () => {
     if (keepaliveInterval) {
         clearInterval(keepaliveInterval);
@@ -106,11 +119,14 @@ const startBrokerKeepalive = () => {
         }
     }, BROKER_KEEPALIVE_INTERVAL_MS);
 };
+// Stable client ID so the broker can resume our session on reconnect
+const MQTT_CLIENT_ID = `synergy-backend-${env_1.env.NODE_ENV ?? 'dev'}`;
 const createClient = () => {
     const options = {
+        clientId: MQTT_CLIENT_ID,
         username: MQTT_USERNAME,
         password: MQTT_PASSWORD,
-        clean: true,
+        clean: false,
         reconnectPeriod: 5000,
         connectTimeout: 30000,
         keepalive: 60
@@ -171,9 +187,8 @@ const registerEventHandlers = (mqttClient) => {
         lastConnectedAt = new Date();
         const sensorTopic = 'warehouses/+/areas/+/devices/+/sensors/#';
         const statusTopic = 'warehouses/+/areas/+/devices/+/status';
-        const mlResponseTopic = 'synergy/ml/predict/response/+';
-        const mlStatusTopic = 'synergy/ml/status';
-        mqttClient.subscribe([sensorTopic, statusTopic, mlResponseTopic, mlStatusTopic], { qos: 1 }, (err, granted) => {
+        // ML prediction traffic moved to direct HTTP — no longer subscribed via MQTT
+        mqttClient.subscribe([sensorTopic, statusTopic], { qos: 1 }, (err, granted) => {
             if (err) {
                 log.error('Subscription error:', err.message);
             }
@@ -191,31 +206,6 @@ const registerEventHandlers = (mqttClient) => {
         try {
             const topicParts = topic.split('/');
             const message = payload.toString();
-            // Handle ML prediction responses
-            if (topic.startsWith('synergy/ml/predict/response/')) {
-                const deviceId = topicParts[4];
-                log.debug('ML prediction response for device:', deviceId);
-                try {
-                    const prediction = JSON.parse(message);
-                    await lingkunganService.handlePredictionResult(deviceId, prediction);
-                    log.debug('ML prediction processed for', deviceId);
-                }
-                catch (parseErr) {
-                    log.error('Failed to parse ML prediction response:', parseErr);
-                }
-                return;
-            }
-            // Handle ML server status
-            if (topic === 'synergy/ml/status') {
-                try {
-                    const status = JSON.parse(message);
-                    log.info(`ML Server: ${status.status} (model: ${status.model_loaded ? '✅' : '❌'}, scaler: ${status.scaler_loaded ? '✅' : '❌'})`);
-                }
-                catch {
-                    log.info('ML Server status:', message);
-                }
-                return;
-            }
             // Handle device topics (sensor data, heartbeats)
             if (topicParts.length < 7) {
                 log.warn('Invalid topic format (too short):', topic);
@@ -264,10 +254,17 @@ const registerEventHandlers = (mqttClient) => {
                     // the MANUAL command).
                     if (statusData.mode !== undefined) {
                         try {
-                            const { Device } = await Promise.resolve().then(() => __importStar(require('../db/models')));
-                            const currentDevice = await Device.findByPk(deviceId, {
-                                attributes: ['control_mode', 'manual_override_until']
-                            });
+                            const { db } = await Promise.resolve().then(() => __importStar(require('../db/drizzle')));
+                            const { devices } = await Promise.resolve().then(() => __importStar(require('../db/schema')));
+                            const { eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
+                            const [currentDevice] = await db
+                                .select({
+                                control_mode: devices.control_mode,
+                                manual_override_until: devices.manual_override_until
+                            })
+                                .from(devices)
+                                .where(eq(devices.id, deviceId))
+                                .limit(1);
                             const hasActiveOverride = currentDevice &&
                                 currentDevice.control_mode === 'MANUAL' &&
                                 currentDevice.manual_override_until &&
@@ -315,6 +312,12 @@ const registerEventHandlers = (mqttClient) => {
                 const systemType = topicParts[7];
                 log.debug('Sensor data from', deviceId, 'type:', systemType);
                 const data = JSON.parse(message);
+                // QoS 1 dedup: skip if we already processed an identical message recently
+                const payloadHash = `${data.type ?? ''}|${data.temperature ?? ''}|${data.humidity ?? ''}|${data.co2 ?? ''}|${data.door ?? ''}`;
+                if (isDuplicate(deviceId, systemType, payloadHash)) {
+                    log.debug('Duplicate QoS 1 message skipped for', deviceId);
+                    return;
+                }
                 if (systemType === 'intrusi') {
                     // Derive siren_state from event type
                     let derivedSirenState;

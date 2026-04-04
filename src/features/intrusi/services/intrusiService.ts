@@ -1,13 +1,13 @@
 // backend/src/services/intrusiService.ts
-import { Op } from 'sequelize';
-import IntrusiLog from '../models/intrusiLog';
+import { db } from '../../../db/drizzle';
 import {
-  IntrusiEventType,
-  DoorState,
-  SystemState,
-  AcknowledgeStatus,
-  IntrusiLogCreationAttributes
-} from '../models/intrusiLog';
+  intrusi_logs,
+  type IntrusiEventType,
+  type DoorState,
+  type SystemState,
+  type AcknowledgeStatus
+} from '../../../db/schema';
+import { eq, and, gte, lte, inArray, count, desc, gt } from 'drizzle-orm';
 import ApiError from '../../../utils/apiError';
 
 /**
@@ -22,15 +22,18 @@ export const ingestIntrusiEvent = async (data: {
   hit_count?: number | null;
   payload: object;
 }) => {
-  const log = await IntrusiLog.create({
-    device_id: data.device_id,
-    event_type: data.event_type,
-    system_state: data.system_state,
-    door_state: data.door_state,
-    peak_delta_g: data.peak_delta_g ?? null,
-    hit_count: data.hit_count ?? null,
-    payload: data.payload
-  });
+  const [log] = await db
+    .insert(intrusi_logs)
+    .values({
+      device_id: data.device_id,
+      event_type: data.event_type,
+      system_state: data.system_state,
+      door_state: data.door_state,
+      peak_delta_g: data.peak_delta_g ?? null,
+      hit_count: data.hit_count ?? null,
+      payload: data.payload
+    })
+    .returning();
 
   console.log(
     `[IntrusiService] Ingested ${data.event_type} event for device ${data.device_id}`
@@ -50,33 +53,34 @@ export const getIntrusiLogs = async (options: {
   event_type?: string;
 }) => {
   const { device_id, limit = 50, offset = 0, from, to, event_type } = options;
-  const where: any = { device_id };
+  const conditions = [eq(intrusi_logs.device_id, device_id)];
 
-  if (from || to) {
-    where.timestamp = {
-      ...(from && { [Op.gte]: new Date(from) }),
-      ...(to && { [Op.lte]: new Date(to) })
-    };
-  }
+  if (from) conditions.push(gte(intrusi_logs.timestamp, new Date(from)));
+  if (to) conditions.push(lte(intrusi_logs.timestamp, new Date(to)));
+  if (event_type) conditions.push(eq(intrusi_logs.event_type, event_type));
 
-  if (event_type) {
-    where.event_type = event_type;
-  }
+  const whereClause = and(...conditions);
 
-  const { count, rows } = await IntrusiLog.findAndCountAll({
-    where,
+  const [countResult] = await db
+    .select({ count: count() })
+    .from(intrusi_logs)
+    .where(whereClause);
+  const total = Number(countResult.count);
+
+  const data = await db.query.intrusi_logs.findMany({
+    where: whereClause,
     limit,
     offset,
-    order: [['timestamp', 'DESC']]
+    orderBy: [desc(intrusi_logs.timestamp)]
   });
 
   return {
-    data: rows,
+    data,
     pagination: {
-      total: count,
+      total,
       limit,
       offset,
-      hasMore: offset + limit < count
+      hasMore: offset + limit < total
     }
   };
 };
@@ -89,42 +93,39 @@ export const getIntrusiSummary = async (
   from?: string,
   to?: string
 ) => {
-  const where: any = { device_id };
+  const conditions = [eq(intrusi_logs.device_id, device_id)];
+  if (from) conditions.push(gte(intrusi_logs.timestamp, new Date(from)));
+  if (to) conditions.push(lte(intrusi_logs.timestamp, new Date(to)));
 
-  if (from || to) {
-    where.timestamp = {
-      ...(from && { [Op.gte]: new Date(from) }),
-      ...(to && { [Op.lte]: new Date(to) })
-    };
-  }
+  const baseWhere = and(...conditions);
 
-  const total_events = await IntrusiLog.count({ where });
+  const [totalResult] = await db.select({ count: count() }).from(intrusi_logs).where(baseWhere);
 
-  const alarm_events = await IntrusiLog.count({
-    where: {
-      ...where,
-      event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
-    }
-  });
+  const [alarmResult] = await db
+    .select({ count: count() })
+    .from(intrusi_logs)
+    .where(and(...conditions, inArray(intrusi_logs.event_type, ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'])));
 
-  const impact_warnings = await IntrusiLog.count({
-    where: { ...where, event_type: 'IMPACT_WARNING' }
-  });
+  const [impactResult] = await db
+    .select({ count: count() })
+    .from(intrusi_logs)
+    .where(and(...conditions, eq(intrusi_logs.event_type, 'IMPACT_WARNING')));
 
-  const unacknowledged = await IntrusiLog.count({
-    where: { ...where, status: 'unacknowledged' }
-  });
+  const [unackResult] = await db
+    .select({ count: count() })
+    .from(intrusi_logs)
+    .where(and(...conditions, eq(intrusi_logs.status, 'unacknowledged')));
 
-  const latest_event = await IntrusiLog.findOne({
-    where: { device_id },
-    order: [['timestamp', 'DESC']]
+  const latest_event = await db.query.intrusi_logs.findFirst({
+    where: eq(intrusi_logs.device_id, device_id),
+    orderBy: [desc(intrusi_logs.timestamp)]
   });
 
   return {
-    total_events,
-    alarm_events,
-    impact_warnings,
-    unacknowledged,
+    total_events: Number(totalResult.count),
+    alarm_events: Number(alarmResult.count),
+    impact_warnings: Number(impactResult.count),
+    unacknowledged: Number(unackResult.count),
     latest_event
   };
 };
@@ -133,54 +134,47 @@ export const getIntrusiSummary = async (
  * Get current door security status for a device.
  */
 export const getIntrusiStatus = async (device_id: string) => {
-  // Get the latest event to determine current state
-  const latestEvent = await IntrusiLog.findOne({
-    where: { device_id },
-    order: [['timestamp', 'DESC']]
+  const latestEvent = await db.query.intrusi_logs.findFirst({
+    where: eq(intrusi_logs.device_id, device_id),
+    orderBy: [desc(intrusi_logs.timestamp)]
   });
 
-  // Get the latest alarm event (if any)
-  const latestAlarm = await IntrusiLog.findOne({
-    where: {
-      device_id,
-      event_type: ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN']
-    },
-    order: [['timestamp', 'DESC']]
+  const latestAlarm = await db.query.intrusi_logs.findFirst({
+    where: and(
+      eq(intrusi_logs.device_id, device_id),
+      inArray(intrusi_logs.event_type, ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'])
+    ),
+    orderBy: [desc(intrusi_logs.timestamp)]
   });
 
-  // Determine overall status
   let status: 'AMAN' | 'WASPADA' | 'BAHAYA' = 'AMAN';
-
-  // Current system state from the latest event
   const currentSystemState = latestEvent?.system_state ?? 'DISARMED';
 
   if (latestAlarm && latestAlarm.status === 'unacknowledged') {
-    // Check if a DISARM or SIREN_SILENCED event occurred AFTER the alarm.
-    // If yes, the operator has responded — downgrade from BAHAYA.
-    const clearingEvent = await IntrusiLog.findOne({
-      where: {
-        device_id,
-        event_type: ['DISARM', 'SIREN_SILENCED'],
-        timestamp: { [Op.gt]: latestAlarm.timestamp }
-      },
-      order: [['timestamp', 'DESC']]
+    const clearingEvent = await db.query.intrusi_logs.findFirst({
+      where: and(
+        eq(intrusi_logs.device_id, device_id),
+        inArray(intrusi_logs.event_type, ['DISARM', 'SIREN_SILENCED']),
+        gt(intrusi_logs.timestamp, latestAlarm.timestamp!)
+      ),
+      orderBy: [desc(intrusi_logs.timestamp)]
     });
 
     if (clearingEvent || currentSystemState === 'DISARMED') {
-      // Operator responded (disarmed or silenced siren) → AMAN
       status = 'AMAN';
     } else {
       status = 'BAHAYA';
     }
   }
 
-  // Get latest impact warning
-  const latestImpact = await IntrusiLog.findOne({
-    where: { device_id, event_type: 'IMPACT_WARNING' },
-    order: [['timestamp', 'DESC']]
+  const latestImpact = await db.query.intrusi_logs.findFirst({
+    where: and(
+      eq(intrusi_logs.device_id, device_id),
+      eq(intrusi_logs.event_type, 'IMPACT_WARNING')
+    ),
+    orderBy: [desc(intrusi_logs.timestamp)]
   });
 
-  // Only show WASPADA if system is ARMED and no clearing event after the warning
   if (
     status === 'AMAN' &&
     currentSystemState === 'ARMED' &&
@@ -208,14 +202,21 @@ export const updateIntrusiLogStatus = async (
   status: AcknowledgeStatus,
   notes?: string
 ) => {
-  const log = await IntrusiLog.findByPk(logId);
-  if (!log) throw new ApiError(404, 'Log intrusi tidak ditemukan.');
+  const existing = await db.query.intrusi_logs.findFirst({
+    where: eq(intrusi_logs.id, logId)
+  });
+  if (!existing) throw new ApiError(404, 'Log intrusi tidak ditemukan.');
 
-  log.status = status;
-  log.notes = notes || log.notes;
-  log.acknowledged_by = userId;
-  log.acknowledged_at = new Date();
+  const [updated] = await db
+    .update(intrusi_logs)
+    .set({
+      status,
+      notes: notes || existing.notes,
+      acknowledged_by: userId,
+      acknowledged_at: new Date()
+    })
+    .where(eq(intrusi_logs.id, logId))
+    .returning();
 
-  await log.save();
-  return log;
+  return updated;
 };

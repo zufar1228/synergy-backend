@@ -1,7 +1,10 @@
 // backend/src/api/controllers/telegramWebhookController.ts
 import { Request, Response } from 'express';
-import { TelegramSubscriber } from '../../db/models';
-import 'dotenv/config';
+import crypto from 'crypto';
+import { env } from '../../config/env';
+import { db } from '../../db/drizzle';
+import { telegram_subscribers } from '../../db/schema';
+import { eq } from 'drizzle-orm';
 
 // Types for Telegram webhook updates
 interface TelegramUser {
@@ -31,36 +34,47 @@ interface TelegramMessage {
 interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
-  chat_member?: any; // For advanced chat_member updates
+  chat_member?: any;
 }
 
 /**
  * Handle incoming webhook from Telegram
- * This endpoint is called by Telegram whenever there's an update in the group
  */
 export const handleWebhook = async (req: Request, res: Response) => {
-  // 1. Security: Validate Secret Token
   const secretToken = req.headers['x-telegram-bot-api-secret-token'];
-  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const expectedSecret = env.TELEGRAM_WEBHOOK_SECRET;
 
-  if (expectedSecret && secretToken !== expectedSecret) {
+  // Reject requests when webhook secret is not configured (misconfiguration guard)
+  if (!expectedSecret) {
+    console.warn(
+      '[Telegram Webhook] TELEGRAM_WEBHOOK_SECRET not set — rejecting request'
+    );
+    return res.status(403).send('Forbidden');
+  }
+
+  // Timing-safe comparison to prevent timing attacks
+  if (
+    typeof secretToken !== 'string' ||
+    secretToken.length !== expectedSecret.length ||
+    !crypto.timingSafeEqual(
+      Buffer.from(secretToken),
+      Buffer.from(expectedSecret)
+    )
+  ) {
     console.warn('[Telegram Webhook] Invalid secret token received');
     return res.status(403).send('Forbidden');
   }
 
-  // Respond quickly to Telegram to prevent timeout & retries
   res.status(200).send('OK');
 
   const update: TelegramUpdate = req.body;
   const message = update.message;
 
-  // Early exit if no message
   if (!message || !message.chat) {
     return;
   }
 
-  // 2. Chat Scoping: Ensure event is from target group
-  const targetGroupId = process.env.TELEGRAM_GROUP_ID;
+  const targetGroupId = env.TELEGRAM_GROUP_ID;
   if (targetGroupId && message.chat.id.toString() !== targetGroupId) {
     console.log(
       `[Telegram Webhook] Ignored update from different chat: ${message.chat.id}`
@@ -72,19 +86,30 @@ export const handleWebhook = async (req: Request, res: Response) => {
     // CASE A: New members joined
     if (message.new_chat_members && Array.isArray(message.new_chat_members)) {
       for (const member of message.new_chat_members) {
-        // Skip bots
         if (member.is_bot) continue;
 
-        // Upsert: Insert or Update if exists
-        await TelegramSubscriber.upsert({
-          user_id: member.id,
-          username: member.username || null,
-          first_name: member.first_name || null,
-          status: 'active',
-          joined_at: new Date(),
-          left_at: null,
-          kicked_at: null
-        });
+        await db
+          .insert(telegram_subscribers)
+          .values({
+            user_id: member.id,
+            username: member.username || null,
+            first_name: member.first_name || null,
+            status: 'active',
+            joined_at: new Date(),
+            left_at: null,
+            kicked_at: null
+          })
+          .onConflictDoUpdate({
+            target: telegram_subscribers.user_id,
+            set: {
+              username: member.username || null,
+              first_name: member.first_name || null,
+              status: 'active',
+              joined_at: new Date(),
+              left_at: null,
+              kicked_at: null
+            }
+          });
 
         console.log(
           `[Telegram Webhook] ✅ Member Joined: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`
@@ -95,21 +120,18 @@ export const handleWebhook = async (req: Request, res: Response) => {
     // CASE B: Member left the group
     if (message.left_chat_member) {
       const member = message.left_chat_member;
-
-      // Skip bots
       if (member.is_bot) return;
 
-      // Update status to 'left'
-      const [affectedRows] = await TelegramSubscriber.update(
-        {
+      const result = await db
+        .update(telegram_subscribers)
+        .set({
           status: 'left',
           left_at: new Date()
-          // Don't set kicked_at here - this is voluntary leave
-        },
-        { where: { user_id: member.id } }
-      );
+        })
+        .where(eq(telegram_subscribers.user_id, member.id))
+        .returning();
 
-      if (affectedRows > 0) {
+      if (result.length > 0) {
         console.log(
           `[Telegram Webhook] 👋 Member Left: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`
         );
@@ -121,8 +143,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
     }
 
     // CASE C: Regular message from a member — auto-register if not yet tracked.
-    // This catches existing group members who were present before the webhook
-    // was set up, since the Bot API has no "list all members" endpoint.
     if (
       message.from &&
       !message.from.is_bot &&
@@ -130,9 +150,12 @@ export const handleWebhook = async (req: Request, res: Response) => {
       !message.left_chat_member
     ) {
       const sender = message.from;
-      const [, created] = await TelegramSubscriber.findOrCreate({
-        where: { user_id: sender.id },
-        defaults: {
+      const existing = await db.query.telegram_subscribers.findFirst({
+        where: eq(telegram_subscribers.user_id, sender.id)
+      });
+
+      if (!existing) {
+        await db.insert(telegram_subscribers).values({
           user_id: sender.id,
           username: sender.username || null,
           first_name: sender.first_name || null,
@@ -140,9 +163,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
           joined_at: new Date(),
           left_at: null,
           kicked_at: null
-        }
-      });
-      if (created) {
+        });
         console.log(
           `[Telegram Webhook] ✅ Auto-registered existing member: ${sender.first_name} (@${sender.username || 'no-username'}) [ID: ${sender.id}]`
         );
@@ -150,6 +171,5 @@ export const handleWebhook = async (req: Request, res: Response) => {
     }
   } catch (error) {
     console.error('[Telegram Webhook] Error processing update:', error);
-    // Don't throw - we already sent 200 OK to Telegram
   }
 };

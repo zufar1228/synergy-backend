@@ -1,33 +1,19 @@
-// backend/src/services/navigationService.ts
-import { Area, Device, Warehouse } from "../db/models";
-import { literal } from "sequelize";
+import { db } from '../db/drizzle';
+import { areas, devices, warehouses } from '../db/schema';
+import { eq, asc } from 'drizzle-orm';
 
 export const getAreasBySystemType = async (systemType: string) => {
-  const areas = await Area.findAll({
-    attributes: [
-      "id",
-      "name",
-      "warehouse_id",
-      // Ambil nama gudang melalui relasi
-      [literal('"warehouse"."name"'), "warehouse_name"],
-    ],
-    include: [
-      {
-        model: Device,
-        as: "devices",
-        where: { system_type: systemType },
-        attributes: [], // Kita tidak butuh data device, hanya untuk join
-        required: true, // INNER JOIN: Hanya area yang punya device ini
-      },
-      {
-        model: Warehouse,
-        as: "warehouse",
-        attributes: [], // Hanya untuk mengambil nama di atas
-        required: true,
-      },
-    ],
-    group: ["Area.id", "warehouse.id"], // Group untuk memastikan hasil unik
-    order: [["name", "ASC"]],
-  });
-  return areas;
+  const result = await db
+    .selectDistinct({
+      id: areas.id,
+      name: areas.name,
+      warehouse_id: areas.warehouse_id,
+      warehouse_name: warehouses.name
+    })
+    .from(areas)
+    .innerJoin(devices, eq(areas.id, devices.area_id))
+    .innerJoin(warehouses, eq(areas.warehouse_id, warehouses.id))
+    .where(eq(devices.system_type, systemType))
+    .orderBy(asc(areas.name));
+  return result;
 };

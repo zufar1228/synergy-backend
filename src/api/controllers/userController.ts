@@ -1,5 +1,6 @@
 // backend/src/api/controllers/userController.ts
 import { Request, Response } from 'express';
+import { env } from '../../config/env';
 import * as userService from '../../services/userService';
 import * as webPushService from '../../services/webPushService';
 import ApiError from '../../utils/apiError';
@@ -27,12 +28,10 @@ export const verifyAccess = async (req: Request, res: Response) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('[verifyAccess] Error:', error);
-    res
-      .status(500)
-      .json({
-        authorized: false,
-        message: 'Terjadi kesalahan saat memverifikasi akses.'
-      });
+    res.status(500).json({
+      authorized: false,
+      message: 'Terjadi kesalahan saat memverifikasi akses.'
+    });
   }
 };
 
@@ -193,7 +192,7 @@ export const subscribeToPush = async (req: Request, res: Response) => {
 };
 
 export const getVapidPublicKey = (req: Request, res: Response) => {
-  res.status(200).json({ publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
+  res.status(200).json({ publicKey: env.NEXT_PUBLIC_VAPID_PUBLIC_KEY });
 };
 
 // Sync all roles from database to Supabase app_metadata

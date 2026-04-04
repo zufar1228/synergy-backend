@@ -1,95 +1,48 @@
-// backend/src/services/warehouseService.ts
-
-import { Warehouse, Area, Device } from "../db/models";
-import { sequelize } from "../db/config";
-import { WarehouseAttributes } from "../db/models/warehouse"; // Pastikan Anda mengimpor ini
-import ApiError from "../utils/apiError";
-
-// === PERBAIKAN DIMULAI DI SINI ===
-
-// 1. Definisikan tipe-tipe data yang merepresentasikan hasil query kita secara akurat.
-interface DeviceSummary {
-  system_type: string;
-}
-
-interface AreaWithDevices {
-  id: string;
-  name: string;
-  devices: DeviceSummary[];
-}
-
-interface WarehouseWithAreas extends WarehouseAttributes {
-  areas: AreaWithDevices[];
-}
-
-interface WarehouseWithRelations extends Warehouse {
-  areas: (Area & {
-    devices: Device[];
-  })[];
-}
-
-type WarehouseCreationAttributes = WarehouseAttributes;
+import { db } from '../db/drizzle';
+import { warehouses, areas, devices } from '../db/schema';
+import type { WarehouseInsert } from '../db/schema';
+import { eq, asc, sql } from 'drizzle-orm';
+import ApiError from '../utils/apiError';
 
 export const getWarehouseWithAreaSystems = async (warehouseId: string) => {
-  const warehouse = (await Warehouse.findByPk(warehouseId, {
-    include: [
-      {
-        model: Area,
-        as: "areas",
-        attributes: ["id", "name"],
-        include: [
-          {
-            model: Device,
-            as: "devices",
-            // === PERUBAHAN DI SINI: Ambil juga statusnya ===
-            attributes: ["system_type", "status"],
-          },
-        ],
-      },
-    ],
-    order: [[{ model: Area, as: "areas" }, "name", "ASC"]],
-  })) as WarehouseWithRelations | null;
+  const warehouse = await db.query.warehouses.findFirst({
+    where: eq(warehouses.id, warehouseId),
+    with: {
+      areas: {
+        with: {
+          devices: {
+            columns: { system_type: true, status: true }
+          }
+        },
+        orderBy: [asc(areas.name)]
+      }
+    }
+  });
 
   if (!warehouse) {
-    throw new ApiError(404, "Warehouse not found");
+    throw new ApiError(404, 'Warehouse not found');
   }
 
-  // === PERBAIKAN: Ganti query statistik yang kompleks dengan yang lebih sederhana ===
-  const commonWhere = {
-    include: [
-      {
-        model: Area,
-        as: "area",
-        attributes: [],
-        where: { warehouse_id: warehouseId },
-      },
-    ],
-  };
+  // Count total and online devices in this warehouse
+  const [deviceStats] = await db
+    .select({
+      total: sql<number>`cast(count(*) as int)`,
+      online: sql<number>`cast(count(*) filter (where ${devices.status} = 'Online') as int)`
+    })
+    .from(devices)
+    .innerJoin(areas, eq(devices.area_id, areas.id))
+    .where(eq(areas.warehouse_id, warehouseId));
 
-  // 1. Hitung total perangkat di gudang ini
-  const totalDeviceCount = await Device.count(commonWhere);
-
-  // 2. Hitung perangkat yang online di gudang ini
-  const onlineDeviceCount = await Device.count({
-    ...commonWhere,
-    where: { status: "Online" },
-  });
-  // ======================================================================
-
-  const warehouseData = warehouse.toJSON() as WarehouseWithAreas;
-
-  // === PERUBAHAN DI SINI: Proses data status ===
-  const transformedAreas = warehouseData.areas.map((area: any) => {
+  const transformedAreas = warehouse.areas.map((area) => {
     const systemsMap = new Map<
       string,
       { device_count: number; status: string }
     >();
 
-    area.devices.forEach((device: any) => {
-      // Asumsi 1 tipe sistem per area, statusnya langsung diambil
+    area.devices.forEach((device) => {
       systemsMap.set(device.system_type, {
         device_count: 1,
-        status: device.status,
+        status: device.status
       });
     });
 
@@ -97,79 +50,67 @@ export const getWarehouseWithAreaSystems = async (warehouseId: string) => {
       ([type, data]) => ({
         system_type: type,
         device_count: data.device_count,
-        status: data.status, // <-- Kirim status ke frontend
+        status: data.status
       })
     );
 
     return { id: area.id, name: area.name, active_systems: activeSystems };
   });
 
-  const response = {
-    id: warehouseData.id,
-    name: warehouseData.name,
-    location: warehouseData.location,
-    areaCount: warehouseData.areas.length,
-    deviceCount: totalDeviceCount,
-    onlineDeviceCount: onlineDeviceCount,
-    areas: transformedAreas,
+  return {
+    id: warehouse.id,
+    name: warehouse.name,
+    location: warehouse.location,
+    areaCount: warehouse.areas.length,
+    deviceCount: deviceStats?.total ?? 0,
+    onlineDeviceCount: deviceStats?.online ?? 0,
+    areas: transformedAreas
   };
-
-  return response;
 };
 
 export const getAllWarehousesWithStats = async () => {
-  const warehouses = await Warehouse.findAll({
-    attributes: {
-      include: [
-        // Subquery untuk menghitung jumlah area
-        [
-          sequelize.literal(
-            '(SELECT COUNT(*) FROM areas WHERE areas.warehouse_id = "Warehouse"."id")'
-          ),
-          "areaCount",
-        ],
-        // Subquery untuk menghitung jumlah total perangkat
-        [
-          sequelize.literal(`(
-            SELECT COUNT(*) FROM devices 
-            JOIN areas ON devices.area_id = areas.id 
-            WHERE areas.warehouse_id = "Warehouse"."id"
-          )`),
-          "deviceCount",
-        ],
-        // Subquery untuk menghitung jumlah perangkat yang online
-        [
-          sequelize.literal(`(
-            SELECT COUNT(*) FROM devices 
-            JOIN areas ON devices.area_id = areas.id 
-            WHERE areas.warehouse_id = "Warehouse"."id" AND devices.status = 'Online'
-          )`),
-          "onlineDeviceCount",
-        ],
-      ],
-    },
-    order: [["name", "ASC"]],
-  });
-  return warehouses;
+  const result = await db
+    .select({
+      id: warehouses.id,
+      name: warehouses.name,
+      location: warehouses.location,
+      created_at: warehouses.created_at,
+      updated_at: warehouses.updated_at,
+      areaCount: sql<number>`cast((SELECT count(*) FROM areas WHERE areas.warehouse_id = "warehouses"."id") as int)`,
+      deviceCount: sql<number>`cast((SELECT count(*) FROM devices JOIN areas ON devices.area_id = areas.id WHERE areas.warehouse_id = "warehouses"."id") as int)`,
+      onlineDeviceCount: sql<number>`cast((SELECT count(*) FROM devices JOIN areas ON devices.area_id = areas.id WHERE areas.warehouse_id = "warehouses"."id" AND devices.status = 'Online') as int)`
+    })
+    .from(warehouses)
+    .orderBy(asc(warehouses.name));
+  return result;
 };
 
-export const createWarehouse = async (data: WarehouseCreationAttributes) => {
-  const warehouse = await Warehouse.create(data);
+export const createWarehouse = async (data: WarehouseInsert) => {
+  const [warehouse] = await db.insert(warehouses).values(data).returning();
   return warehouse;
 };
 
 export const updateWarehouse = async (
   id: string,
-  data: Partial<WarehouseCreationAttributes>
+  data: Partial<WarehouseInsert>
 ) => {
-  const warehouse = await Warehouse.findByPk(id);
-  if (!warehouse) throw new ApiError(404, "Warehouse not found");
-  await warehouse.update(data);
-  return warehouse;
+  const warehouse = await db.query.warehouses.findFirst({
+    where: eq(warehouses.id, id)
+  });
+  if (!warehouse) throw new ApiError(404, 'Warehouse not found');
+
+  const [updated] = await db
+    .update(warehouses)
+    .set({ ...data, updated_at: new Date() })
+    .where(eq(warehouses.id, id))
+    .returning();
+  return updated;
 };
 
 export const deleteWarehouse = async (id: string) => {
-  const warehouse = await Warehouse.findByPk(id);
-  if (!warehouse) throw new ApiError(404, "Warehouse not found");
-  await warehouse.destroy();
+  const warehouse = await db.query.warehouses.findFirst({
+    where: eq(warehouses.id, id)
+  });
+  if (!warehouse) throw new ApiError(404, 'Warehouse not found');
+  await db.delete(warehouses).where(eq(warehouses.id, id));
 };

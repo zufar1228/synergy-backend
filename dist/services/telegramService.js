@@ -6,9 +6,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteWebhook = exports.getWebhookInfo = exports.setWebhook = exports.kickMember = exports.createSingleUseInviteLink = exports.sendGroupAlert = void 0;
 // backend/src/services/telegramService.ts
 const axios_1 = __importDefault(require("axios"));
-require("dotenv/config");
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const GROUP_ID = process.env.TELEGRAM_GROUP_ID;
+const env_1 = require("../config/env");
+const BOT_TOKEN = env_1.env.TELEGRAM_BOT_TOKEN;
+const GROUP_ID = env_1.env.TELEGRAM_GROUP_ID;
 const BASE_URL = `https://api.telegram.org/bot${BOT_TOKEN}`;
 /**
  * Helper untuk handle error axios dengan logging yang konsisten
@@ -53,7 +53,7 @@ const sendGroupAlert = async (message) => {
             chat_id: GROUP_ID,
             text: message,
             parse_mode: 'HTML',
-            disable_web_page_preview: true, // Optimization: disable link previews for alerts
+            disable_web_page_preview: true // Optimization: disable link previews for alerts
         });
         console.log('[TelegramService] Alert sent successfully.');
         return true;
@@ -78,7 +78,7 @@ const createSingleUseInviteLink = async () => {
             chat_id: GROUP_ID,
             member_limit: 1,
             expire_date: expireDate,
-            name: `Invite ${new Date().toISOString()}`, // Label untuk tracking
+            name: `Invite ${new Date().toISOString()}` // Label untuk tracking
         });
         console.log('[TelegramService] Invite link created:', response.data.result.invite_link);
         return response.data.result;
@@ -100,7 +100,7 @@ const kickMember = async (userId) => {
         // Ban (Kick) member
         await axios_1.default.post(`${BASE_URL}/banChatMember`, {
             chat_id: GROUP_ID,
-            user_id: userId,
+            user_id: userId
         });
         console.log(`[TelegramService] User ${userId} banned from group.`);
         // Unban setelah delay singkat (agar user bisa diinvite lagi di masa depan)
@@ -110,7 +110,7 @@ const kickMember = async (userId) => {
             await axios_1.default.post(`${BASE_URL}/unbanChatMember`, {
                 chat_id: GROUP_ID,
                 user_id: userId,
-                only_if_banned: true,
+                only_if_banned: true
             });
             console.log(`[TelegramService] User ${userId} unbanned (can be re-invited).`);
         }
@@ -132,8 +132,8 @@ exports.kickMember = kickMember;
  * Dipanggil saat server start
  */
 const setWebhook = async () => {
-    const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
-    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const webhookUrl = env_1.env.TELEGRAM_WEBHOOK_URL;
+    const secret = env_1.env.TELEGRAM_WEBHOOK_SECRET;
     if (!BOT_TOKEN) {
         console.warn('[TelegramService] Bot token not set. Skipping webhook setup.');
         return false;
@@ -147,7 +147,7 @@ const setWebhook = async () => {
             url: webhookUrl,
             secret_token: secret,
             allowed_updates: ['chat_member', 'message'], // Fokus ke update member & messages
-            drop_pending_updates: true, // Optimization: ignore old updates on restart
+            drop_pending_updates: true // Optimization: ignore old updates on restart
         });
         if (response.data.ok) {
             console.log(`[TelegramService] ✅ Webhook set to: ${webhookUrl}`);
@@ -188,7 +188,7 @@ const deleteWebhook = async () => {
         return false;
     try {
         await axios_1.default.post(`${BASE_URL}/deleteWebhook`, {
-            drop_pending_updates: true,
+            drop_pending_updates: true
         });
         console.log('[TelegramService] Webhook deleted.');
         return true;

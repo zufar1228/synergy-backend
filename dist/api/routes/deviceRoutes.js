@@ -37,8 +37,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const deviceController = __importStar(require("../controllers/deviceController"));
 const validateRequest_1 = require("../middlewares/validateRequest");
+const authMiddleware_1 = require("../middlewares/authMiddleware");
 const zod_1 = require("zod");
 const router = (0, express_1.Router)();
+const adminOnly = (0, authMiddleware_1.roleBasedAuth)(['admin', 'super_admin']);
 // Daftar tipe sistem yang kita izinkan
 const systemTypes = zod_1.z.enum(['keamanan', 'intrusi', 'lingkungan']);
 const createDeviceSchema = zod_1.z.object({
@@ -62,8 +64,8 @@ const updateDeviceSchema = zod_1.z.object({
 router.get('/details', deviceController.getDeviceDetailsByArea);
 // Rute yang sudah ada
 router.get('/', deviceController.listDevices);
-router.post('/', (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
+router.post('/', adminOnly, (0, validateRequest_1.validate)(createDeviceSchema), deviceController.createDevice);
 router.get('/:id', deviceController.getDeviceById);
-router.put('/:id', (0, validateRequest_1.validate)(updateDeviceSchema), deviceController.updateDevice);
-router.delete('/:id', deviceController.deleteDevice);
+router.put('/:id', adminOnly, (0, validateRequest_1.validate)(updateDeviceSchema), deviceController.updateDevice);
+router.delete('/:id', adminOnly, deviceController.deleteDevice);
 exports.default = router;

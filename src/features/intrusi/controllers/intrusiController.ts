@@ -2,7 +2,7 @@
 import { Request, Response } from 'express';
 import * as intrusiService from '../services/intrusiService';
 import * as actuationService from '../services/actuationService';
-import { AcknowledgeStatus } from '../models/intrusiLog';
+import { type AcknowledgeStatus } from '../../../db/schema';
 import ApiError from '../../../utils/apiError';
 
 const handleError = (res: Response, error: unknown) => {

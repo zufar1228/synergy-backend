@@ -40,7 +40,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteWarehouse = exports.updateWarehouse = exports.getWarehouseById = exports.createWarehouse = exports.listWarehouses = exports.getAreasWithSystems = void 0;
 const warehouseService = __importStar(require("../../services/warehouseService"));
 const apiError_1 = __importDefault(require("../../utils/apiError"));
-const models_1 = require("../../db/models");
+const drizzle_1 = require("../../db/drizzle");
+const schema_1 = require("../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const getAreasWithSystems = async (req, res) => {
     try {
         const { id } = req.params;
@@ -59,7 +61,6 @@ const getAreasWithSystems = async (req, res) => {
 exports.getAreasWithSystems = getAreasWithSystems;
 const listWarehouses = async (req, res) => {
     try {
-        // Panggil fungsi baru yang mengembalikan statistik
         const data = await warehouseService.getAllWarehousesWithStats();
         res.status(200).json(data);
     }
@@ -90,9 +91,9 @@ const createWarehouse = async (req, res) => {
 exports.createWarehouse = createWarehouse;
 const getWarehouseById = async (req, res) => {
     try {
-        // Fungsi findByPk sudah ada di service (getWarehouseWithAreaSystems),
-        // tapi kita buat yang lebih simpel di sini
-        const warehouse = await models_1.Warehouse.findByPk(req.params.id);
+        const warehouse = await drizzle_1.db.query.warehouses.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.warehouses.id, req.params.id)
+        });
         if (!warehouse)
             return res.status(404).json({ message: "Warehouse not found" });
         res.status(200).json(warehouse);
@@ -125,7 +126,7 @@ exports.updateWarehouse = updateWarehouse;
 const deleteWarehouse = async (req, res) => {
     try {
         await warehouseService.deleteWarehouse(req.params.id);
-        res.status(204).send(); // No Content
+        res.status(204).send();
     }
     catch (error) {
         if (error instanceof apiError_1.default) {

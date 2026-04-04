@@ -1,7 +1,8 @@
 // backend/src/services/keamananService.ts
-import KeamananLog from "../models/keamananLog";
-import { IncidentStatus } from "../../../db/models/incident";
-import ApiError from "../../../utils/apiError";
+import { db } from '../../../db/drizzle';
+import { keamanan_logs, type IncidentStatus } from '../../../db/schema';
+import { eq } from 'drizzle-orm';
+import ApiError from '../../../utils/apiError';
 
 export const updateKeamananLogStatus = async (
   logId: string,
@@ -9,14 +10,24 @@ export const updateKeamananLogStatus = async (
   status: IncidentStatus,
   notes?: string
 ) => {
-  const log = await KeamananLog.findByPk(logId);
-  if (!log) throw new ApiError(404, "Log keamanan tidak ditemukan.");
+  const [existing] = await db
+    .select()
+    .from(keamanan_logs)
+    .where(eq(keamanan_logs.id, logId))
+    .limit(1);
 
-  log.status = status;
-  log.notes = notes || log.notes;
-  log.acknowledged_by = userId;
-  log.acknowledged_at = new Date();
+  if (!existing) throw new ApiError(404, 'Log keamanan tidak ditemukan.');
 
-  await log.save();
-  return log;
+  const [updated] = await db
+    .update(keamanan_logs)
+    .set({
+      status,
+      notes: notes || existing.notes,
+      acknowledged_by: userId,
+      acknowledged_at: new Date()
+    })
+    .where(eq(keamanan_logs.id, logId))
+    .returning();
+
+  return updated;
 };

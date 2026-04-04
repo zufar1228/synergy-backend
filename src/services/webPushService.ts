@@ -1,26 +1,34 @@
 import webpush from 'web-push';
-import { PushSubscription } from '../db/models';
-import 'dotenv/config';
+import { db } from '../db/drizzle';
+import { push_subscriptions } from '../db/schema';
+import { eq } from 'drizzle-orm';
+import { env } from '../config/env';
 
 // Log VAPID config on startup for debugging
-console.log(
-  '[WebPush] Initializing with VAPID Subject:',
-  process.env.VAPID_SUBJECT
-);
+console.log('[WebPush] Initializing with VAPID Subject:', env.VAPID_SUBJECT);
 console.log(
   '[WebPush] Public Key (first 20 chars):',
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.slice(0, 20) + '...'
+  env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.slice(0, 20) + '...'
 );
-console.log('[WebPush] Private Key exists:', !!process.env.VAPID_PRIVATE_KEY);
+console.log('[WebPush] Private Key exists:', !!env.VAPID_PRIVATE_KEY);
 
-// Inisialisasi VAPID
 try {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT!,
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
-  );
-  console.log('[WebPush] ✅ VAPID initialized successfully');
+  if (
+    env.VAPID_SUBJECT &&
+    env.NEXT_PUBLIC_VAPID_PUBLIC_KEY &&
+    env.VAPID_PRIVATE_KEY
+  ) {
+    webpush.setVapidDetails(
+      env.VAPID_SUBJECT,
+      env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+      env.VAPID_PRIVATE_KEY
+    );
+    console.log('[WebPush] ✅ VAPID initialized successfully');
+  } else {
+    console.warn(
+      '[WebPush] ⚠️ VAPID keys not fully configured, push notifications disabled'
+    );
+  }
 } catch (error) {
   console.error('[WebPush] ❌ VAPID initialization failed:', error);
 }
@@ -29,12 +37,23 @@ export const saveSubscription = async (
   userId: string,
   sub: { endpoint: string; keys: { p256dh: string; auth: string } }
 ) => {
-  await PushSubscription.upsert({
-    user_id: userId,
-    endpoint: sub.endpoint,
-    p256dh: sub.keys.p256dh,
-    auth: sub.keys.auth
-  });
+  await db
+    .insert(push_subscriptions)
+    .values({
+      user_id: userId,
+      endpoint: sub.endpoint,
+      p256dh: sub.keys.p256dh,
+      auth: sub.keys.auth
+    })
+    .onConflictDoUpdate({
+      target: push_subscriptions.endpoint,
+      set: {
+        user_id: userId,
+        p256dh: sub.keys.p256dh,
+        auth: sub.keys.auth,
+        updated_at: new Date()
+      }
+    });
 };
 
 export const sendPushNotification = async (
@@ -44,8 +63,8 @@ export const sendPushNotification = async (
   console.log(`[WebPush] sendPushNotification called for user: ${userId}`);
   console.log(`[WebPush] Payload:`, JSON.stringify(payload));
 
-  const subscriptions = await PushSubscription.findAll({
-    where: { user_id: userId }
+  const subscriptions = await db.query.push_subscriptions.findMany({
+    where: eq(push_subscriptions.user_id, userId)
   });
 
   console.log(
@@ -66,35 +85,36 @@ export const sendPushNotification = async (
     url: payload.url || '/dashboard'
   });
 
-  // Jalankan pengiriman ke semua device user ini secara paralel
   const promises = subscriptions.map(async (sub) => {
     try {
-      // Set urgency: 'high' + short TTL so push services (FCM/Mozilla) deliver immediately
       await webpush.sendNotification(
         {
           endpoint: sub.endpoint,
           keys: { p256dh: sub.p256dh, auth: sub.auth }
         },
         notificationPayload,
-        {
-          urgency: 'high',
-          TTL: 60
-        }
+        { urgency: 'high', TTL: 60 }
       );
-
       console.log(`[WebPush] ✅ Sent to user ${userId.slice(0, 4)}...`);
     } catch (error: any) {
-      // Log Error Lengkap
       console.error(`[WebPush] ❌ Failed: ${error.statusCode}`);
       if (error.body) console.error('Error Body:', error.body);
 
-      if (error.statusCode === 410 || error.statusCode === 404) {
-        console.log(`[WebPush] Cleaning up expired subscription...`);
-        await sub.destroy();
+      // Clean up subscriptions that are no longer valid
+      if (
+        error.statusCode === 410 ||
+        error.statusCode === 404 ||
+        error.statusCode === 401
+      ) {
+        console.log(
+          `[WebPush] Cleaning up invalid subscription (HTTP ${error.statusCode})...`
+        );
+        await db
+          .delete(push_subscriptions)
+          .where(eq(push_subscriptions.id, sub.id));
       }
     }
   });
 
-  // Tunggu semua pengiriman ke user ini selesai (Parallel, tapi ditunggu)
   await Promise.all(promises);
 };

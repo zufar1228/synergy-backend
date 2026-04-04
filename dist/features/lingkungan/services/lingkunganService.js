@@ -38,15 +38,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateLingkunganLogStatus = exports.getLingkunganStatus = exports.getChartData = exports.getLingkunganSummary = exports.getLingkunganLogs = exports.switchToAutoMode = exports.handleManualControl = exports.sendActuatorCommand = exports.handlePredictionResult = exports.ingestSensorData = void 0;
 // backend/src/services/lingkunganService.ts
-const sequelize_1 = require("sequelize");
-const models_1 = require("../../../db/models");
-const lingkunganLog_1 = __importDefault(require("../models/lingkunganLog"));
-const predictionResult_1 = __importDefault(require("../models/predictionResult"));
+const drizzle_1 = require("../../../db/drizzle");
+const schema_1 = require("../../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../../../utils/apiError"));
 const client_1 = require("../../../mqtt/client");
 const lingkunganAlertingService = __importStar(require("./lingkunganAlertingService"));
-// MQTT topics for ML prediction pipeline
-const ML_PREDICT_REQUEST_TOPIC = 'synergy/ml/predict/request';
+const env_1 = require("../../../config/env");
+// ML server HTTP endpoint (no longer goes through EMQX)
+const ML_SERVER_URL = env_1.env.ML_SERVER_URL;
 // Safety thresholds (Level 2 — firmware safety)
 const SAFE_TEMP = 30;
 const SAFE_HUMIDITY = 75;
@@ -63,32 +63,41 @@ const FAILSAFE_CO2_THRESHOLD = 1450;
 const ML_SEQUENCE_LENGTH = 240;
 // Manual override duration (5 minutes)
 const MANUAL_OVERRIDE_DURATION_MS = 5 * 60 * 1000;
+// Per-device prediction mutex to prevent parallel predictions
+const predictionInFlight = new Set();
 /**
  * Ingest raw sensor data from MQTT and trigger ML prediction pipeline.
  */
 const ingestSensorData = async (data) => {
     // 1. Save raw sensor data
-    const log = await lingkunganLog_1.default.create({
+    const [log] = await drizzle_1.db
+        .insert(schema_1.lingkungan_logs)
+        .values({
         device_id: data.device_id,
         temperature: data.temperature,
         humidity: data.humidity,
         co2: data.co2
-    });
+    })
+        .returning();
     console.log(`[LingkunganService] Ingested sensor data: T=${data.temperature}°C, H=${data.humidity}%, CO2=${data.co2}ppm for device ${data.device_id}`);
     // 2. Fetch device once, share across all downstream calls
-    const device = await models_1.Device.findByPk(data.device_id, {
-        include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id),
+        with: { area: { columns: { id: true, warehouse_id: true } } }
     });
     if (!device) {
         console.error(`[LingkunganService] Device ${data.device_id} not found`);
         return log;
     }
     // 3. Update device with latest sensor readings
-    await device.update({
+    await drizzle_1.db
+        .update(schema_1.devices)
+        .set({
         last_temperature: data.temperature,
         last_humidity: data.humidity,
         last_co2: data.co2
-    });
+    })
+        .where((0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id));
     // 4. Trigger ML prediction (non-blocking)
     triggerPrediction(data.device_id, device).catch((err) => {
         console.error('[LingkunganService] ML prediction failed:', err.message);
@@ -101,25 +110,28 @@ const ingestSensorData = async (data) => {
 };
 exports.ingestSensorData = ingestSensorData;
 /**
- * Trigger ML prediction by publishing a request to the ML server via MQTT.
- * The ML server subscribes to 'synergy/ml/predict/request', runs inference,
- * and publishes the result to 'synergy/ml/predict/response/{deviceId}'.
- * The response is handled asynchronously in handlePredictionResult().
+ * Trigger ML prediction via direct HTTP call to the ML server.
  */
 const triggerPrediction = async (deviceId, device) => {
+    // Skip if a prediction is already in flight for this device
+    if (predictionInFlight.has(deviceId)) {
+        console.log(`[LingkunganService] Prediction already in flight for ${deviceId}. Skipping.`);
+        return;
+    }
+    predictionInFlight.add(deviceId);
     try {
-        const totalLogs = await lingkunganLog_1.default.count({
-            where: { device_id: deviceId }
-        });
-        // Only trigger prediction when we have at least 1 full hour of data.
+        const [countResult] = await drizzle_1.db
+            .select({ count: (0, drizzle_orm_1.count)() })
+            .from(schema_1.lingkungan_logs)
+            .where((0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, deviceId));
+        const totalLogs = Number(countResult.count);
         if (totalLogs < ML_SEQUENCE_LENGTH) {
             console.log(`[LingkunganService] Not enough data for prediction (${totalLogs}/${ML_SEQUENCE_LENGTH}). Skipping.`);
             return;
         }
-        // Get the latest ML_SEQUENCE_LENGTH readings then reverse to oldest-first.
-        const recentData = await lingkunganLog_1.default.findAll({
-            where: { device_id: deviceId },
-            order: [['timestamp', 'DESC']],
+        const recentData = await drizzle_1.db.query.lingkungan_logs.findMany({
+            where: (0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, deviceId),
+            orderBy: [(0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.timestamp), (0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.id)],
             limit: ML_SEQUENCE_LENGTH
         });
         const sequence = recentData.reverse().map((r) => ({
@@ -130,55 +142,54 @@ const triggerPrediction = async (deviceId, device) => {
             status_kipas: device.fan_state === 'ON' ? 1 : 0,
             status_dehumidifier: device.dehumidifier_state === 'ON' ? 1 : 0
         }));
-        // Publish prediction request to ML server via MQTT
-        const payload = JSON.stringify({
-            device_id: deviceId,
-            sequence
+        const response = await fetch(`${ML_SERVER_URL}/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: deviceId, sequence }),
+            signal: AbortSignal.timeout(15000)
         });
-        client_1.client.publish(ML_PREDICT_REQUEST_TOPIC, payload, { qos: 1 }, (err) => {
-            if (err) {
-                console.error(`[LingkunganService] Failed to publish ML prediction request for ${deviceId}:`, err);
-            }
-            else {
-                console.log(`[LingkunganService] ML prediction request published for device ${deviceId}`);
-            }
-        });
+        if (!response.ok) {
+            console.error(`[LingkunganService] ML server returned HTTP ${response.status} for ${deviceId}`);
+            return;
+        }
+        const prediction = await response.json();
+        console.log(`[LingkunganService] ML prediction received for device ${deviceId}`);
+        await (0, exports.handlePredictionResult)(deviceId, prediction);
     }
     catch (error) {
         console.error('[LingkunganService] ML prediction request error:', error.message);
     }
+    finally {
+        predictionInFlight.delete(deviceId);
+    }
 };
 /**
- * Handle the ML prediction result received via MQTT.
- * Called from the MQTT client when a message arrives on
- * 'synergy/ml/predict/response/{deviceId}'.
+ * Handle the ML prediction result from the HTTP response.
  */
 const handlePredictionResult = async (deviceId, prediction) => {
     try {
-        // Check for ML server error
         if (prediction.error) {
             console.error(`[LingkunganService] ML server returned error for ${deviceId}: ${prediction.error}`);
             return;
         }
-        // Compute forecasted timestamp: latest data point + 15 minutes
-        // This reflects the actual time the model is predicting for, not when the inference ran.
-        const latestLog = await lingkunganLog_1.default.findOne({
-            where: { device_id: deviceId },
-            order: [['timestamp', 'DESC']]
+        const latestLog = await drizzle_1.db.query.lingkungan_logs.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, deviceId),
+            orderBy: [(0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.timestamp)]
         });
-        const forecastedAt = latestLog
+        const forecastedAt = latestLog?.timestamp
             ? new Date(latestLog.timestamp.getTime() + 15 * 60 * 1000)
             : new Date(Date.now() + 15 * 60 * 1000);
-        // Save prediction result
-        const predResult = await predictionResult_1.default.create({
+        const [predResult] = await drizzle_1.db
+            .insert(schema_1.prediction_results)
+            .values({
             device_id: deviceId,
             predicted_temperature: prediction.predicted_temperature,
             predicted_humidity: prediction.predicted_humidity,
             predicted_co2: prediction.predicted_co2,
             timestamp: forecastedAt
-        });
+        })
+            .returning();
         console.log(`[LingkunganService] Prediction saved: T=${prediction.predicted_temperature}°C, H=${prediction.predicted_humidity}%, CO2=${prediction.predicted_co2}ppm`);
-        // Check predictive thresholds (Level 3 - Actuators)
         await handlePredictiveControl(deviceId, prediction);
         return predResult;
     }
@@ -191,57 +202,48 @@ exports.handlePredictionResult = handlePredictionResult;
  * Level 2: Firmware safety check — turn OFF actuators if below safe thresholds.
  */
 const handleFirmwareSafetyCheck = async (data, _device) => {
-    // If ALL readings are below safe thresholds, turn off actuators
     if (data.temperature < SAFE_TEMP &&
         data.humidity < SAFE_HUMIDITY &&
         data.co2 < SAFE_CO2) {
-        // Re-read device to get fresh control_mode (avoid stale data race)
-        const freshDevice = await models_1.Device.findByPk(data.device_id, {
-            include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+        const freshDevice = await drizzle_1.db.query.devices.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id),
+            with: { area: { columns: { id: true, warehouse_id: true } } }
         });
         if (!freshDevice)
             return;
-        // Check if in manual override mode
         if (freshDevice.control_mode === 'MANUAL') {
             const overrideUntil = freshDevice.manual_override_until;
             if (!overrideUntil || new Date(overrideUntil) > new Date()) {
                 console.log('[LingkunganService] Manual override active. Skipping safety deactivation.');
                 return;
             }
-            // Override expired, switch back to auto
-            await freshDevice.update({
-                control_mode: 'AUTO',
-                manual_override_until: null
-            });
+            await drizzle_1.db
+                .update(schema_1.devices)
+                .set({ control_mode: 'AUTO', manual_override_until: null })
+                .where((0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id));
         }
-        // Turn off actuators via MQTT
         if (freshDevice.fan_state === 'ON' ||
             freshDevice.dehumidifier_state === 'ON') {
             console.log('[LingkunganService] Safety thresholds clear. Turning off actuators.');
-            await (0, exports.sendActuatorCommand)(data.device_id, {
-                fan: 'OFF',
-                dehumidifier: 'OFF'
-            }, freshDevice);
-            await freshDevice.update({
-                fan_state: 'OFF',
-                dehumidifier_state: 'OFF'
-            });
-            // Send recovery notification
+            await (0, exports.sendActuatorCommand)(data.device_id, { fan: 'OFF', dehumidifier: 'OFF' }, freshDevice);
+            await drizzle_1.db
+                .update(schema_1.devices)
+                .set({ fan_state: 'OFF', dehumidifier_state: 'OFF' })
+                .where((0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id));
             await lingkunganAlertingService.processLingkunganAlert(data.device_id, ['Kondisi lingkungan kembali stabil. Aktuator dinonaktifkan.'], data, 'RECOVERY');
         }
     }
 };
 /**
  * Level 3: Predictive & Early Warning — activate actuators based on ML forecast.
- * Notifikasi hanya dikirim saat ada perubahan state aktuator (OFF -> ON).
  */
 const handlePredictiveControl = async (deviceId, prediction) => {
-    const device = await models_1.Device.findByPk(deviceId, {
-        include: [{ model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }]
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
+        with: { area: { columns: { id: true, warehouse_id: true } } }
     });
     if (!device)
         return;
-    // Check manual override
     if (device.control_mode === 'MANUAL') {
         const overrideUntil = device.manual_override_until;
         if (!overrideUntil || new Date(overrideUntil) > new Date()) {
@@ -252,7 +254,6 @@ const handlePredictiveControl = async (deviceId, prediction) => {
     const fanPredictedCritical = prediction.predicted_temperature >= PREDICT_TEMP_THRESHOLD;
     const dehumPredictedCritical = prediction.predicted_humidity >= PREDICT_HUMIDITY_THRESHOLD ||
         prediction.predicted_co2 >= PREDICT_CO2_THRESHOLD;
-    // Hindari spam: hanya trigger jika aktuator yang dibutuhkan masih OFF.
     const triggerFan = fanPredictedCritical && device.fan_state !== 'ON';
     const triggerDehumidifier = dehumPredictedCritical && device.dehumidifier_state !== 'ON';
     const alerts = [];
@@ -274,25 +275,25 @@ const handlePredictiveControl = async (deviceId, prediction) => {
         if (triggerDehumidifier)
             command.dehumidifier = 'ON';
         await (0, exports.sendActuatorCommand)(deviceId, command, device);
-        // Update device state
         const updateData = {};
         if (triggerFan)
             updateData.fan_state = 'ON';
         if (triggerDehumidifier)
             updateData.dehumidifier_state = 'ON';
-        await device.update(updateData);
-        // Update the latest prediction record
-        const latestPrediction = await predictionResult_1.default.findOne({
-            where: { device_id: deviceId },
-            order: [['timestamp', 'DESC']]
+        await drizzle_1.db.update(schema_1.devices).set(updateData).where((0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId));
+        const latestPrediction = await drizzle_1.db.query.prediction_results.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.prediction_results.device_id, deviceId),
+            orderBy: [(0, drizzle_orm_1.desc)(schema_1.prediction_results.timestamp)]
         });
         if (latestPrediction) {
-            await latestPrediction.update({
+            await drizzle_1.db
+                .update(schema_1.prediction_results)
+                .set({
                 fan_triggered: triggerFan,
                 dehumidifier_triggered: triggerDehumidifier
-            });
+            })
+                .where((0, drizzle_orm_1.eq)(schema_1.prediction_results.id, latestPrediction.id));
         }
-        // Send predictive alert
         await lingkunganAlertingService.processLingkunganAlert(deviceId, alerts, {
             temperature: prediction.predicted_temperature,
             humidity: prediction.predicted_humidity,
@@ -301,14 +302,14 @@ const handlePredictiveControl = async (deviceId, prediction) => {
     }
 };
 /**
- * Level 3: Failsafe warning — SEND ALERTS and TRIGGER ACTUATORS based on ACTUAL readings exceeding thresholds.
+ * Level 3: Failsafe warning — SEND ALERTS and TRIGGER ACTUATORS based on ACTUAL readings.
  */
 const handleActualThresholdControl = async (data, _device) => {
-    // Re-read device to get fresh control_mode (avoid stale data race)
-    const freshDevice = await models_1.Device.findByPk(data.device_id);
+    const freshDevice = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id)
+    });
     if (!freshDevice)
         return;
-    // Check manual override
     if (freshDevice.control_mode === 'MANUAL') {
         const overrideUntil = freshDevice.manual_override_until;
         if (!overrideUntil || new Date(overrideUntil) > new Date()) {
@@ -332,23 +333,22 @@ const handleActualThresholdControl = async (data, _device) => {
         alerts.push(`CO2 saat ini ${data.co2.toFixed(0)}ppm (>= ${FAILSAFE_CO2_THRESHOLD}ppm)`);
     }
     if (triggerFan || triggerDehumidifier) {
-        // Send actuator command as failsafe
         const command = {};
         if (triggerFan)
             command.fan = 'ON';
         if (triggerDehumidifier)
             command.dehumidifier = 'ON';
         await (0, exports.sendActuatorCommand)(data.device_id, command, freshDevice);
-        // Update device state
         const updateData = {};
         if (triggerFan)
             updateData.fan_state = 'ON';
         if (triggerDehumidifier)
             updateData.dehumidifier_state = 'ON';
-        await freshDevice.update(updateData);
-        // Add manual prompt
+        await drizzle_1.db
+            .update(schema_1.devices)
+            .set(updateData)
+            .where((0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id));
         alerts.push("🚨 Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol.");
-        // Send Telegram/Push notification based on actual data
         await lingkunganAlertingService.processLingkunganAlert(data.device_id, alerts, data, 'FAILSAFE');
     }
 };
@@ -356,13 +356,11 @@ const handleActualThresholdControl = async (data, _device) => {
  * Send actuator command to ESP32 via MQTT.
  */
 const sendActuatorCommand = async (deviceId, command, device) => {
-    // Use provided device or fetch if not available
     const deviceWithArea = device && device.area
         ? device
-        : await models_1.Device.findByPk(deviceId, {
-            include: [
-                { model: models_1.Area, as: 'area', attributes: ['id', 'warehouse_id'] }
-            ]
+        : await drizzle_1.db.query.devices.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
+            with: { area: { columns: { id: true, warehouse_id: true } } }
         });
     if (!deviceWithArea) {
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan.');
@@ -384,7 +382,6 @@ exports.sendActuatorCommand = sendActuatorCommand;
  * Handle manual control from dashboard (Level 1 — highest priority).
  */
 const handleManualControl = async (deviceId, command) => {
-    // Set manual override mode with 5-minute expiry
     const overrideUntil = new Date(Date.now() + MANUAL_OVERRIDE_DURATION_MS);
     const updateData = {
         control_mode: 'MANUAL',
@@ -394,8 +391,7 @@ const handleManualControl = async (deviceId, command) => {
         updateData.fan_state = command.fan;
     if (command.dehumidifier)
         updateData.dehumidifier_state = command.dehumidifier;
-    await models_1.Device.update(updateData, { where: { id: deviceId } });
-    // Send command to ESP32
+    await drizzle_1.db.update(schema_1.devices).set(updateData).where((0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId));
     await (0, exports.sendActuatorCommand)(deviceId, command);
     console.log(`[LingkunganService] Manual override set until ${overrideUntil.toISOString()}`);
 };
@@ -404,7 +400,10 @@ exports.handleManualControl = handleManualControl;
  * Switch back to auto mode.
  */
 const switchToAutoMode = async (deviceId) => {
-    await models_1.Device.update({ control_mode: 'AUTO', manual_override_until: null }, { where: { id: deviceId } });
+    await drizzle_1.db
+        .update(schema_1.devices)
+        .set({ control_mode: 'AUTO', manual_override_until: null })
+        .where((0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId));
     console.log(`[LingkunganService] Switched to AUTO mode for device ${deviceId}`);
 };
 exports.switchToAutoMode = switchToAutoMode;
@@ -413,22 +412,26 @@ exports.switchToAutoMode = switchToAutoMode;
  */
 const getLingkunganLogs = async (options) => {
     const { device_id, limit = 50, offset = 0, from, to } = options;
-    const where = { device_id };
-    if (from || to) {
-        where.timestamp = {
-            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
-            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
-        };
-    }
-    const { count, rows } = await lingkunganLog_1.default.findAndCountAll({
-        where,
+    const conditions = [(0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, device_id)];
+    if (from)
+        conditions.push((0, drizzle_orm_1.gte)(schema_1.lingkungan_logs.timestamp, new Date(from)));
+    if (to)
+        conditions.push((0, drizzle_orm_1.lte)(schema_1.lingkungan_logs.timestamp, new Date(to)));
+    const whereClause = (0, drizzle_orm_1.and)(...conditions);
+    const [countResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.lingkungan_logs)
+        .where(whereClause);
+    const total = Number(countResult.count);
+    const data = await drizzle_1.db.query.lingkungan_logs.findMany({
+        where: whereClause,
         limit,
         offset,
-        order: [['timestamp', 'DESC']]
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.timestamp)]
     });
     return {
-        data: rows,
-        pagination: { total: count, limit, offset, hasMore: offset + limit < count }
+        data,
+        pagination: { total, limit, offset, hasMore: offset + limit < total }
     };
 };
 exports.getLingkunganLogs = getLingkunganLogs;
@@ -436,31 +439,31 @@ exports.getLingkunganLogs = getLingkunganLogs;
  * Get summary statistics.
  */
 const getLingkunganSummary = async (device_id, from, to) => {
-    const where = { device_id };
-    if (from || to) {
-        where.timestamp = {
-            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
-            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
-        };
-    }
-    const total_readings = await lingkunganLog_1.default.count({ where });
-    // Get latest readings
-    const latest = await lingkunganLog_1.default.findOne({
-        where: { device_id },
-        order: [['timestamp', 'DESC']]
+    const conditions = [(0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, device_id)];
+    if (from)
+        conditions.push((0, drizzle_orm_1.gte)(schema_1.lingkungan_logs.timestamp, new Date(from)));
+    if (to)
+        conditions.push((0, drizzle_orm_1.lte)(schema_1.lingkungan_logs.timestamp, new Date(to)));
+    const baseWhere = (0, drizzle_orm_1.and)(...conditions);
+    const [totalResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.lingkungan_logs)
+        .where(baseWhere);
+    const latest = await drizzle_1.db.query.lingkungan_logs.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, device_id),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.timestamp)]
     });
-    // Get latest prediction
-    const latestPrediction = await predictionResult_1.default.findOne({
-        where: { device_id },
-        order: [['timestamp', 'DESC']]
+    const latestPrediction = await drizzle_1.db.query.prediction_results.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.prediction_results.device_id, device_id),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.prediction_results.timestamp)]
     });
-    // Get alerts count (unacknowledged)
-    const unacknowledged = await lingkunganLog_1.default.count({
-        where: { ...where, status: 'unacknowledged' }
-    });
+    const [unackResult] = await drizzle_1.db
+        .select({ count: (0, drizzle_orm_1.count)() })
+        .from(schema_1.lingkungan_logs)
+        .where((0, drizzle_orm_1.and)(...conditions, (0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.status, 'unacknowledged')));
     return {
-        total_readings,
-        unacknowledged,
+        total_readings: Number(totalResult.count),
+        unacknowledged: Number(unackResult.count),
         latest_reading: latest
             ? {
                 temperature: latest.temperature,
@@ -484,37 +487,39 @@ exports.getLingkunganSummary = getLingkunganSummary;
  * Get chart data (actual vs predicted).
  */
 const getChartData = async (device_id, from, to, limit = 100) => {
-    const where = { device_id };
-    if (from || to) {
-        where.timestamp = {
-            ...(from && { [sequelize_1.Op.gte]: new Date(from) }),
-            ...(to && { [sequelize_1.Op.lte]: new Date(to) })
-        };
-    }
+    const conditions = [(0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, device_id)];
+    if (from)
+        conditions.push((0, drizzle_orm_1.gte)(schema_1.lingkungan_logs.timestamp, new Date(from)));
+    if (to)
+        conditions.push((0, drizzle_orm_1.lte)(schema_1.lingkungan_logs.timestamp, new Date(to)));
+    const whereClause = (0, drizzle_orm_1.and)(...conditions);
+    const predConditions = [(0, drizzle_orm_1.eq)(schema_1.prediction_results.device_id, device_id)];
+    if (from)
+        predConditions.push((0, drizzle_orm_1.gte)(schema_1.prediction_results.timestamp, new Date(from)));
+    if (to)
+        predConditions.push((0, drizzle_orm_1.lte)(schema_1.prediction_results.timestamp, new Date(to)));
+    const predWhere = (0, drizzle_orm_1.and)(...predConditions);
     console.log('[LingkunganService.getChartData]', {
         device_id,
         from,
         to,
-        limit,
-        whereClause: where
-    });
-    const actual = await lingkunganLog_1.default.findAll({
-        where,
-        attributes: ['timestamp', 'temperature', 'humidity', 'co2'],
-        // Get newest first for efficient limiting, then reverse before returning.
-        order: [['timestamp', 'DESC']],
         limit
     });
-    const predictions = await predictionResult_1.default.findAll({
-        where,
-        attributes: [
-            'timestamp',
-            'predicted_temperature',
-            'predicted_humidity',
-            'predicted_co2'
-        ],
-        // Get newest first for efficient limiting, then reverse before returning.
-        order: [['timestamp', 'DESC']],
+    const actual = await drizzle_1.db.query.lingkungan_logs.findMany({
+        where: whereClause,
+        columns: { timestamp: true, temperature: true, humidity: true, co2: true },
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.timestamp)],
+        limit
+    });
+    const predictions = await drizzle_1.db.query.prediction_results.findMany({
+        where: predWhere,
+        columns: {
+            timestamp: true,
+            predicted_temperature: true,
+            predicted_humidity: true,
+            predicted_co2: true
+        },
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.prediction_results.timestamp)],
         limit
     });
     const result = {
@@ -534,18 +539,19 @@ exports.getChartData = getChartData;
  * Get device status including control mode.
  */
 const getLingkunganStatus = async (device_id) => {
-    const device = await models_1.Device.findByPk(device_id);
+    const device = await drizzle_1.db.query.devices.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.id, device_id)
+    });
     if (!device)
         throw new apiError_1.default(404, 'Perangkat tidak ditemukan.');
-    const latest = await lingkunganLog_1.default.findOne({
-        where: { device_id },
-        order: [['timestamp', 'DESC']]
+    const latest = await drizzle_1.db.query.lingkungan_logs.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.device_id, device_id),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.lingkungan_logs.timestamp)]
     });
-    const latestPrediction = await predictionResult_1.default.findOne({
-        where: { device_id },
-        order: [['timestamp', 'DESC']]
+    const latestPrediction = await drizzle_1.db.query.prediction_results.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.prediction_results.device_id, device_id),
+        orderBy: [(0, drizzle_orm_1.desc)(schema_1.prediction_results.timestamp)]
     });
-    // Determine overall status
     let status = 'NORMAL';
     if (latest) {
         if (latest.temperature > PREDICT_TEMP_THRESHOLD ||
@@ -588,14 +594,21 @@ exports.getLingkunganStatus = getLingkunganStatus;
  * Update log acknowledgement status.
  */
 const updateLingkunganLogStatus = async (logId, userId, status, notes) => {
-    const log = await lingkunganLog_1.default.findByPk(logId);
-    if (!log)
+    const existing = await drizzle_1.db.query.lingkungan_logs.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.id, logId)
+    });
+    if (!existing)
         throw new apiError_1.default(404, 'Log lingkungan tidak ditemukan.');
-    log.status = status;
-    log.notes = notes || log.notes;
-    log.acknowledged_by = userId;
-    log.acknowledged_at = new Date();
-    await log.save();
-    return log;
+    const [updated] = await drizzle_1.db
+        .update(schema_1.lingkungan_logs)
+        .set({
+        status,
+        notes: notes || existing.notes,
+        acknowledged_by: userId,
+        acknowledged_at: new Date()
+    })
+        .where((0, drizzle_orm_1.eq)(schema_1.lingkungan_logs.id, logId))
+        .returning();
+    return updated;
 };
 exports.updateLingkunganLogStatus = updateLingkunganLogStatus;

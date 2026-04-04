@@ -1,135 +1,107 @@
 "use strict";
-// backend/src/services/warehouseService.ts
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteWarehouse = exports.updateWarehouse = exports.createWarehouse = exports.getAllWarehousesWithStats = exports.getWarehouseWithAreaSystems = void 0;
-const models_1 = require("../db/models");
-const config_1 = require("../db/config");
+const drizzle_1 = require("../db/drizzle");
+const schema_1 = require("../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../utils/apiError"));
 const getWarehouseWithAreaSystems = async (warehouseId) => {
-    const warehouse = (await models_1.Warehouse.findByPk(warehouseId, {
-        include: [
-            {
-                model: models_1.Area,
-                as: "areas",
-                attributes: ["id", "name"],
-                include: [
-                    {
-                        model: models_1.Device,
-                        as: "devices",
-                        // === PERUBAHAN DI SINI: Ambil juga statusnya ===
-                        attributes: ["system_type", "status"],
-                    },
-                ],
-            },
-        ],
-        order: [[{ model: models_1.Area, as: "areas" }, "name", "ASC"]],
-    }));
-    if (!warehouse) {
-        throw new apiError_1.default(404, "Warehouse not found");
-    }
-    // === PERBAIKAN: Ganti query statistik yang kompleks dengan yang lebih sederhana ===
-    const commonWhere = {
-        include: [
-            {
-                model: models_1.Area,
-                as: "area",
-                attributes: [],
-                where: { warehouse_id: warehouseId },
-            },
-        ],
-    };
-    // 1. Hitung total perangkat di gudang ini
-    const totalDeviceCount = await models_1.Device.count(commonWhere);
-    // 2. Hitung perangkat yang online di gudang ini
-    const onlineDeviceCount = await models_1.Device.count({
-        ...commonWhere,
-        where: { status: "Online" },
+    const warehouse = await drizzle_1.db.query.warehouses.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.warehouses.id, warehouseId),
+        with: {
+            areas: {
+                with: {
+                    devices: {
+                        columns: { system_type: true, status: true }
+                    }
+                },
+                orderBy: [(0, drizzle_orm_1.asc)(schema_1.areas.name)]
+            }
+        }
     });
-    // ======================================================================
-    const warehouseData = warehouse.toJSON();
-    // === PERUBAHAN DI SINI: Proses data status ===
-    const transformedAreas = warehouseData.areas.map((area) => {
+    if (!warehouse) {
+        throw new apiError_1.default(404, 'Warehouse not found');
+    }
+    // Count total and online devices in this warehouse
+    const [deviceStats] = await drizzle_1.db
+        .select({
+        total: (0, drizzle_orm_1.sql) `cast(count(*) as int)`,
+        online: (0, drizzle_orm_1.sql) `cast(count(*) filter (where ${schema_1.devices.status} = 'Online') as int)`
+    })
+        .from(schema_1.devices)
+        .innerJoin(schema_1.areas, (0, drizzle_orm_1.eq)(schema_1.devices.area_id, schema_1.areas.id))
+        .where((0, drizzle_orm_1.eq)(schema_1.areas.warehouse_id, warehouseId));
+    const transformedAreas = warehouse.areas.map((area) => {
         const systemsMap = new Map();
         area.devices.forEach((device) => {
-            // Asumsi 1 tipe sistem per area, statusnya langsung diambil
             systemsMap.set(device.system_type, {
                 device_count: 1,
-                status: device.status,
+                status: device.status
             });
         });
         const activeSystems = Array.from(systemsMap.entries()).map(([type, data]) => ({
             system_type: type,
             device_count: data.device_count,
-            status: data.status, // <-- Kirim status ke frontend
+            status: data.status
         }));
         return { id: area.id, name: area.name, active_systems: activeSystems };
     });
-    const response = {
-        id: warehouseData.id,
-        name: warehouseData.name,
-        location: warehouseData.location,
-        areaCount: warehouseData.areas.length,
-        deviceCount: totalDeviceCount,
-        onlineDeviceCount: onlineDeviceCount,
-        areas: transformedAreas,
+    return {
+        id: warehouse.id,
+        name: warehouse.name,
+        location: warehouse.location,
+        areaCount: warehouse.areas.length,
+        deviceCount: deviceStats?.total ?? 0,
+        onlineDeviceCount: deviceStats?.online ?? 0,
+        areas: transformedAreas
     };
-    return response;
 };
 exports.getWarehouseWithAreaSystems = getWarehouseWithAreaSystems;
 const getAllWarehousesWithStats = async () => {
-    const warehouses = await models_1.Warehouse.findAll({
-        attributes: {
-            include: [
-                // Subquery untuk menghitung jumlah area
-                [
-                    config_1.sequelize.literal('(SELECT COUNT(*) FROM areas WHERE areas.warehouse_id = "Warehouse"."id")'),
-                    "areaCount",
-                ],
-                // Subquery untuk menghitung jumlah total perangkat
-                [
-                    config_1.sequelize.literal(`(
-            SELECT COUNT(*) FROM devices 
-            JOIN areas ON devices.area_id = areas.id 
-            WHERE areas.warehouse_id = "Warehouse"."id"
-          )`),
-                    "deviceCount",
-                ],
-                // Subquery untuk menghitung jumlah perangkat yang online
-                [
-                    config_1.sequelize.literal(`(
-            SELECT COUNT(*) FROM devices 
-            JOIN areas ON devices.area_id = areas.id 
-            WHERE areas.warehouse_id = "Warehouse"."id" AND devices.status = 'Online'
-          )`),
-                    "onlineDeviceCount",
-                ],
-            ],
-        },
-        order: [["name", "ASC"]],
-    });
-    return warehouses;
+    const result = await drizzle_1.db
+        .select({
+        id: schema_1.warehouses.id,
+        name: schema_1.warehouses.name,
+        location: schema_1.warehouses.location,
+        created_at: schema_1.warehouses.created_at,
+        updated_at: schema_1.warehouses.updated_at,
+        areaCount: (0, drizzle_orm_1.sql) `cast((SELECT count(*) FROM areas WHERE areas.warehouse_id = "warehouses"."id") as int)`,
+        deviceCount: (0, drizzle_orm_1.sql) `cast((SELECT count(*) FROM devices JOIN areas ON devices.area_id = areas.id WHERE areas.warehouse_id = "warehouses"."id") as int)`,
+        onlineDeviceCount: (0, drizzle_orm_1.sql) `cast((SELECT count(*) FROM devices JOIN areas ON devices.area_id = areas.id WHERE areas.warehouse_id = "warehouses"."id" AND devices.status = 'Online') as int)`
+    })
+        .from(schema_1.warehouses)
+        .orderBy((0, drizzle_orm_1.asc)(schema_1.warehouses.name));
+    return result;
 };
 exports.getAllWarehousesWithStats = getAllWarehousesWithStats;
 const createWarehouse = async (data) => {
-    const warehouse = await models_1.Warehouse.create(data);
+    const [warehouse] = await drizzle_1.db.insert(schema_1.warehouses).values(data).returning();
     return warehouse;
 };
 exports.createWarehouse = createWarehouse;
 const updateWarehouse = async (id, data) => {
-    const warehouse = await models_1.Warehouse.findByPk(id);
+    const warehouse = await drizzle_1.db.query.warehouses.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.warehouses.id, id)
+    });
     if (!warehouse)
-        throw new apiError_1.default(404, "Warehouse not found");
-    await warehouse.update(data);
-    return warehouse;
+        throw new apiError_1.default(404, 'Warehouse not found');
+    const [updated] = await drizzle_1.db
+        .update(schema_1.warehouses)
+        .set({ ...data, updated_at: new Date() })
+        .where((0, drizzle_orm_1.eq)(schema_1.warehouses.id, id))
+        .returning();
+    return updated;
 };
 exports.updateWarehouse = updateWarehouse;
 const deleteWarehouse = async (id) => {
-    const warehouse = await models_1.Warehouse.findByPk(id);
+    const warehouse = await drizzle_1.db.query.warehouses.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.warehouses.id, id)
+    });
     if (!warehouse)
-        throw new apiError_1.default(404, "Warehouse not found");
-    await warehouse.destroy();
+        throw new apiError_1.default(404, 'Warehouse not found');
+    await drizzle_1.db.delete(schema_1.warehouses).where((0, drizzle_orm_1.eq)(schema_1.warehouses.id, id));
 };
 exports.deleteWarehouse = deleteWarehouse;

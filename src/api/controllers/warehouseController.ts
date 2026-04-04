@@ -3,7 +3,9 @@
 import { Request, Response } from "express";
 import * as warehouseService from "../../services/warehouseService";
 import ApiError from "../../utils/apiError";
-import { Warehouse } from "../../db/models";
+import { db } from "../../db/drizzle";
+import { warehouses } from "../../db/schema";
+import { eq } from "drizzle-orm";
 
 export const getAreasWithSystems = async (req: Request, res: Response) => {
   try {
@@ -22,7 +24,6 @@ export const getAreasWithSystems = async (req: Request, res: Response) => {
 
 export const listWarehouses = async (req: Request, res: Response) => {
   try {
-    // Panggil fungsi baru yang mengembalikan statistik
     const data = await warehouseService.getAllWarehousesWithStats();
     res.status(200).json(data);
   } catch (error) {
@@ -51,9 +52,9 @@ export const createWarehouse = async (req: Request, res: Response) => {
 
 export const getWarehouseById = async (req: Request, res: Response) => {
   try {
-    // Fungsi findByPk sudah ada di service (getWarehouseWithAreaSystems),
-    // tapi kita buat yang lebih simpel di sini
-    const warehouse = await Warehouse.findByPk(req.params.id);
+    const warehouse = await db.query.warehouses.findFirst({
+      where: eq(warehouses.id, req.params.id)
+    });
     if (!warehouse)
       return res.status(404).json({ message: "Warehouse not found" });
     res.status(200).json(warehouse);
@@ -87,7 +88,7 @@ export const updateWarehouse = async (req: Request, res: Response) => {
 export const deleteWarehouse = async (req: Request, res: Response) => {
   try {
     await warehouseService.deleteWarehouse(req.params.id);
-    res.status(204).send(); // No Content
+    res.status(204).send();
   } catch (error) {
     if (error instanceof ApiError) {
       return res.status(error.statusCode).json({ message: error.message });

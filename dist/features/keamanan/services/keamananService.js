@@ -5,17 +5,28 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateKeamananLogStatus = void 0;
 // backend/src/services/keamananService.ts
-const keamananLog_1 = __importDefault(require("../models/keamananLog"));
+const drizzle_1 = require("../../../db/drizzle");
+const schema_1 = require("../../../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const apiError_1 = __importDefault(require("../../../utils/apiError"));
 const updateKeamananLogStatus = async (logId, userId, status, notes) => {
-    const log = await keamananLog_1.default.findByPk(logId);
-    if (!log)
-        throw new apiError_1.default(404, "Log keamanan tidak ditemukan.");
-    log.status = status;
-    log.notes = notes || log.notes;
-    log.acknowledged_by = userId;
-    log.acknowledged_at = new Date();
-    await log.save();
-    return log;
+    const [existing] = await drizzle_1.db
+        .select()
+        .from(schema_1.keamanan_logs)
+        .where((0, drizzle_orm_1.eq)(schema_1.keamanan_logs.id, logId))
+        .limit(1);
+    if (!existing)
+        throw new apiError_1.default(404, 'Log keamanan tidak ditemukan.');
+    const [updated] = await drizzle_1.db
+        .update(schema_1.keamanan_logs)
+        .set({
+        status,
+        notes: notes || existing.notes,
+        acknowledged_by: userId,
+        acknowledged_at: new Date()
+    })
+        .where((0, drizzle_orm_1.eq)(schema_1.keamanan_logs.id, logId))
+        .returning();
+    return updated;
 };
 exports.updateKeamananLogStatus = updateKeamananLogStatus;

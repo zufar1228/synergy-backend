@@ -2,8 +2,8 @@
 {
   "compilerOptions": {
     "target": "ES2020", // Mengkompilasi ke versi JavaScript modern
-    "module": "CommonJS", // Sistem modul yang digunakan Node.js
-    "rootDir": "./src", // Folder utama kode sumber TypeScript
+    "module": "CommonJS",
+    "rootDir": "./src",
     "outDir": "./dist", // Folder output untuk file JavaScript hasil kompilasi
     "esModuleInterop": true, // Memungkinkan interoperabilitas modul
     "forceConsistentCasingInFileNames": true,

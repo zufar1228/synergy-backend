@@ -34,9 +34,10 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.notifySubscribers = void 0;
-// backend/src/services/alertingService.ts
 // Shared notification dispatcher — domain-specific alert logic lives in features/
-const models_1 = require("../db/models");
+const drizzle_1 = require("../db/drizzle");
+const schema_1 = require("../db/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const webPushService = __importStar(require("./webPushService"));
 const telegramService = __importStar(require("./telegramService"));
 const lingkunganAlertingService_1 = require("../features/lingkungan/services/lingkunganAlertingService");
@@ -46,15 +47,14 @@ const lingkunganAlertingService_1 = require("../features/lingkungan/services/lin
  */
 const notifySubscribers = async (systemType, subject, emailProps) => {
     // 1. Ambil User ID yang subscribe
-    const userIds = (await models_1.UserNotificationPreference.findAll({
-        where: { system_type: systemType, is_enabled: true },
-        attributes: ['user_id']
-    })).map((sub) => sub.user_id);
+    const prefs = await drizzle_1.db.query.user_notification_preferences.findMany({
+        where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.system_type, systemType), (0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.is_enabled, true)),
+        columns: { user_id: true }
+    });
+    const userIds = prefs.map((sub) => sub.user_id);
     // === TASK 1: KIRIM KE TELEGRAM GROUP (SELALU, tidak tergantung subscriber) ===
     const telegramTask = (async () => {
         try {
-            // Check if this is an alert (not "back to normal" message)
-            // Alert subjects contain: PERINGATAN, 🚨
             const isAlert = subject.includes('PERINGATAN') || subject.includes('🚨');
             if (systemType === 'lingkungan') {
                 const allowed = (0, lingkunganAlertingService_1.shouldSendLingkunganTelegram)(emailProps.deviceId, isAlert);
@@ -65,7 +65,6 @@ const notifySubscribers = async (systemType, subject, emailProps) => {
             }
             const emoji = isAlert ? '🚨' : '✅';
             const statusText = isAlert ? 'PERINGATAN BAHAYA' : 'KEMBALI NORMAL';
-            // Build detail text from emailProps.details if available
             let detailText = '';
             if (emailProps.details && Array.isArray(emailProps.details)) {
                 detailText = emailProps.details
@@ -91,7 +90,6 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
             console.error('[Alerting] Telegram notification failed:', error);
         }
     })();
-    // Jika tidak ada subscriber, hanya kirim Telegram saja
     if (userIds.length === 0) {
         console.log(`[Alerting] No subscribers for ${systemType}, sending Telegram only.`);
         await telegramTask;
@@ -104,18 +102,14 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
             ? '🚨 BAHAYA TERDETEKSI'
             : '✅ KEMBALI NORMAL';
         const pushBody = `Lokasi: ${emailProps.warehouseName} - ${emailProps.areaName}. ${emailProps.incidentType || 'Status Update'}.`;
-        // Map menjadi array of promises
         const pushPromises = userIds.map((userId) => webPushService.sendPushNotification(userId, {
             title: pushTitle,
             body: pushBody,
             url: `/dashboard`
         }));
-        // Jalankan paralel
         await Promise.all(pushPromises);
         console.log('[Alerting] All push notifications processed.');
     })();
-    // === EKSEKUSI SEMUANYA BERSAMAAN ===
-    // Push dan Telegram jalan paralel
     await Promise.all([pushTask, telegramTask]);
 };
 exports.notifySubscribers = notifySubscribers;

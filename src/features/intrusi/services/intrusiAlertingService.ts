@@ -1,18 +1,38 @@
 // features/intrusi/services/intrusiAlertingService.ts
-import { Device, Area, Warehouse } from '../../../db/models';
+import { db } from '../../../db/drizzle';
+import { devices } from '../../../db/schema';
+import { eq } from 'drizzle-orm';
 import { formatTimestampWIB } from '../../../utils/time';
 import { notifySubscribers } from '../../../services/alertingService';
-
-interface DeviceWithRelations extends Device {
-  area: Area & {
-    warehouse: Warehouse;
-  };
-}
 
 // Cooldown to suppress duplicate Telegram alerts when the firmware sends both
 // UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
 const deviceIntrusiAlertState = new Map<string, Date>();
 const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+const devicePowerState: Map<
+  string,
+  {
+    lastPowerSource?: string;
+    lastBatteryCriticalSentAt?: Date;
+  }
+> = new Map();
+
+// Prune stale entries every 30 minutes to avoid orphaned device entries
+setInterval(
+  () => {
+    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
+    for (const [key, date] of deviceIntrusiAlertState) {
+      if (date.getTime() < cutoff) deviceIntrusiAlertState.delete(key);
+    }
+    for (const [key, state] of devicePowerState) {
+      const lastActivity = state.lastBatteryCriticalSentAt?.getTime() ?? 0;
+      if (lastActivity < cutoff && state.lastPowerSource) continue; // keep if has power state
+      if (lastActivity < cutoff) devicePowerState.delete(key);
+    }
+  },
+  30 * 60 * 1000
+);
 
 /**
  * Process alarm events from the door security (intrusi) system.
@@ -34,8 +54,6 @@ export const processIntrusiAlert = async (
   );
 
   // Suppress duplicate alerts for the same device within the cooldown window.
-  // The firmware can emit both UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for
-  // a single incident, which would otherwise send two Telegram messages.
   const now = new Date();
   const lastSent = deviceIntrusiAlertState.get(deviceId);
   if (
@@ -49,15 +67,10 @@ export const processIntrusiAlert = async (
   }
   deviceIntrusiAlertState.set(deviceId, now);
 
-  const device = (await Device.findByPk(deviceId, {
-    include: [
-      {
-        model: Area,
-        as: 'area',
-        include: [{ model: Warehouse, as: 'warehouse' }]
-      }
-    ]
-  })) as DeviceWithRelations | null;
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, deviceId),
+    with: { area: { with: { warehouse: true } } }
+  });
 
   if (!device || !device.area || !device.area.warehouse) {
     console.error(
@@ -68,7 +81,6 @@ export const processIntrusiAlert = async (
 
   const { area } = device;
   const { warehouse } = area;
-
   const timestamp = formatTimestampWIB();
 
   const isUnauthorizedOpen = data.type === 'UNAUTHORIZED_OPEN';
@@ -119,14 +131,6 @@ export const processIntrusiAlert = async (
 // ============================================================================
 // POWER & BATTERY ALERTS
 // ============================================================================
-const devicePowerState: Map<
-  string,
-  {
-    lastPowerSource?: string;
-    lastBatteryCriticalSentAt?: Date;
-  }
-> = new Map();
-
 const BATTERY_CRITICAL_PCT = 10;
 const BATTERY_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
 
@@ -187,15 +191,10 @@ export const processPowerAlert = async (
 
   if (!shouldAlert) return;
 
-  const device = (await Device.findByPk(deviceId, {
-    include: [
-      {
-        model: Area,
-        as: 'area',
-        include: [{ model: Warehouse, as: 'warehouse' }]
-      }
-    ]
-  })) as DeviceWithRelations | null;
+  const device = await db.query.devices.findFirst({
+    where: eq(devices.id, deviceId),
+    with: { area: { with: { warehouse: true } } }
+  });
 
   if (!device || !device.area || !device.area.warehouse) {
     console.error(

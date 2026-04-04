@@ -6,14 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deprovisionDeviceInEMQX = exports.provisionDeviceInEMQX = void 0;
 // backend/src/services/emqxService.ts
 const axios_1 = __importDefault(require("axios"));
-require("dotenv/config");
-const API_BASE_URL = process.env.EMQX_API_URL;
-if (!process.env.EMQX_APP_ID || !process.env.EMQX_APP_SECRET) {
+const env_1 = require("../config/env");
+const API_BASE_URL = env_1.env.EMQX_API_URL;
+if (!env_1.env.EMQX_APP_ID || !env_1.env.EMQX_APP_SECRET) {
     throw new Error('EMQX_APP_ID and EMQX_APP_SECRET must be set in environment variables');
 }
 const AUTH = {
-    username: process.env.EMQX_APP_ID,
-    password: process.env.EMQX_APP_SECRET
+    username: env_1.env.EMQX_APP_ID,
+    password: env_1.env.EMQX_APP_SECRET
 };
 console.log('[EMQX] Service module loaded.');
 async function createMqttUser(deviceId) {
