@@ -118,7 +118,10 @@ export const deleteWarehouse = async (id: string) => {
     columns: { id: true }
   });
   if (childAreas.length > 0) {
-    throw new ApiError(409, `Gudang ini masih memiliki ${childAreas.length} area. Hapus area terlebih dahulu.`);
+    throw new ApiError(
+      409,
+      `Gudang ini masih memiliki ${childAreas.length} area. Hapus area terlebih dahulu.`
+    );
   }
 
   await db.delete(warehouses).where(eq(warehouses.id, id));

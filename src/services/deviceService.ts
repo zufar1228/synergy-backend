@@ -20,6 +20,20 @@ export const getAllDevices = async () => {
 export const createDevice = async (deviceData: DeviceInsert) => {
   try {
     return await db.transaction(async (tx) => {
+      // Check for duplicate system_type in the same area
+      const existing = await tx.query.devices.findFirst({
+        where: and(
+          eq(devices.area_id, deviceData.area_id),
+          eq(devices.system_type, deviceData.system_type)
+        )
+      });
+      if (existing) {
+        throw new ApiError(
+          409,
+          `Tidak bisa menambahkan system type yang sama dalam 1 area.`
+        );
+      }
+
       const [newDevice] = await tx
         .insert(devices)
         .values(deviceData)

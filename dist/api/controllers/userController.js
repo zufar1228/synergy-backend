@@ -76,7 +76,9 @@ const inviteUser = async (req, res) => {
     }
     const validRoles = ['admin', 'user'];
     if (!validRoles.includes(role)) {
-        return res.status(400).json({ message: 'Peran tidak valid. Harus admin atau user.' });
+        return res
+            .status(400)
+            .json({ message: 'Peran tidak valid. Harus admin atau user.' });
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {

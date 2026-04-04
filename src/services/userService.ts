@@ -2,7 +2,11 @@ import { supabaseAdmin } from '../config/supabaseAdmin';
 import { env } from '../config/env';
 import { sendInviteEmail } from './notificationService';
 import { db } from '../db/drizzle';
-import { profiles, user_roles, user_notification_preferences } from '../db/schema';
+import {
+  profiles,
+  user_roles,
+  user_notification_preferences
+} from '../db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import ApiError from '../utils/apiError';
 import { User } from '@supabase/supabase-js';
@@ -331,13 +335,14 @@ export const updateUserPreferences = async (
   try {
     await db.transaction(async (tx) => {
       for (const pref of preferences) {
-        const existing =
-          await tx.query.user_notification_preferences.findFirst({
+        const existing = await tx.query.user_notification_preferences.findFirst(
+          {
             where: and(
               eq(user_notification_preferences.user_id, userId),
               eq(user_notification_preferences.system_type, pref.system_type)
             )
-          });
+          }
+        );
 
         if (existing) {
           await tx

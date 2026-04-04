@@ -57,6 +57,13 @@ exports.getAllDevices = getAllDevices;
 const createDevice = async (deviceData) => {
     try {
         return await drizzle_1.db.transaction(async (tx) => {
+            // Check for duplicate system_type in the same area
+            const existing = await tx.query.devices.findFirst({
+                where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.devices.area_id, deviceData.area_id), (0, drizzle_orm_1.eq)(schema_1.devices.system_type, deviceData.system_type))
+            });
+            if (existing) {
+                throw new apiError_1.default(409, `Tidak bisa menambahkan system type yang sama dalam 1 area.`);
+            }
             const [newDevice] = await tx
                 .insert(schema_1.devices)
                 .values(deviceData)

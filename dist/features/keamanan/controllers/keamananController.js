@@ -58,9 +58,18 @@ const updateStatus = async (req, res) => {
         if (!userId) {
             throw new apiError_1.default(401, 'User tidak terautentikasi.');
         }
-        const validStatuses = ['unacknowledged', 'acknowledged', 'resolved', 'false_alarm'];
+        const validStatuses = [
+            'unacknowledged',
+            'acknowledged',
+            'resolved',
+            'false_alarm'
+        ];
         if (!status || !validStatuses.includes(status)) {
-            return res.status(400).json({ message: 'Status tidak valid. Harus salah satu dari: unacknowledged, acknowledged, resolved, false_alarm.' });
+            return res
+                .status(400)
+                .json({
+                message: 'Status tidak valid. Harus salah satu dari: unacknowledged, acknowledged, resolved, false_alarm.'
+            });
         }
         const updatedLog = await keamananService.updateKeamananLogStatus(id, userId, status, notes);
         res.status(200).json(updatedLog);
@@ -74,9 +83,7 @@ const triggerRepeatDetection = async (req, res) => {
     try {
         console.log('[KeamananController] Triggering repeat detection notifications...');
         await (0, repeatDetectionService_1.findAndNotifyRepeatDetections)();
-        res
-            .status(200)
-            .json({
+        res.status(200).json({
             message: 'Repeat detection notifications triggered successfully'
         });
     }

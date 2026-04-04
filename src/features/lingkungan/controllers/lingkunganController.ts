@@ -164,9 +164,19 @@ export const updateStatus = async (req: Request, res: Response) => {
     if (!userId) {
       throw new ApiError(401, 'User tidak terautentikasi.');
     }
-    const validStatuses: AcknowledgeStatus[] = ['unacknowledged', 'acknowledged', 'resolved', 'false_alarm'];
+    const validStatuses: AcknowledgeStatus[] = [
+      'unacknowledged',
+      'acknowledged',
+      'resolved',
+      'false_alarm'
+    ];
     if (!status || !validStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Status tidak valid. Harus salah satu dari: unacknowledged, acknowledged, resolved, false_alarm.' });
+      return res
+        .status(400)
+        .json({
+          message:
+            'Status tidak valid. Harus salah satu dari: unacknowledged, acknowledged, resolved, false_alarm.'
+        });
     }
 
     const updatedLog = await lingkunganService.updateLingkunganLogStatus(

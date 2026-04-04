@@ -61,7 +61,10 @@ export const deleteArea = async (id: string) => {
     columns: { id: true }
   });
   if (childDevices.length > 0) {
-    throw new ApiError(409, `Area ini masih memiliki ${childDevices.length} perangkat. Hapus perangkat terlebih dahulu.`);
+    throw new ApiError(
+      409,
+      `Area ini masih memiliki ${childDevices.length} perangkat. Hapus perangkat terlebih dahulu.`
+    );
   }
 
   await db.delete(areas).where(eq(areas.id, id));
