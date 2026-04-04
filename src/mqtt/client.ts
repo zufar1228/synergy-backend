@@ -110,7 +110,11 @@ const createClient = (): mqtt.MqttClient => {
     clientId: MQTT_CLIENT_ID,
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clean: false,
+    // clean: true — fresh session on each connect so the broker does NOT
+    // queue messages while the backend is offline. Queued replay causes
+    // false-Online status because updateDeviceHeartbeat uses server time
+    // (new Date()), not the original message timestamp.
+    clean: true,
     reconnectPeriod: 5000,
     connectTimeout: 30000,
     keepalive: 60
@@ -195,8 +199,17 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
   });
 
   // Event: Message
-  mqttClient.on('message', async (topic, payload) => {
+  mqttClient.on('message', async (topic, payload, packet) => {
     log.debug('Message received:', topic);
+
+    // Skip retained messages — broker replays them on every reconnect.
+    // Since updateDeviceHeartbeat uses server time (new Date()), processing
+    // a retained message would falsely mark the device as Online right now
+    // even if it went offline days ago.
+    if (packet.retain) {
+      log.debug('Retained message skipped (topic:', topic, ')');
+      return;
+    }
 
     try {
       const topicParts = topic.split('/');

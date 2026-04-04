@@ -3,12 +3,14 @@ import { db } from '../db/drizzle';
 import { devices } from '../db/schema';
 import { and, eq, lt } from 'drizzle-orm';
 
-const SEVEN_MINUTES_AGO = 7 * 60 * 1000;
+// Devices that send data every 15s (lingkungan) or periodic heartbeats (intrusi)
+// should be considered offline after 2 minutes without any signal.
+const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 
 const checkHeartbeats = async () => {
   console.log('[Cron Job] Running heartbeat check...');
 
-  const cutoffTime = new Date(Date.now() - SEVEN_MINUTES_AGO);
+  const cutoffTime = new Date(Date.now() - OFFLINE_THRESHOLD_MS);
 
   try {
     const result = await db

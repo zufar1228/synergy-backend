@@ -8,10 +8,12 @@ const node_cron_1 = __importDefault(require("node-cron"));
 const drizzle_1 = require("../db/drizzle");
 const schema_1 = require("../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");
-const SEVEN_MINUTES_AGO = 7 * 60 * 1000;
+// Devices that send data every 15s (lingkungan) or periodic heartbeats (intrusi)
+// should be considered offline after 2 minutes without any signal.
+const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 const checkHeartbeats = async () => {
     console.log('[Cron Job] Running heartbeat check...');
-    const cutoffTime = new Date(Date.now() - SEVEN_MINUTES_AGO);
+    const cutoffTime = new Date(Date.now() - OFFLINE_THRESHOLD_MS);
     try {
         const result = await drizzle_1.db
             .update(schema_1.devices)
