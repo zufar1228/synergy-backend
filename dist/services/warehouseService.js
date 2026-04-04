@@ -102,6 +102,13 @@ const deleteWarehouse = async (id) => {
     });
     if (!warehouse)
         throw new apiError_1.default(404, 'Warehouse not found');
+    const childAreas = await drizzle_1.db.query.areas.findMany({
+        where: (0, drizzle_orm_1.eq)(schema_1.areas.warehouse_id, id),
+        columns: { id: true }
+    });
+    if (childAreas.length > 0) {
+        throw new apiError_1.default(409, `Gudang ini masih memiliki ${childAreas.length} area. Hapus area terlebih dahulu.`);
+    }
     await drizzle_1.db.delete(schema_1.warehouses).where((0, drizzle_orm_1.eq)(schema_1.warehouses.id, id));
 };
 exports.deleteWarehouse = deleteWarehouse;

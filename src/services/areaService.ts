@@ -1,5 +1,5 @@
 import { db } from '../db/drizzle';
-import { areas, warehouses } from '../db/schema';
+import { areas, warehouses, devices } from '../db/schema';
 import { eq, asc } from 'drizzle-orm';
 import ApiError from '../utils/apiError';
 
@@ -55,6 +55,15 @@ export const updateArea = async (
 export const deleteArea = async (id: string) => {
   const area = await db.query.areas.findFirst({ where: eq(areas.id, id) });
   if (!area) throw new ApiError(404, 'Area not found');
+
+  const childDevices = await db.query.devices.findMany({
+    where: eq(devices.area_id, id),
+    columns: { id: true }
+  });
+  if (childDevices.length > 0) {
+    throw new ApiError(409, `Area ini masih memiliki ${childDevices.length} perangkat. Hapus perangkat terlebih dahulu.`);
+  }
+
   await db.delete(areas).where(eq(areas.id, id));
 };
 

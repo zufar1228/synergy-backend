@@ -112,5 +112,14 @@ export const deleteWarehouse = async (id: string) => {
     where: eq(warehouses.id, id)
   });
   if (!warehouse) throw new ApiError(404, 'Warehouse not found');
+
+  const childAreas = await db.query.areas.findMany({
+    where: eq(areas.warehouse_id, id),
+    columns: { id: true }
+  });
+  if (childAreas.length > 0) {
+    throw new ApiError(409, `Gudang ini masih memiliki ${childAreas.length} area. Hapus area terlebih dahulu.`);
+  }
+
   await db.delete(warehouses).where(eq(warehouses.id, id));
 };

@@ -135,6 +135,12 @@ const getAllUsers = async (requestingUserId) => {
 };
 exports.getAllUsers = getAllUsers;
 const deleteUser = async (userId) => {
+    const targetRole = await drizzle_1.db.query.user_roles.findFirst({
+        where: (0, drizzle_orm_1.eq)(schema_1.user_roles.user_id, userId)
+    });
+    if (targetRole?.role === 'super_admin') {
+        throw new apiError_1.default(403, 'Tidak dapat menghapus akun super_admin.');
+    }
     const profile = await drizzle_1.db.query.profiles.findFirst({
         where: (0, drizzle_orm_1.eq)(schema_1.profiles.id, userId)
     });

@@ -128,6 +128,13 @@ export const getAllUsers = async (requestingUserId: string) => {
 };
 
 export const deleteUser = async (userId: string) => {
+  const targetRole = await db.query.user_roles.findFirst({
+    where: eq(user_roles.user_id, userId)
+  });
+  if (targetRole?.role === 'super_admin') {
+    throw new ApiError(403, 'Tidak dapat menghapus akun super_admin.');
+  }
+
   const profile = await db.query.profiles.findFirst({
     where: eq(profiles.id, userId)
   });

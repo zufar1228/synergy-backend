@@ -74,9 +74,17 @@ const inviteUser = async (req, res) => {
     if (!email || !role) {
         return res.status(400).json({ message: 'Email dan role wajib diisi.' });
     }
+    const validRoles = ['admin', 'user'];
+    if (!validRoles.includes(role)) {
+        return res.status(400).json({ message: 'Peran tidak valid. Harus admin atau user.' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Format email tidak valid.' });
+    }
     try {
         const user = await userService.inviteUser(email, role);
-        res.status(200).json({ message: 'Undangan berhasil dikirim.', user });
+        res.status(201).json({ message: 'Undangan berhasil dikirim.', user });
     }
     catch (error) {
         if (error instanceof apiError_1.default) {

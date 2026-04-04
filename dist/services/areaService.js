@@ -53,6 +53,13 @@ const deleteArea = async (id) => {
     const area = await drizzle_1.db.query.areas.findFirst({ where: (0, drizzle_orm_1.eq)(schema_1.areas.id, id) });
     if (!area)
         throw new apiError_1.default(404, 'Area not found');
+    const childDevices = await drizzle_1.db.query.devices.findMany({
+        where: (0, drizzle_orm_1.eq)(schema_1.devices.area_id, id),
+        columns: { id: true }
+    });
+    if (childDevices.length > 0) {
+        throw new apiError_1.default(409, `Area ini masih memiliki ${childDevices.length} perangkat. Hapus perangkat terlebih dahulu.`);
+    }
     await drizzle_1.db.delete(schema_1.areas).where((0, drizzle_orm_1.eq)(schema_1.areas.id, id));
 };
 exports.deleteArea = deleteArea;

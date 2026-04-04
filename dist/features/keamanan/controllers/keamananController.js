@@ -58,8 +58,9 @@ const updateStatus = async (req, res) => {
         if (!userId) {
             throw new apiError_1.default(401, 'User tidak terautentikasi.');
         }
-        if (!status) {
-            return res.status(400).json({ message: 'Status wajib diisi.' });
+        const validStatuses = ['unacknowledged', 'acknowledged', 'resolved', 'false_alarm'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({ message: 'Status tidak valid. Harus salah satu dari: unacknowledged, acknowledged, resolved, false_alarm.' });
         }
         const updatedLog = await keamananService.updateKeamananLogStatus(id, userId, status, notes);
         res.status(200).json(updatedLog);
