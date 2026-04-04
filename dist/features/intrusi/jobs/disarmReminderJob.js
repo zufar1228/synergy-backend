@@ -65,11 +65,11 @@ const sendDisarmReminder = async (device) => {
 
 📍 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
 🔧 <b>Device:</b> ${device.name}
-🔓 <b>Status:</b> DISARMED selama lebih dari 1 jam
+🔓 <b>Status:</b> NON-AKTIF selama lebih dari 1 jam
 
 🕐 <b>Waktu Cek:</b> ${timestamp}
 
-<i>Harap segera ARM-kan sistem keamanan pintu gudang untuk perlindungan optimal.</i>
+<i>Harap segera AKTIFKAN sistem keamanan pintu gudang untuk perlindungan optimal.</i>
 `.trim();
     try {
         await telegramService.sendGroupAlert(telegramMessage);
@@ -88,7 +88,7 @@ const sendDisarmReminder = async (device) => {
         if (userIds.length > 0) {
             const pushPayload = {
                 title: '⚠️ Sistem Keamanan Belum Aktif',
-                body: `${device.name} di ${warehouse.name} - ${area.name} masih DISARMED selama lebih dari 1 jam. Segera ARM-kan!`,
+                body: `${device.name} di ${warehouse.name} - ${area.name} masih NON-AKTIF selama lebih dari 1 jam. Segera AKTIFKAN!`,
                 url: '/dashboard'
             };
             await Promise.all(userIds.map((userId) => webPushService.sendPushNotification(userId, pushPayload)));

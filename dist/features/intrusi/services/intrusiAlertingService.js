@@ -60,7 +60,7 @@ const processIntrusiAlert = async (deviceId, data) => {
     const details = [
         { key: 'Tipe Event', value: data.type },
         { key: 'Status Pintu', value: data.door || 'N/A' },
-        { key: 'Mode Sistem', value: data.state || 'N/A' }
+        { key: 'Mode Sistem', value: data.state === 'ARMED' ? 'AKTIF' : data.state === 'DISARMED' ? 'NON-AKTIF' : data.state || 'N/A' }
     ];
     if (!isUnauthorizedOpen && data.peak_delta_g != null) {
         details.push({

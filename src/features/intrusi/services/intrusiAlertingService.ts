@@ -91,7 +91,7 @@ export const processIntrusiAlert = async (
   const details: { key: string; value: string }[] = [
     { key: 'Tipe Event', value: data.type },
     { key: 'Status Pintu', value: data.door || 'N/A' },
-    { key: 'Mode Sistem', value: data.state || 'N/A' }
+    { key: 'Mode Sistem', value: data.state === 'ARMED' ? 'AKTIF' : data.state === 'DISARMED' ? 'NON-AKTIF' : data.state || 'N/A' }
   ];
 
   if (!isUnauthorizedOpen && data.peak_delta_g != null) {
