@@ -19,6 +19,7 @@ import alertRoutes from './api/routes/alertRoutes';
 import keamananRoutes from './features/keamanan/routes/keamananRoutes';
 import intrusiRoutes from './features/intrusi/routes/intrusiRoutes';
 import lingkunganRoutes from './features/lingkungan/routes/lingkunganRoutes';
+import calibrationRoutes from './features/calibration/routes/calibrationRoutes';
 import telegramRoutes from './api/routes/telegramRoutes';
 import { setWebhook as setupTelegramWebhook } from './services/telegramService';
 
@@ -85,6 +86,9 @@ app.get('/keep-alive', (req: Request, res: Response) => {
 app.head('/keep-alive', (req: Request, res: Response) => {
   res.status(200).end();
 });
+
+// Calibration API — no auth, isolated from main app (prototype tool)
+app.use('/api-cal', calibrationRoutes);
 
 // Routes
 app.use('/api/devices', authMiddleware, deviceRoutes);

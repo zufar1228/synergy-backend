@@ -5,6 +5,7 @@ import * as intrusiService from '../features/intrusi/services/intrusiService';
 import * as lingkunganService from '../features/lingkungan/services/lingkunganService';
 import { updateDeviceHeartbeat } from '../services/deviceService';
 import * as intrusiAlertingService from '../features/intrusi/services/intrusiAlertingService';
+import * as calibrationService from '../features/calibration/services/calibrationService';
 
 // Simple log-level utility
 const LOG_LEVEL =
@@ -335,6 +336,25 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
           }
         } catch {
           // Non-JSON heartbeat — that's fine, just update heartbeat
+        }
+
+        // Calibration heartbeat: detect cal_state field and save to calibration_device_status
+        try {
+          const statusData = JSON.parse(message);
+          if (statusData.cal_state) {
+            calibrationService.insertDeviceStatus({
+              session: statusData.session || 'none',
+              recording: statusData.cal_state === 'RECORDING',
+              trial: statusData.trial || 1,
+              uptime_sec: statusData.uptime_sec || 0,
+              wifi_rssi: statusData.wifi_rssi || 0,
+              free_heap: statusData.free_heap || 0,
+              offline_buf: 0,
+              device_id: statusData.device_id || deviceId
+            }).catch((err: any) => log.error('Calibration status insert error:', err));
+          }
+        } catch {
+          // Not JSON or no cal_state — ignore
         }
 
         await updateDeviceHeartbeat(deviceId, extraFields);

@@ -24,6 +24,7 @@ const alertRoutes_1 = __importDefault(require("./api/routes/alertRoutes"));
 const keamananRoutes_1 = __importDefault(require("./features/keamanan/routes/keamananRoutes"));
 const intrusiRoutes_1 = __importDefault(require("./features/intrusi/routes/intrusiRoutes"));
 const lingkunganRoutes_1 = __importDefault(require("./features/lingkungan/routes/lingkunganRoutes"));
+const calibrationRoutes_1 = __importDefault(require("./features/calibration/routes/calibrationRoutes"));
 const telegramRoutes_1 = __importDefault(require("./api/routes/telegramRoutes"));
 const telegramService_1 = require("./services/telegramService");
 const app = (0, express_1.default)();
@@ -77,6 +78,8 @@ app.get('/keep-alive', (req, res) => {
 app.head('/keep-alive', (req, res) => {
     res.status(200).end();
 });
+// Calibration API — no auth, isolated from main app (prototype tool)
+app.use('/api-cal', calibrationRoutes_1.default);
 // Routes
 app.use('/api/devices', authMiddleware_1.authMiddleware, deviceRoutes_1.default);
 app.use('/api/warehouses', authMiddleware_1.authMiddleware, warehouseRoutes_1.default);

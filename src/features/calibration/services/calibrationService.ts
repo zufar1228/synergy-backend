@@ -1,0 +1,102 @@
+import { db } from '../../../db/drizzle';
+import { sql } from 'drizzle-orm';
+
+/**
+ * Get latest device status from calibration_device_status table
+ */
+export const getDeviceStatus = async (deviceId: string) => {
+  const result = await db.execute(
+    sql`SELECT * FROM calibration_device_status 
+        WHERE device_id = ${deviceId} 
+        ORDER BY created_at DESC LIMIT 1`
+  );
+  return result.rows[0] || null;
+};
+
+/**
+ * Insert calibration device status (from MQTT heartbeat)
+ */
+export const insertDeviceStatus = async (data: {
+  session: string;
+  recording: boolean;
+  trial: number;
+  uptime_sec: number;
+  wifi_rssi: number;
+  free_heap: number;
+  offline_buf: number;
+  device_id: string;
+}) => {
+  await db.execute(
+    sql`INSERT INTO calibration_device_status 
+        (session, recording, trial, uptime_sec, wifi_rssi, free_heap, offline_buf, device_id)
+        VALUES (${data.session}, ${data.recording}, ${data.trial}, ${data.uptime_sec}, 
+                ${data.wifi_rssi}, ${data.free_heap}, ${data.offline_buf}, ${data.device_id})`
+  );
+};
+
+/**
+ * Get raw calibration data for a session (paginated)
+ */
+export const getRawData = async (
+  session: string,
+  options: { trial?: number; limit?: number; offset?: number }
+) => {
+  const limit = options.limit || 100;
+  const offset = options.offset || 0;
+
+  let query;
+  if (options.trial) {
+    query = sql`SELECT * FROM calibration_raw 
+                WHERE session = ${session} AND trial = ${options.trial}
+                ORDER BY created_at DESC 
+                LIMIT ${limit} OFFSET ${offset}`;
+  } else {
+    query = sql`SELECT * FROM calibration_raw 
+                WHERE session = ${session}
+                ORDER BY created_at DESC 
+                LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  const result = await db.execute(query);
+
+  // Get total count
+  let countQuery;
+  if (options.trial) {
+    countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_raw 
+                     WHERE session = ${session} AND trial = ${options.trial}`;
+  } else {
+    countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_raw 
+                     WHERE session = ${session}`;
+  }
+  const countResult = await db.execute(countQuery);
+  const total = (countResult.rows[0] as any)?.total || 0;
+
+  return {
+    data: result.rows,
+    pagination: { total, limit, offset }
+  };
+};
+
+/**
+ * Get per-trial statistics from calibration_statistics view
+ */
+export const getStatistics = async (session?: string) => {
+  let query;
+  if (session) {
+    query = sql`SELECT * FROM calibration_statistics WHERE session = ${session} ORDER BY session, trial`;
+  } else {
+    query = sql`SELECT * FROM calibration_statistics ORDER BY session, trial`;
+  }
+  const result = await db.execute(query);
+  return result.rows;
+};
+
+/**
+ * Get per-session aggregate stats from calibration_session_stats view
+ */
+export const getSessionStats = async () => {
+  const result = await db.execute(
+    sql`SELECT * FROM calibration_session_stats ORDER BY session`
+  );
+  return result.rows;
+};
