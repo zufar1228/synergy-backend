@@ -155,3 +155,28 @@ export const getSessionStats = async () => {
   );
   return result.rows;
 };
+
+/**
+ * Get per-trial peak Δg from calibration_trial_peaks view
+ */
+export const getTrialPeaks = async (session?: string) => {
+  let query;
+  if (session) {
+    const pattern = `${session}%`;
+    query = sql`SELECT * FROM calibration_trial_peaks WHERE session LIKE ${pattern} ORDER BY session, trial`;
+  } else {
+    query = sql`SELECT * FROM calibration_trial_peaks ORDER BY session, trial`;
+  }
+  const result = await db.execute(query);
+  return result.rows;
+};
+
+/**
+ * Get per-session peak summary from calibration_peak_summary view
+ */
+export const getPeakSummary = async () => {
+  const result = await db.execute(
+    sql`SELECT * FROM calibration_peak_summary ORDER BY session`
+  );
+  return result.rows;
+};

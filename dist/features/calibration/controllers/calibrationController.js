@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSessionStats = exports.getStatistics = exports.getSummary = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
+exports.getPeakSummary = exports.getTrialPeaks = exports.getSessionStats = exports.getStatistics = exports.getSummary = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
 const calibrationService = __importStar(require("../services/calibrationService"));
 const actuationService = __importStar(require("../services/calibrationActuationService"));
 const handleError = (res, error) => {
@@ -165,3 +165,32 @@ const getSessionStats = async (req, res) => {
     }
 };
 exports.getSessionStats = getSessionStats;
+/**
+ * GET /api-cal/trial-peaks
+ * Get per-trial peak Δg values
+ */
+const getTrialPeaks = async (req, res) => {
+    try {
+        const { session } = req.query;
+        const data = await calibrationService.getTrialPeaks(session);
+        res.status(200).json({ data });
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.getTrialPeaks = getTrialPeaks;
+/**
+ * GET /api-cal/peak-summary
+ * Get per-session peak summary
+ */
+const getPeakSummary = async (req, res) => {
+    try {
+        const data = await calibrationService.getPeakSummary();
+        res.status(200).json({ data });
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.getPeakSummary = getPeakSummary;

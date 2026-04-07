@@ -27,4 +27,10 @@ router.get('/statistics', calibrationController.getStatistics);
 // Get per-session aggregate statistics
 router.get('/session-stats', calibrationController.getSessionStats);
 
+// Get per-trial peak Δg values
+router.get('/trial-peaks', calibrationController.getTrialPeaks);
+
+// Get per-session peak summary
+router.get('/peak-summary', calibrationController.getPeakSummary);
+
 export default router;

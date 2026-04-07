@@ -726,7 +726,7 @@ void setup() {
   delay(500);
 
   Serial.println("============================================");
-  Serial.println(" MPU6050 Calibration Data Collection v1.0");
+  Serial.println(" MPU6050 Calibration Data Collection v2.0");
   Serial.println(" XIAO ESP32-S3 + Supabase REST + MQTT Ctrl");
   Serial.println(" Sessions: A(ambient) B(impact) C(chisel) D(ram)");
   Serial.println("============================================");

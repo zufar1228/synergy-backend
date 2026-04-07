@@ -129,3 +129,30 @@ export const getSessionStats = async (req: Request, res: Response) => {
     handleError(res, error);
   }
 };
+
+/**
+ * GET /api-cal/trial-peaks
+ * Get per-trial peak Δg values
+ */
+export const getTrialPeaks = async (req: Request, res: Response) => {
+  try {
+    const { session } = req.query;
+    const data = await calibrationService.getTrialPeaks(session as string | undefined);
+    res.status(200).json({ data });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+/**
+ * GET /api-cal/peak-summary
+ * Get per-session peak summary
+ */
+export const getPeakSummary = async (req: Request, res: Response) => {
+  try {
+    const data = await calibrationService.getPeakSummary();
+    res.status(200).json({ data });
+  } catch (error) {
+    handleError(res, error);
+  }
+};

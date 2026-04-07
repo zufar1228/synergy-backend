@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSessionStats = exports.getStatistics = exports.getSummaryData = exports.getDistinctSessions = exports.getRawData = exports.insertDeviceStatus = exports.getDeviceStatus = void 0;
+exports.getPeakSummary = exports.getTrialPeaks = exports.getSessionStats = exports.getStatistics = exports.getSummaryData = exports.getDistinctSessions = exports.getRawData = exports.insertDeviceStatus = exports.getDeviceStatus = void 0;
 const drizzle_1 = require("../../../db/drizzle");
 const drizzle_orm_1 = require("drizzle-orm");
 /**
@@ -133,3 +133,27 @@ const getSessionStats = async () => {
     return result.rows;
 };
 exports.getSessionStats = getSessionStats;
+/**
+ * Get per-trial peak Δg from calibration_trial_peaks view
+ */
+const getTrialPeaks = async (session) => {
+    let query;
+    if (session) {
+        const pattern = `${session}%`;
+        query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_trial_peaks WHERE session LIKE ${pattern} ORDER BY session, trial`;
+    }
+    else {
+        query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_trial_peaks ORDER BY session, trial`;
+    }
+    const result = await drizzle_1.db.execute(query);
+    return result.rows;
+};
+exports.getTrialPeaks = getTrialPeaks;
+/**
+ * Get per-session peak summary from calibration_peak_summary view
+ */
+const getPeakSummary = async () => {
+    const result = await drizzle_1.db.execute((0, drizzle_orm_1.sql) `SELECT * FROM calibration_peak_summary ORDER BY session`);
+    return result.rows;
+};
+exports.getPeakSummary = getPeakSummary;
