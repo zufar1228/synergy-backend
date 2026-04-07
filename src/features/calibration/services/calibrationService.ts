@@ -25,12 +25,13 @@ export const insertDeviceStatus = async (data: {
   free_heap: number;
   offline_buf: number;
   device_id: string;
+  door_state?: string;
 }) => {
   await db.execute(
     sql`INSERT INTO calibration_device_status 
-        (session, recording, trial, uptime_sec, wifi_rssi, free_heap, offline_buf, device_id)
+        (session, recording, trial, uptime_sec, wifi_rssi, free_heap, offline_buf, device_id, door_state)
         VALUES (${data.session}, ${data.recording}, ${data.trial}, ${data.uptime_sec}, 
-                ${data.wifi_rssi}, ${data.free_heap}, ${data.offline_buf}, ${data.device_id})`
+                ${data.wifi_rssi}, ${data.free_heap}, ${data.offline_buf}, ${data.device_id}, ${data.door_state || null})`
   );
 };
 
@@ -85,6 +86,49 @@ export const getDistinctSessions = async () => {
     sql`SELECT DISTINCT session FROM calibration_raw ORDER BY session`
   );
   return result.rows.map((r: any) => r.session as string);
+};
+
+/**
+ * Get summary data (Session A periodic summaries) from calibration_summary
+ */
+export const getSummaryData = async (
+  options: { session?: string; trial?: number; limit?: number; offset?: number }
+) => {
+  const limit = options.limit || 100;
+  const offset = options.offset || 0;
+
+  let query;
+  let countQuery;
+
+  if (options.session) {
+    const pattern = `${options.session}%`;
+    if (options.trial) {
+      query = sql`SELECT * FROM calibration_summary
+                  WHERE session LIKE ${pattern} AND trial = ${options.trial}
+                  ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+      countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_summary
+                       WHERE session LIKE ${pattern} AND trial = ${options.trial}`;
+    } else {
+      query = sql`SELECT * FROM calibration_summary
+                  WHERE session LIKE ${pattern}
+                  ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+      countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_summary
+                       WHERE session LIKE ${pattern}`;
+    }
+  } else {
+    query = sql`SELECT * FROM calibration_summary
+                ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_summary`;
+  }
+
+  const result = await db.execute(query);
+  const countResult = await db.execute(countQuery);
+  const total = (countResult.rows[0] as any)?.total || 0;
+
+  return {
+    data: result.rows,
+    pagination: { total, limit, offset }
+  };
 };
 
 /**

@@ -328,7 +328,8 @@ const registerEventHandlers = (mqttClient) => {
                             wifi_rssi: statusData.wifi_rssi || 0,
                             free_heap: statusData.free_heap || 0,
                             offline_buf: 0,
-                            device_id: statusData.device_id || deviceId
+                            device_id: statusData.device_id || deviceId,
+                            door_state: statusData.door || null
                         }).catch((err) => log.error('Calibration status insert error:', err));
                     }
                 }

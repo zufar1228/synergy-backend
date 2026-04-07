@@ -85,6 +85,25 @@ export const getSessions = async (_req: Request, res: Response) => {
 };
 
 /**
+ * GET /api-cal/summary
+ * Get calibration summary data (Session A periodic summaries)
+ */
+export const getSummary = async (req: Request, res: Response) => {
+  try {
+    const { session, trial, limit, offset } = req.query;
+    const result = await calibrationService.getSummaryData({
+      session: session as string | undefined,
+      trial: trial ? parseInt(trial as string, 10) : undefined,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      offset: offset ? parseInt(offset as string, 10) : undefined
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+/**
  * GET /api-cal/statistics
  * Get per-trial statistics
  */

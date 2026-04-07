@@ -46,6 +46,7 @@ CREATE TABLE calibration_device_status (
   wifi_rssi     INTEGER,
   free_heap     INTEGER,
   offline_buf   INTEGER,
+  door_state    TEXT,
   device_id     TEXT DEFAULT 'xiao-s3-01',
   created_at    TIMESTAMPTZ DEFAULT now()
 );

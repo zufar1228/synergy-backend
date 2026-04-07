@@ -420,7 +420,8 @@ static void publishDeviceStatusToSupabase() {
   doc["wifi_rssi"]  = WiFi.RSSI();
   doc["free_heap"]  = (int)ESP.getFreeHeap();
   doc["offline_buf"] = rawBufCount;
-  doc["device_id"]  = CAL_DEVICE;
+  doc["door_state"] = doorClosed ? "CLOSED" : "OPEN";
+  doc["device_id"]  = DEVICE_ID;
 
   String body;
   serializeJson(doc, body);

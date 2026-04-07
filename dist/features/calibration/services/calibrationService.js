@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSessionStats = exports.getStatistics = exports.getDistinctSessions = exports.getRawData = exports.insertDeviceStatus = exports.getDeviceStatus = void 0;
+exports.getSessionStats = exports.getStatistics = exports.getSummaryData = exports.getDistinctSessions = exports.getRawData = exports.insertDeviceStatus = exports.getDeviceStatus = void 0;
 const drizzle_1 = require("../../../db/drizzle");
 const drizzle_orm_1 = require("drizzle-orm");
 /**
@@ -18,9 +18,9 @@ exports.getDeviceStatus = getDeviceStatus;
  */
 const insertDeviceStatus = async (data) => {
     await drizzle_1.db.execute((0, drizzle_orm_1.sql) `INSERT INTO calibration_device_status 
-        (session, recording, trial, uptime_sec, wifi_rssi, free_heap, offline_buf, device_id)
+        (session, recording, trial, uptime_sec, wifi_rssi, free_heap, offline_buf, device_id, door_state)
         VALUES (${data.session}, ${data.recording}, ${data.trial}, ${data.uptime_sec}, 
-                ${data.wifi_rssi}, ${data.free_heap}, ${data.offline_buf}, ${data.device_id})`);
+                ${data.wifi_rssi}, ${data.free_heap}, ${data.offline_buf}, ${data.device_id}, ${data.door_state || null})`);
 };
 exports.insertDeviceStatus = insertDeviceStatus;
 /**
@@ -70,6 +70,45 @@ const getDistinctSessions = async () => {
     return result.rows.map((r) => r.session);
 };
 exports.getDistinctSessions = getDistinctSessions;
+/**
+ * Get summary data (Session A periodic summaries) from calibration_summary
+ */
+const getSummaryData = async (options) => {
+    const limit = options.limit || 100;
+    const offset = options.offset || 0;
+    let query;
+    let countQuery;
+    if (options.session) {
+        const pattern = `${options.session}%`;
+        if (options.trial) {
+            query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_summary
+                  WHERE session LIKE ${pattern} AND trial = ${options.trial}
+                  ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+            countQuery = (0, drizzle_orm_1.sql) `SELECT COUNT(*)::int as total FROM calibration_summary
+                       WHERE session LIKE ${pattern} AND trial = ${options.trial}`;
+        }
+        else {
+            query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_summary
+                  WHERE session LIKE ${pattern}
+                  ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+            countQuery = (0, drizzle_orm_1.sql) `SELECT COUNT(*)::int as total FROM calibration_summary
+                       WHERE session LIKE ${pattern}`;
+        }
+    }
+    else {
+        query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_summary
+                ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+        countQuery = (0, drizzle_orm_1.sql) `SELECT COUNT(*)::int as total FROM calibration_summary`;
+    }
+    const result = await drizzle_1.db.execute(query);
+    const countResult = await drizzle_1.db.execute(countQuery);
+    const total = countResult.rows[0]?.total || 0;
+    return {
+        data: result.rows,
+        pagination: { total, limit, offset }
+    };
+};
+exports.getSummaryData = getSummaryData;
 /**
  * Get per-trial statistics from calibration_statistics view
  */

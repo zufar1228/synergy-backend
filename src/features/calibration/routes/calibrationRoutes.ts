@@ -18,6 +18,9 @@ router.get('/data', calibrationController.getData);
 // Get raw calibration data (filtered by session)
 router.get('/data/:session', calibrationController.getData);
 
+// Get summary data (Session A periodic summaries)
+router.get('/summary', calibrationController.getSummary);
+
 // Get per-trial statistics
 router.get('/statistics', calibrationController.getStatistics);
 

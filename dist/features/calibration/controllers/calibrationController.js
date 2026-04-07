@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSessionStats = exports.getStatistics = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
+exports.getSessionStats = exports.getStatistics = exports.getSummary = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
 const calibrationService = __importStar(require("../services/calibrationService"));
 const actuationService = __importStar(require("../services/calibrationActuationService"));
 const handleError = (res, error) => {
@@ -116,6 +116,26 @@ const getSessions = async (_req, res) => {
     }
 };
 exports.getSessions = getSessions;
+/**
+ * GET /api-cal/summary
+ * Get calibration summary data (Session A periodic summaries)
+ */
+const getSummary = async (req, res) => {
+    try {
+        const { session, trial, limit, offset } = req.query;
+        const result = await calibrationService.getSummaryData({
+            session: session,
+            trial: trial ? parseInt(trial, 10) : undefined,
+            limit: limit ? parseInt(limit, 10) : undefined,
+            offset: offset ? parseInt(offset, 10) : undefined
+        });
+        res.status(200).json(result);
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.getSummary = getSummary;
 /**
  * GET /api-cal/statistics
  * Get per-trial statistics
