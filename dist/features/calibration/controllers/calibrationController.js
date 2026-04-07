@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSessionStats = exports.getStatistics = exports.getData = exports.getStatus = exports.sendCommand = void 0;
+exports.getSessionStats = exports.getStatistics = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
 const calibrationService = __importStar(require("../services/calibrationService"));
 const actuationService = __importStar(require("../services/calibrationActuationService"));
 const handleError = (res, error) => {
@@ -82,14 +82,15 @@ const getStatus = async (req, res) => {
 };
 exports.getStatus = getStatus;
 /**
- * GET /api-cal/data/:session
- * Get raw calibration data for a session
+ * GET /api-cal/data/:session? or /api-cal/data
+ * Get raw calibration data, optionally filtered by session
  */
 const getData = async (req, res) => {
     try {
-        const { session } = req.params;
+        const session = req.params.session;
         const { trial, limit, offset } = req.query;
-        const result = await calibrationService.getRawData(session, {
+        const result = await calibrationService.getRawData({
+            session: session || undefined,
             trial: trial ? parseInt(trial, 10) : undefined,
             limit: limit ? parseInt(limit, 10) : undefined,
             offset: offset ? parseInt(offset, 10) : undefined
@@ -101,6 +102,20 @@ const getData = async (req, res) => {
     }
 };
 exports.getData = getData;
+/**
+ * GET /api-cal/sessions
+ * Get distinct session names from raw data
+ */
+const getSessions = async (_req, res) => {
+    try {
+        const data = await calibrationService.getDistinctSessions();
+        res.status(200).json({ data });
+    }
+    catch (error) {
+        handleError(res, error);
+    }
+};
+exports.getSessions = getSessions;
 /**
  * GET /api-cal/statistics
  * Get per-trial statistics

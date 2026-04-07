@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSessionStats = exports.getStatistics = exports.getRawData = exports.insertDeviceStatus = exports.getDeviceStatus = void 0;
+exports.getSessionStats = exports.getStatistics = exports.getDistinctSessions = exports.getRawData = exports.insertDeviceStatus = exports.getDeviceStatus = void 0;
 const drizzle_1 = require("../../../db/drizzle");
 const drizzle_orm_1 = require("drizzle-orm");
 /**
@@ -26,19 +26,20 @@ exports.insertDeviceStatus = insertDeviceStatus;
 /**
  * Get raw calibration data for a session (paginated)
  */
-const getRawData = async (session, options) => {
+const getRawData = async (options) => {
     const limit = options.limit || 100;
     const offset = options.offset || 0;
+    const sessionPattern = options.session ? `${options.session}%` : '%';
     let query;
     if (options.trial) {
         query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_raw 
-                WHERE session = ${session} AND trial = ${options.trial}
+                WHERE session LIKE ${sessionPattern} AND trial = ${options.trial}
                 ORDER BY created_at DESC 
                 LIMIT ${limit} OFFSET ${offset}`;
     }
     else {
         query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_raw 
-                WHERE session = ${session}
+                WHERE session LIKE ${sessionPattern}
                 ORDER BY created_at DESC 
                 LIMIT ${limit} OFFSET ${offset}`;
     }
@@ -47,11 +48,11 @@ const getRawData = async (session, options) => {
     let countQuery;
     if (options.trial) {
         countQuery = (0, drizzle_orm_1.sql) `SELECT COUNT(*)::int as total FROM calibration_raw 
-                     WHERE session = ${session} AND trial = ${options.trial}`;
+                     WHERE session LIKE ${sessionPattern} AND trial = ${options.trial}`;
     }
     else {
         countQuery = (0, drizzle_orm_1.sql) `SELECT COUNT(*)::int as total FROM calibration_raw 
-                     WHERE session = ${session}`;
+                     WHERE session LIKE ${sessionPattern}`;
     }
     const countResult = await drizzle_1.db.execute(countQuery);
     const total = countResult.rows[0]?.total || 0;
@@ -62,12 +63,21 @@ const getRawData = async (session, options) => {
 };
 exports.getRawData = getRawData;
 /**
+ * Get distinct session names from calibration_raw
+ */
+const getDistinctSessions = async () => {
+    const result = await drizzle_1.db.execute((0, drizzle_orm_1.sql) `SELECT DISTINCT session FROM calibration_raw ORDER BY session`);
+    return result.rows.map((r) => r.session);
+};
+exports.getDistinctSessions = getDistinctSessions;
+/**
  * Get per-trial statistics from calibration_statistics view
  */
 const getStatistics = async (session) => {
     let query;
     if (session) {
-        query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_statistics WHERE session = ${session} ORDER BY session, trial`;
+        const pattern = `${session}%`;
+        query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_statistics WHERE session LIKE ${pattern} ORDER BY session, trial`;
     }
     else {
         query = (0, drizzle_orm_1.sql) `SELECT * FROM calibration_statistics ORDER BY session, trial`;

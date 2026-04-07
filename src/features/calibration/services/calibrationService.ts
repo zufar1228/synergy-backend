@@ -38,21 +38,21 @@ export const insertDeviceStatus = async (data: {
  * Get raw calibration data for a session (paginated)
  */
 export const getRawData = async (
-  session: string,
-  options: { trial?: number; limit?: number; offset?: number }
+  options: { session?: string; trial?: number; limit?: number; offset?: number }
 ) => {
   const limit = options.limit || 100;
   const offset = options.offset || 0;
+  const sessionPattern = options.session ? `${options.session}%` : '%';
 
   let query;
   if (options.trial) {
     query = sql`SELECT * FROM calibration_raw 
-                WHERE session = ${session} AND trial = ${options.trial}
+                WHERE session LIKE ${sessionPattern} AND trial = ${options.trial}
                 ORDER BY created_at DESC 
                 LIMIT ${limit} OFFSET ${offset}`;
   } else {
     query = sql`SELECT * FROM calibration_raw 
-                WHERE session = ${session}
+                WHERE session LIKE ${sessionPattern}
                 ORDER BY created_at DESC 
                 LIMIT ${limit} OFFSET ${offset}`;
   }
@@ -63,10 +63,10 @@ export const getRawData = async (
   let countQuery;
   if (options.trial) {
     countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_raw 
-                     WHERE session = ${session} AND trial = ${options.trial}`;
+                     WHERE session LIKE ${sessionPattern} AND trial = ${options.trial}`;
   } else {
     countQuery = sql`SELECT COUNT(*)::int as total FROM calibration_raw 
-                     WHERE session = ${session}`;
+                     WHERE session LIKE ${sessionPattern}`;
   }
   const countResult = await db.execute(countQuery);
   const total = (countResult.rows[0] as any)?.total || 0;
@@ -78,12 +78,23 @@ export const getRawData = async (
 };
 
 /**
+ * Get distinct session names from calibration_raw
+ */
+export const getDistinctSessions = async () => {
+  const result = await db.execute(
+    sql`SELECT DISTINCT session FROM calibration_raw ORDER BY session`
+  );
+  return result.rows.map((r: any) => r.session as string);
+};
+
+/**
  * Get per-trial statistics from calibration_statistics view
  */
 export const getStatistics = async (session?: string) => {
   let query;
   if (session) {
-    query = sql`SELECT * FROM calibration_statistics WHERE session = ${session} ORDER BY session, trial`;
+    const pattern = `${session}%`;
+    query = sql`SELECT * FROM calibration_statistics WHERE session LIKE ${pattern} ORDER BY session, trial`;
   } else {
     query = sql`SELECT * FROM calibration_statistics ORDER BY session, trial`;
   }

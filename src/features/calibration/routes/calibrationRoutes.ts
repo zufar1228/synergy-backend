@@ -9,7 +9,13 @@ router.post('/command', calibrationController.sendCommand);
 // Get latest device status
 router.get('/status/:deviceId', calibrationController.getStatus);
 
-// Get raw calibration data for a session
+// Get distinct session names (must be before /data/:session to avoid conflict)
+router.get('/sessions', calibrationController.getSessions);
+
+// Get raw calibration data (all sessions)
+router.get('/data', calibrationController.getData);
+
+// Get raw calibration data (filtered by session)
 router.get('/data/:session', calibrationController.getData);
 
 // Get per-trial statistics

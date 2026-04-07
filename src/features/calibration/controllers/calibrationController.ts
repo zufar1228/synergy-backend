@@ -50,21 +50,35 @@ export const getStatus = async (req: Request, res: Response) => {
 };
 
 /**
- * GET /api-cal/data/:session
- * Get raw calibration data for a session
+ * GET /api-cal/data/:session? or /api-cal/data
+ * Get raw calibration data, optionally filtered by session
  */
 export const getData = async (req: Request, res: Response) => {
   try {
-    const { session } = req.params;
+    const session = req.params.session;
     const { trial, limit, offset } = req.query;
 
-    const result = await calibrationService.getRawData(session, {
+    const result = await calibrationService.getRawData({
+      session: session || undefined,
       trial: trial ? parseInt(trial as string, 10) : undefined,
       limit: limit ? parseInt(limit as string, 10) : undefined,
       offset: offset ? parseInt(offset as string, 10) : undefined
     });
 
     res.status(200).json(result);
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+/**
+ * GET /api-cal/sessions
+ * Get distinct session names from raw data
+ */
+export const getSessions = async (_req: Request, res: Response) => {
+  try {
+    const data = await calibrationService.getDistinctSessions();
+    res.status(200).json({ data });
   } catch (error) {
     handleError(res, error);
   }
