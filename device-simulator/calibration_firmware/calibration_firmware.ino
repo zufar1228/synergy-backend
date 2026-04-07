@@ -1,5 +1,5 @@
 // ============================================================================
-//  MPU6050 CALIBRATION DATA COLLECTION FIRMWARE v1.0
+//  MPU6050 CALIBRATION DATA COLLECTION FIRMWARE v2.0
 //  Microcontroller: Seeed XIAO ESP32-S3
 //  Sensors: MPU6050 (I²C), Reed Switch
 //  Connectivity: WiFi + MQTT over TLS (EMQX Cloud) + HTTPS (Supabase REST)
@@ -74,6 +74,18 @@ static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 15000;  // MQTT heartbeat ever
 static constexpr uint32_t DOOR_RESUME_DELAY_MS  = 5000;   // Session A: auto-resume 5s after close
 static constexpr int      RAW_BUFFER_SIZE       = 55;     // circular buffer for raw samples
 
+// Feature: Countdown before recording (#4)
+static constexpr uint32_t COUNTDOWN_MS          = 3000;   // 3-second countdown before START
+
+// Feature: Auto-STOP on silence for Sessions B/C/D (#3)
+static constexpr float    SILENCE_THRESHOLD     = 0.05f;  // Δg below this = silence
+static constexpr uint32_t SILENCE_TIMEOUT_MS    = 5000;   // 5s of silence → auto-stop
+
+// Feature: Retry queue for failed Supabase POSTs (#12)
+static constexpr int      RETRY_MAX_ATTEMPTS    = 3;
+static constexpr uint32_t RETRY_DELAY_MS        = 2000;   // backoff between retries
+static constexpr int      RETRY_QUEUE_SIZE      = 5;      // max queued failed requests
+
 // ============================================================================
 //  STATE MACHINE
 // ============================================================================
@@ -113,6 +125,24 @@ static uint32_t lastFlushMs     = 0;
 static uint32_t lastHeartbeatMs = 0;
 static uint32_t lastSummaryMs   = 0;
 
+// Feature: Countdown (#4)
+static bool     countdownActive  = false;
+static uint32_t countdownStartMs = 0;
+
+// Feature: Auto-STOP silence detection (#3)
+static uint32_t lastSignificantHitMs = 0;  // last time Δg exceeded threshold
+static bool     silenceDetectionEnabled = true; // can be toggled for Session A
+
+// Feature: Retry queue (#12)
+struct RetryItem {
+  char   table[32];
+  String body;
+  int    attempts;
+};
+static RetryItem retryQueue[RETRY_QUEUE_SIZE];
+static int retryQueueCount = 0;
+static uint32_t lastRetryMs = 0;
+
 // MQTT topics
 static char TOPIC_STATUS[160];
 static char TOPIC_CMD[160];
@@ -131,7 +161,7 @@ static PubSubClient mqtt(mqttWifiClient);
 // ============================================================================
 // We use HTTPClient which handles its own TLS connection internally
 
-static bool supabasePost(const char* table, const String& jsonBody) {
+static bool supabasePostRaw(const char* table, const String& jsonBody) {
   HTTPClient http;
   String url = String(SUPABASE_URL) + "/rest/v1/" + table;
 
@@ -148,6 +178,76 @@ static bool supabasePost(const char* table, const String& jsonBody) {
     return true;
   } else {
     Serial.printf("[SUPA] POST %s failed: %d\n", table, httpCode);
+    return false;
+  }
+}
+
+// Feature #12: Retry queue — enqueue failed POST for later retry
+static void enqueueRetry(const char* table, const String& body) {
+  if (retryQueueCount >= RETRY_QUEUE_SIZE) {
+    logMsg("[RETRY] Queue full — dropping oldest item");
+    // Shift queue left
+    for (int i = 0; i < RETRY_QUEUE_SIZE - 1; i++) {
+      retryQueue[i] = retryQueue[i + 1];
+    }
+    retryQueueCount = RETRY_QUEUE_SIZE - 1;
+  }
+  strncpy(retryQueue[retryQueueCount].table, table, sizeof(retryQueue[0].table) - 1);
+  retryQueue[retryQueueCount].body = body;
+  retryQueue[retryQueueCount].attempts = 0;
+  retryQueueCount++;
+  logMsg("[RETRY] Enqueued POST to " + String(table) + " (queue: " + String(retryQueueCount) + ")");
+}
+
+static void processRetryQueue() {
+  if (retryQueueCount == 0) return;
+  uint32_t now = millis();
+  if (now - lastRetryMs < RETRY_DELAY_MS) return;
+  lastRetryMs = now;
+
+  RetryItem& item = retryQueue[0];
+  item.attempts++;
+  logMsg("[RETRY] Attempt " + String(item.attempts) + "/" + String(RETRY_MAX_ATTEMPTS) + " for " + String(item.table));
+
+  bool ok = supabasePostRaw(item.table, item.body);
+  if (ok || item.attempts >= RETRY_MAX_ATTEMPTS) {
+    if (!ok) logMsg("[RETRY] Gave up on " + String(item.table) + " after " + String(RETRY_MAX_ATTEMPTS) + " attempts");
+    // Remove from queue (shift left)
+    for (int i = 0; i < retryQueueCount - 1; i++) {
+      retryQueue[i] = retryQueue[i + 1];
+    }
+    retryQueueCount--;
+  }
+}
+
+// Wrapper: POST with automatic retry on failure
+static bool supabasePost(const char* table, const String& jsonBody) {
+  bool ok = supabasePostRaw(table, jsonBody);
+  if (!ok) {
+    enqueueRetry(table, jsonBody);
+  }
+  return ok;
+}
+
+// Feature #14: Connectivity check before START
+static bool checkConnectivity() {
+  if (WiFi.status() != WL_CONNECTED) {
+    logMsg("[CHECK] WiFi not connected!");
+    return false;
+  }
+  // Quick health check to Supabase
+  HTTPClient http;
+  String url = String(SUPABASE_URL) + "/rest/v1/";
+  http.begin(url);
+  http.addHeader("apikey", SUPABASE_ANON);
+  int httpCode = http.GET();
+  http.end();
+
+  if (httpCode > 0 && httpCode < 500) {
+    logMsg("[CHECK] Supabase reachable (HTTP " + String(httpCode) + ")");
+    return true;
+  } else {
+    logMsg("[CHECK] Supabase unreachable (HTTP " + String(httpCode) + ")");
     return false;
   }
 }
@@ -391,13 +491,38 @@ static void publishEvent(const char* event) {
 static void startRecording() {
   if (currentSession[0] == '\0') {
     logMsg("[STATE] Cannot start — no session configured. Send SET_SESSION first.");
+    publishEvent("ERROR_NO_SESSION");
     return;
   }
   if (!doorClosed) {
     logMsg("[STATE] Cannot start — door is OPEN. Close the door first.");
+    publishEvent("ERROR_DOOR_OPEN");
     return;
   }
 
+  // Feature #14: Connectivity check
+  if (!checkConnectivity()) {
+    logMsg("[STATE] Cannot start — Supabase unreachable. Check WiFi/internet.");
+    publishEvent("ERROR_NO_CONNECTIVITY");
+    return;
+  }
+
+  // Feature #4: Start countdown (actual recording begins after COUNTDOWN_MS)
+  // For Session A, skip countdown (long ambient recording doesn't need it)
+  if (currentSession[0] != 'A') {
+    countdownActive  = true;
+    countdownStartMs = millis();
+    logMsg("[STATE] COUNTDOWN 3s — Session " + String(currentSession) + " Trial " + String(currentTrial));
+    publishEvent("COUNTDOWN_STARTED");
+    return; // Actual recording starts in loop() after countdown
+  }
+
+  // Session A: start immediately (no countdown needed)
+  beginRecording();
+}
+
+// Internal: actually begin recording (called after countdown or directly for Session A)
+static void beginRecording() {
   calState = CAL_RECORDING;
 
   // Reset accumulators
@@ -409,6 +534,7 @@ static void startRecording() {
   summaryStartMs = millis();
   lastFlushMs    = millis();
   lastSummaryMs  = millis();
+  lastSignificantHitMs = millis(); // reset silence timer
 
   logMsg("[STATE] RECORDING — Session " + String(currentSession) + " Trial " + String(currentTrial));
   publishEvent("RECORDING_STARTED");
@@ -430,6 +556,9 @@ static void pauseRecording(const char* reason) {
 }
 
 static void stopRecording() {
+  // Cancel countdown if active
+  countdownActive = false;
+
   // Flush remaining data
   if (calState == CAL_RECORDING) {
     if (currentSession[0] == 'A') {
@@ -440,7 +569,14 @@ static void stopRecording() {
   }
 
   calState = CAL_IDLE;
-  logMsg("[STATE] IDLE — Recording stopped");
+
+  // Feature #1: Auto-increment trial for Sessions B/C/D
+  if (currentSession[0] != 'A' && currentSession[0] != '\0') {
+    currentTrial++;
+    logMsg("[STATE] IDLE — Trial auto-incremented to " + String(currentTrial));
+  } else {
+    logMsg("[STATE] IDLE — Recording stopped");
+  }
   publishEvent("RECORDING_STOPPED");
 }
 
@@ -668,6 +804,17 @@ void loop() {
   // --- Door monitoring ---
   doorUpdate();
 
+  // --- Feature #4: Countdown timer ---
+  if (countdownActive) {
+    uint32_t elapsed = millis() - countdownStartMs;
+    if (elapsed >= COUNTDOWN_MS) {
+      countdownActive = false;
+      beginRecording();
+    }
+    // Skip IMU sampling during countdown
+    goto postSampling;
+  }
+
   // --- IMU sampling @ 100Hz ---
   if (calState == CAL_RECORDING && (int32_t)(millis() - nextImuTick) >= 0) {
     nextImuTick += IMU_SAMPLE_MS;
@@ -691,9 +838,22 @@ void loop() {
       if (rawBufCount >= RAW_BUFFER_SIZE) {
         flushRawBuffer();
       }
+
+      // Feature #3: Silence detection for auto-stop
+      if (silenceDetectionEnabled) {
+        if (dg >= SILENCE_THRESHOLD) {
+          lastSignificantHitMs = millis();
+        }
+        if (millis() - lastSignificantHitMs >= SILENCE_TIMEOUT_MS) {
+          logMsg("[AUTO-STOP] Silence detected for " + String(SILENCE_TIMEOUT_MS / 1000) + "s — auto-stopping");
+          publishEvent("AUTO_STOPPED_SILENCE");
+          stopRecording();
+        }
+      }
     }
   }
 
+postSampling:
   uint32_t now = millis();
 
   // --- Session A: publish summary every 5 seconds ---
@@ -711,6 +871,9 @@ void loop() {
       flushRawBuffer();
     }
   }
+
+  // --- Feature #12: Process retry queue ---
+  processRetryQueue();
 
   // --- Heartbeat every 15 seconds ---
   if (now - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
