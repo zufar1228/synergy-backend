@@ -62,7 +62,7 @@ static const char* SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3M
 static const char* DEVICE_ID    = "8e819e4a-9710-491f-9fbc-741892ae6195";
 static const char* WAREHOUSE_ID = "eec544fc-bacb-4568-bc46-594ed5b5616f";
 static const char* AREA_ID      = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
-static const char* CAL_DEVICE   = "xiao-s3-01"; // identifier for calibration tables
+// CAL_DEVICE removed — use DEVICE_ID (UUID) everywhere for consistency
 
 // ============================================================================
 //  TIMING PARAMETERS
@@ -78,8 +78,14 @@ static constexpr int      RAW_BUFFER_SIZE       = 55;     // circular buffer for
 static constexpr uint32_t COUNTDOWN_MS          = 3000;   // 3-second countdown before START
 
 // Feature: Auto-STOP on silence for Sessions B/C/D (#3)
-static constexpr float    SILENCE_THRESHOLD     = 0.05f;  // Δg below this = silence
+static constexpr float    SILENCE_THRESHOLD     = 0.02f;  // Δg below this = silence (lowered: proper baseline reduces noise floor)
 static constexpr uint32_t SILENCE_TIMEOUT_MS    = 5000;   // 5s of silence → auto-stop
+
+// Feature: Purge contaminated data on Session A door open
+// When door opens, handle/knob vibration contaminates recent ambient data.
+// Buffer summaries for 20s before publishing; discard buffer on door open.
+static constexpr uint32_t DOOR_PURGE_WINDOW_MS  = 20000;  // 20s of data purged backward
+static constexpr int      SUMMARY_BUF_CAP       = 5;      // buffer capacity (25s at 5s intervals)
 
 // Feature: Retry queue for failed Supabase POSTs (#12)
 static constexpr int      RETRY_MAX_ATTEMPTS    = 3;
@@ -113,6 +119,18 @@ static float  sumMin    = 999.0f;
 static float  sumMax    = 0.0f;
 static int    sumCount  = 0;
 static uint32_t summaryStartMs = 0;
+
+// Summary ring buffer (Session A: delayed publish for door-open purge)
+struct BufferedSummary {
+  float    dg_min;
+  float    dg_max;
+  float    dg_mean;
+  int      n_samples;
+  uint32_t window_ms;
+  uint32_t created_ms;  // millis() when buffered
+};
+static BufferedSummary summaryBuf[SUMMARY_BUF_CAP];
+static int summaryBufCount = 0;
 
 // Door state
 static bool doorClosed     = true;
@@ -153,6 +171,7 @@ static bool ntpSynced = false;
 
 // Hardware
 static Adafruit_MPU6050 mpu;
+static float baselineMag = 1.0f;  // calibrated resting acceleration magnitude (g-units)
 static WiFiClientSecure mqttWifiClient;
 static PubSubClient mqtt(mqttWifiClient);
 
@@ -309,9 +328,11 @@ static void ntpSync() {
 }
 
 // ============================================================================
-//  IMU READING
+//  IMU CALIBRATION & READING
 // ============================================================================
-static float readDeltaG() {
+
+// Returns raw acceleration magnitude in g-units (no baseline subtraction)
+static float readAccelMag() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
@@ -320,8 +341,25 @@ static float readDeltaG() {
   float ay_g = a.acceleration.y / G;
   float az_g = a.acceleration.z / G;
 
-  float a_mag = sqrtf(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
-  return fabsf(a_mag - 1.0f);
+  return sqrtf(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
+}
+
+// Returns deviation from calibrated baseline (orientation-independent)
+static float readDeltaG() {
+  return fabsf(readAccelMag() - baselineMag);
+}
+
+// Measure resting acceleration over N samples and store as baseline
+static void autoCalibrate(int nSamples, const char* label) {
+  float sum = 0.0f;
+  for (int i = 0; i < nSamples; i++) {
+    sum += readAccelMag();
+    delay(10);
+  }
+  baselineMag = sum / nSamples;
+  logMsg("[CAL] autoCalibrate(" + String(label) + "): baselineMag = "
+       + String(baselineMag, 6) + " (" + String(nSamples) + " samples)");
+  publishEvent("BASELINE_CALIBRATED");
 }
 
 // ============================================================================
@@ -342,7 +380,7 @@ static void flushRawBuffer() {
     obj["ts_device"] = rawBuffer[i].ts;
     obj["ts_iso"]    = isoTimestamp();
     obj["delta_g"]   = serialized(String(rawBuffer[i].deltaG, 6));
-    obj["device_id"] = CAL_DEVICE;
+    obj["device_id"] = DEVICE_ID;
     if (currentNote[0] != '\0') {
       obj["note"] = currentNote;
     }
@@ -358,32 +396,108 @@ static void flushRawBuffer() {
   rawBufCount = 0;
 }
 
-// Publish summary to Supabase (Session A)
-static void publishSummary() {
-  if (sumCount == 0) return;
+// --- Summary buffer helpers (Session A door-open purge) ---
 
-  float mean = sumDg / sumCount;
-  uint32_t windowMs = millis() - summaryStartMs;
-
+// Publish a single buffered summary to Supabase
+static void publishOneSummary(const BufferedSummary& s) {
   JsonDocument doc;
   doc["session"]      = currentSession;
   doc["trial"]        = currentTrial;
   doc["summary_type"] = "periodic";
-  doc["dg_min"]       = serialized(String(sumMin, 6));
-  doc["dg_max"]       = serialized(String(sumMax, 6));
-  doc["dg_mean"]      = serialized(String(mean, 6));
-  doc["n_samples"]    = sumCount;
-  doc["window_ms"]    = windowMs;
-  doc["device_id"]    = CAL_DEVICE;
+  doc["dg_min"]       = serialized(String(s.dg_min, 6));
+  doc["dg_max"]       = serialized(String(s.dg_max, 6));
+  doc["dg_mean"]      = serialized(String(s.dg_mean, 6));
+  doc["n_samples"]    = s.n_samples;
+  doc["window_ms"]    = s.window_ms;
+  doc["device_id"]    = DEVICE_ID;
 
   String body;
   serializeJson(doc, body);
 
   bool ok = supabasePost("calibration_summary", body);
   if (ok) {
-    logMsg("[DATA] Summary: min=" + String(sumMin, 4) + " max=" + String(sumMax, 4)
-         + " mean=" + String(mean, 4) + " n=" + String(sumCount));
+    logMsg("[DATA] Summary: min=" + String(s.dg_min, 4) + " max=" + String(s.dg_max, 4)
+         + " mean=" + String(s.dg_mean, 4) + " n=" + String(s.n_samples));
   }
+}
+
+// Publish buffered summaries that are older than DOOR_PURGE_WINDOW_MS (safe from contamination)
+static void publishOldSummaries() {
+  uint32_t now = millis();
+  int published = 0;
+  for (int i = 0; i < summaryBufCount; i++) {
+    if (now - summaryBuf[i].created_ms >= DOOR_PURGE_WINDOW_MS) {
+      publishOneSummary(summaryBuf[i]);
+      published++;
+    } else {
+      break; // remaining entries are newer
+    }
+  }
+  if (published > 0) {
+    for (int i = 0; i < summaryBufCount - published; i++) {
+      summaryBuf[i] = summaryBuf[i + published];
+    }
+    summaryBufCount -= published;
+  }
+}
+
+// Publish ALL buffered summaries (called on normal STOP)
+static void flushAllSummaries() {
+  for (int i = 0; i < summaryBufCount; i++) {
+    publishOneSummary(summaryBuf[i]);
+  }
+  if (summaryBufCount > 0) {
+    logMsg("[DATA] Flushed " + String(summaryBufCount) + " buffered summaries on stop");
+  }
+  summaryBufCount = 0;
+}
+
+// Discard all buffered summaries + current accumulator (called on door open during Session A)
+static void purgeSummaryBuffer() {
+  int purged = summaryBufCount;
+  // Also count current accumulator as purged window if it has data
+  bool hadAccumulator = (sumCount > 0);
+  summaryBufCount = 0;
+
+  // Discard current in-progress accumulator
+  sumDg    = 0.0f;
+  sumMin   = 999.0f;
+  sumMax   = 0.0f;
+  sumCount = 0;
+  summaryStartMs = millis();
+
+  int totalSeconds = purged * 5 + (hadAccumulator ? 5 : 0);
+  logMsg("[PURGE] Discarded " + String(purged) + " buffered summaries + accumulator (~"
+       + String(totalSeconds) + "s of data) — door contact contamination");
+  publishEvent("DATA_PURGED");
+}
+
+// Buffer current accumulator and publish safe (old) entries
+static void publishSummary() {
+  if (sumCount == 0) return;
+
+  float mean = sumDg / sumCount;
+  uint32_t windowMs = millis() - summaryStartMs;
+
+  // Buffer instead of publishing immediately
+  if (summaryBufCount >= SUMMARY_BUF_CAP) {
+    // Buffer full — force-publish oldest to make room
+    publishOneSummary(summaryBuf[0]);
+    for (int i = 0; i < summaryBufCount - 1; i++) {
+      summaryBuf[i] = summaryBuf[i + 1];
+    }
+    summaryBufCount--;
+  }
+  BufferedSummary& s = summaryBuf[summaryBufCount++];
+  s.dg_min     = sumMin;
+  s.dg_max     = sumMax;
+  s.dg_mean    = mean;
+  s.n_samples  = sumCount;
+  s.window_ms  = windowMs;
+  s.created_ms = millis();
+
+  // Publish entries that are now safely past the 20s purge window
+  publishOldSummaries();
 
   // Reset accumulator
   sumDg    = 0.0f;
@@ -402,7 +516,7 @@ static void publishMarker(const char* label) {
   doc["ts_iso"]    = isoTimestamp();
   doc["delta_g"]   = 0;
   doc["marker"]    = label;
-  doc["device_id"] = CAL_DEVICE;
+  doc["device_id"] = DEVICE_ID;
 
   String body;
   serializeJson(doc, body);
@@ -465,7 +579,7 @@ static void publishHeartbeat() {
   serializeJson(doc, body);
   mqttPublish(TOPIC_STATUS, body);
 
-  // Also save to Supabase for persistent status tracking
+  // Persistent status tracking via direct Supabase REST (single write path)
   publishDeviceStatusToSupabase();
 }
 
@@ -524,10 +638,14 @@ static void startRecording() {
 
 // Internal: actually begin recording (called after countdown or directly for Session A)
 static void beginRecording() {
+  // Fresh baseline before every session (100 samples × 10ms = 1s)
+  autoCalibrate(100, "pre-record");
+
   calState = CAL_RECORDING;
 
   // Reset accumulators
-  rawBufCount = 0;
+  rawBufCount    = 0;
+  summaryBufCount = 0;  // clear any stale buffered summaries
   sumDg    = 0.0f;
   sumMin   = 999.0f;
   sumMax   = 0.0f;
@@ -536,6 +654,7 @@ static void beginRecording() {
   lastFlushMs    = millis();
   lastSummaryMs  = millis();
   lastSignificantHitMs = millis(); // reset silence timer
+  nextImuTick    = millis();       // reset IMU timer to prevent catch-up burst
 
   logMsg("[STATE] RECORDING — Session " + String(currentSession) + " Trial " + String(currentTrial));
   publishEvent("RECORDING_STARTED");
@@ -544,9 +663,10 @@ static void beginRecording() {
 static void pauseRecording(const char* reason) {
   if (calState != CAL_RECORDING) return;
 
-  // Flush any buffered data before pausing
   if (currentSession[0] == 'A') {
-    publishSummary();
+    // Door opened during Session A: purge last ~20s of contaminated data
+    // (handle/knob vibrations are NOT ambient noise)
+    purgeSummaryBuffer();
   } else {
     flushRawBuffer();
   }
@@ -563,7 +683,8 @@ static void stopRecording() {
   // Flush remaining data
   if (calState == CAL_RECORDING) {
     if (currentSession[0] == 'A') {
-      publishSummary();
+      publishSummary();     // buffer current accumulator
+      flushAllSummaries();  // publish all buffered (normal stop = no contamination)
     } else {
       flushRawBuffer();
     }
@@ -638,16 +759,7 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // --- RECAL ---
   else if (strcmp(cmd, "RECAL") == 0) {
     logMsg("[CAL] Recalibrating baseline...");
-    // Read 300 samples over 3 seconds to establish baseline
-    float sum = 0.0f;
-    const int N = 300;
-    for (int i = 0; i < N; i++) {
-      sum += readDeltaG();
-      delay(10);
-    }
-    float baseline = sum / N;
-    logMsg("[CAL] Baseline Δg = " + String(baseline, 6) + " (from " + String(N) + " samples)");
-    publishEvent("RECALIBRATED");
+    autoCalibrate(300, "RECAL");
   }
 
   // --- Unknown ---
@@ -752,8 +864,11 @@ void setup() {
   }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-  logMsg("[MPU] Initialized. Range=±8g, BW=21Hz");
+  mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+  logMsg("[MPU] Initialized. Range=±8g, BW=44Hz");
+
+  // Establish baseline at boot (200 samples × 10ms = 2s)
+  autoCalibrate(200, "boot");
 
   // --- Initial door state ---
   doorClosed     = (digitalRead(PIN_DOOR_SWITCH) == LOW);

@@ -12,12 +12,11 @@ CREATE TABLE calibration_raw (
   session     TEXT NOT NULL,
   trial       INTEGER NOT NULL,
   ts_device   BIGINT,
-  ts_human    TEXT,
   ts_iso      TEXT,
   delta_g     REAL NOT NULL,
   marker      TEXT,
   note        TEXT,
-  device_id   TEXT DEFAULT 'xiao-s3-01',
+  device_id   TEXT NOT NULL,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 
@@ -32,11 +31,11 @@ CREATE TABLE calibration_summary (
   dg_mean       REAL NOT NULL,
   n_samples     INTEGER NOT NULL,
   window_ms     BIGINT,
-  device_id     TEXT DEFAULT 'xiao-s3-01',
+  device_id     TEXT NOT NULL,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 
--- Tabel status device kalibrasi (heartbeat setiap 1 menit)
+-- Tabel status device kalibrasi (heartbeat — firmware direct Supabase REST only)
 CREATE TABLE calibration_device_status (
   id            BIGSERIAL PRIMARY KEY,
   session       TEXT,
@@ -47,7 +46,7 @@ CREATE TABLE calibration_device_status (
   free_heap     INTEGER,
   offline_buf   INTEGER,
   door_state    TEXT,
-  device_id     TEXT DEFAULT 'xiao-s3-01',
+  device_id     TEXT NOT NULL,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 
