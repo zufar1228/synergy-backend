@@ -79,7 +79,7 @@ static constexpr uint32_t COUNTDOWN_MS          = 3000;   // 3-second countdown 
 
 // Feature: Auto-STOP on silence for Sessions B/C/D (#3)
 static constexpr float    SILENCE_THRESHOLD     = 0.02f;  // Δg below this = silence (lowered: proper baseline reduces noise floor)
-static constexpr uint32_t SILENCE_TIMEOUT_MS    = 1000;   // 1s of silence → auto-stop
+static constexpr uint32_t SILENCE_TIMEOUT_MS    = 5000;   // 5s of silence → auto-stop
 
 // Feature: Purge contaminated data on Session A door open
 // When door opens, handle/knob vibration contaminates recent ambient data.
@@ -95,9 +95,19 @@ static constexpr int      RETRY_QUEUE_SIZE      = 5;      // max queued failed r
 // ============================================================================
 //  STATE MACHINE
 // ============================================================================
-enum CalState { CAL_IDLE, CAL_RECORDING, CAL_PAUSED };
+enum CalState { CAL_IDLE, CAL_COUNTDOWN, CAL_CALIBRATING, CAL_RECORDING, CAL_PAUSED };
 
 static CalState calState = CAL_IDLE;
+
+static const char* calStateStr() {
+  switch (calState) {
+    case CAL_COUNTDOWN:   return "COUNTDOWN";
+    case CAL_CALIBRATING: return "CALIBRATING";
+    case CAL_RECORDING:   return "RECORDING";
+    case CAL_PAUSED:      return "PAUSED";
+    default:              return "IDLE";
+  }
+}
 static char     currentSession[4]  = "";   // "A", "B", "C", or "D"
 static int      currentTrial       = 1;
 static char     currentNote[128]   = "";
@@ -144,7 +154,6 @@ static uint32_t lastHeartbeatMs = 0;
 static uint32_t lastSummaryMs   = 0;
 
 // Feature: Countdown (#4)
-static bool     countdownActive  = false;
 static uint32_t countdownStartMs = 0;
 
 // Feature: Auto-STOP silence detection (#3)
@@ -529,6 +538,7 @@ static void publishDeviceStatusToSupabase() {
   JsonDocument doc;
   doc["session"]    = currentSession[0] != '\0' ? (const char*)currentSession : "none";
   doc["recording"]  = (calState == CAL_RECORDING);
+  doc["cal_state"]  = calStateStr();
   doc["trial"]      = currentTrial;
   doc["uptime_sec"] = (unsigned long)(millis() / 1000);
   doc["wifi_rssi"]  = WiFi.RSSI();
@@ -565,8 +575,7 @@ static void mqttPublish(const char* topic, const String& payload) {
 static void publishHeartbeat() {
   JsonDocument doc;
   doc["device_id"]  = DEVICE_ID;
-  doc["cal_state"]  = (calState == CAL_RECORDING) ? "RECORDING" :
-                      (calState == CAL_PAUSED)    ? "PAUSED" : "IDLE";
+  doc["cal_state"]  = calStateStr();
   doc["session"]    = currentSession[0] != '\0' ? (const char*)currentSession : "none";
   doc["trial"]      = currentTrial;
   doc["door"]       = doorClosed ? "CLOSED" : "OPEN";
@@ -586,8 +595,7 @@ static void publishHeartbeat() {
 static void publishEvent(const char* event) {
   JsonDocument doc;
   doc["device_id"]  = DEVICE_ID;
-  doc["cal_state"]  = (calState == CAL_RECORDING) ? "RECORDING" :
-                      (calState == CAL_PAUSED)    ? "PAUSED" : "IDLE";
+  doc["cal_state"]  = calStateStr();
   doc["session"]    = currentSession[0] != '\0' ? (const char*)currentSession : "none";
   doc["trial"]      = currentTrial;
   doc["door"]       = doorClosed ? "CLOSED" : "OPEN";
@@ -625,10 +633,11 @@ static void startRecording() {
   // Feature #4: Start countdown (actual recording begins after COUNTDOWN_MS)
   // For Session A, skip countdown (long ambient recording doesn't need it)
   if (currentSession[0] != 'A') {
-    countdownActive  = true;
+    calState = CAL_COUNTDOWN;
     countdownStartMs = millis();
     logMsg("[STATE] COUNTDOWN 3s — Session " + String(currentSession) + " Trial " + String(currentTrial));
     publishEvent("COUNTDOWN_STARTED");
+    publishDeviceStatusToSupabase();  // sync state to frontend immediately
     return; // Actual recording starts in loop() after countdown
   }
 
@@ -639,6 +648,8 @@ static void startRecording() {
 // Internal: actually begin recording (called after countdown or directly for Session A)
 static void beginRecording() {
   // Fresh baseline before every session (100 samples × 10ms = 1s)
+  calState = CAL_CALIBRATING;
+  publishDeviceStatusToSupabase();  // sync CALIBRATING state to frontend
   autoCalibrate(100, "pre-record");
 
   calState = CAL_RECORDING;
@@ -658,6 +669,7 @@ static void beginRecording() {
 
   logMsg("[STATE] RECORDING — Session " + String(currentSession) + " Trial " + String(currentTrial));
   publishEvent("RECORDING_STARTED");
+  publishDeviceStatusToSupabase();  // sync RECORDING state to frontend
 }
 
 static void pauseRecording(const char* reason) {
@@ -674,12 +686,10 @@ static void pauseRecording(const char* reason) {
   calState = CAL_PAUSED;
   logMsg("[STATE] PAUSED — " + String(reason));
   publishEvent("RECORDING_PAUSED");
+  publishDeviceStatusToSupabase();  // sync PAUSED state to frontend
 }
 
 static void stopRecording() {
-  // Cancel countdown if active
-  countdownActive = false;
-
   // Flush remaining data
   if (calState == CAL_RECORDING) {
     if (currentSession[0] == 'A') {
@@ -700,6 +710,7 @@ static void stopRecording() {
     logMsg("[STATE] IDLE — Recording stopped");
   }
   publishEvent("RECORDING_STOPPED");
+  publishDeviceStatusToSupabase();  // sync IDLE state to frontend
 }
 
 // ============================================================================
@@ -807,9 +818,14 @@ static void doorUpdate() {
     doorClosedPrev = doorClosed;
 
     if (!doorClosed) {
-      // Door opened — pause recording
+      // Door opened — pause recording or abort countdown
       logMsg("[DOOR] OPENED");
-      if (calState == CAL_RECORDING) {
+      if (calState == CAL_COUNTDOWN || calState == CAL_CALIBRATING) {
+        calState = CAL_IDLE;
+        logMsg("[STATE] Countdown/calibration aborted — door opened");
+        publishEvent("RECORDING_STOPPED");
+        publishDeviceStatusToSupabase();
+      } else if (calState == CAL_RECORDING) {
         pauseRecording("Door opened");
       }
       publishEvent("DOOR_OPENED");
@@ -921,13 +937,17 @@ void loop() {
   doorUpdate();
 
   // --- Feature #4: Countdown timer ---
-  if (countdownActive) {
+  if (calState == CAL_COUNTDOWN) {
     uint32_t elapsed = millis() - countdownStartMs;
     if (elapsed >= COUNTDOWN_MS) {
-      countdownActive = false;
-      beginRecording();
+      beginRecording();  // transitions to CAL_CALIBRATING then CAL_RECORDING
     }
     // Skip IMU sampling during countdown
+    goto postSampling;
+  }
+
+  // --- Skip IMU sampling during calibration ---
+  if (calState == CAL_CALIBRATING) {
     goto postSampling;
   }
 
