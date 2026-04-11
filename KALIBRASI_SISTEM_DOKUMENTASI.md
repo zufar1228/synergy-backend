@@ -53,10 +53,19 @@ DLPF bandwidth      : 44Hz  // dipilih: cukup untuk menangkap transien impact
 ### 1.4 Konektivitas
 
 ```
-Sensor → Supabase REST API (HTTPS POST) : data volume tinggi (calibration_raw, calibration_summary)
-Sensor → MQTT over TLS (EMQX Cloud)     : volume rendah (heartbeat, status, perintah)
-Web UI → MQTT                           : perintah kontrol (SET_SESSION, START, STOP, dll.)
+Frontend Web UI → Backend REST (/api-cal/command, /api-cal/status)
+Backend REST → MQTT over TLS (EMQX Cloud) : publish perintah ke device
+Device firmware → Supabase REST API       : write calibration_raw, calibration_summary,
+                                             calibration_device_status (sumber status utama UI)
+Device firmware → MQTT status topic        : event/status telemetry tambahan
+Backend MQTT client                        : TIDAK insert calibration status (hindari duplikasi)
 ```
+
+Catatan penting arsitektur saat ini:
+
+- Jalur kontrol command menggunakan Frontend -> Backend -> MQTT -> Device.
+- Jalur status UI menggunakan Frontend -> Backend -> DB read, sementara data status ditulis oleh firmware langsung ke Supabase.
+- Halaman kalibrasi belum memakai WebSocket/SSE; sinkronisasi status dilakukan via polling HTTP.
 
 ---
 
@@ -175,17 +184,27 @@ loop:
 ```
          SET_SESSION + START
               │
-    ┌─────────▼──────────┐
-    │      CAL_IDLE       │◄──── STOP dari state manapun
-    └─────────┬───────────┘
-              │ beginRecording()
-    ┌─────────▼──────────┐
-    │   CAL_RECORDING     │◄──── auto-resume (Session A, 5s setelah pintu tutup)
-    └─────────┬───────────┘
-              │ Door dibuka / PAUSE
-    ┌─────────▼──────────┐
-    │    CAL_PAUSED       │
-    └────────────────────┘
+  ┌─────────▼──────────┐
+  │      CAL_IDLE       │◄──── STOP dari state manapun
+  └─────────┬───────────┘
+        │ Session B/C/D
+  ┌─────────▼──────────┐
+  │   CAL_COUNTDOWN     │
+  └─────────┬───────────┘
+        │ 3 detik
+  ┌─────────▼──────────┐
+  │  CAL_CALIBRATING    │
+  └─────────┬───────────┘
+        │ autoCalibrate(100)
+  ┌─────────▼──────────┐
+  │   CAL_RECORDING     │◄──── auto-resume (Session A, 5s setelah pintu tutup)
+  └─────────┬───────────┘
+        │ Door dibuka / PAUSE
+  ┌─────────▼──────────┐
+  │    CAL_PAUSED       │
+  └────────────────────┘
+
+Session A melewati CAL_COUNTDOWN dan langsung masuk CAL_CALIBRATING -> CAL_RECORDING.
 ```
 
 ### 6.1 `startRecording()` — Guard & Dispatch
@@ -201,18 +220,32 @@ Jika lolos: Session B/C/D → mulai countdown 3 detik. Session A → langsung `b
 ### 6.2 `beginRecording()` — Mulai Recording
 
 ```cpp
+calState = CAL_CALIBRATING;
+publishDeviceStatusToSupabase();
 autoCalibrate(100, "pre-record");  // baseline segar
+
 calState = CAL_RECORDING;
+publishDeviceStatusToSupabase();
 // reset semua akumulator, timer, buffer
 nextImuTick = millis();  // PENTING: reset agar tidak burst sampling
 ```
 
-### 6.3 `pauseRecording(reason)` — Saat Pintu Dibuka
+### 6.3 Sinkronisasi State ke Supabase
+
+Saat transisi state penting terjadi, firmware menulis status ke `calibration_device_status` secara langsung (tidak menunggu heartbeat 15 detik), termasuk:
+
+- Start countdown (`CAL_COUNTDOWN`)
+- Mulai kalibrasi pre-record (`CAL_CALIBRATING`)
+- Mulai recording (`CAL_RECORDING`)
+- Pause karena pintu (`CAL_PAUSED`)
+- Stop kembali idle (`CAL_IDLE`)
+
+### 6.4 `pauseRecording(reason)` — Saat Pintu Dibuka
 
 - **Session A**: `purgeSummaryBuffer()` → buang 20 detik data terakhir (lihat §8)
 - **Session B/C/D**: `flushRawBuffer()` → kirim data yang ada, lalu pause
 
-### 6.4 `stopRecording()` — Normal Stop
+### 6.5 `stopRecording()` — Normal Stop
 
 - **Session A**: `publishSummary()` (masukkan akumulator ke buffer) → `flushAllSummaries()` (publish semua buffer tanpa buang)
 - **Session B/C/D**: `flushRawBuffer()` → kirim sisa data, auto-increment `currentTrial`
@@ -327,7 +360,7 @@ Dikirim ke topic `.../{DEVICE_ID}/status` setiap 15 detik, berisi:
 ```json
 {
   "device_id": "...",
-  "cal_state": "RECORDING|PAUSED|IDLE",
+  "cal_state": "COUNTDOWN|CALIBRATING|RECORDING|PAUSED|IDLE",
   "session": "A|B|C|D|none",
   "trial": 1,
   "door": "CLOSED|OPEN",
@@ -341,6 +374,42 @@ Dikirim ke topic `.../{DEVICE_ID}/status` setiap 15 detik, berisi:
 ### Event yang Dipublish
 
 `SESSION_CONFIGURED`, `COUNTDOWN_STARTED`, `RECORDING_STARTED`, `RECORDING_PAUSED`, `RECORDING_STOPPED`, `AUTO_STOPPED_SILENCE`, `DOOR_OPENED`, `DOOR_CLOSED`, `DATA_PURGED`, `BASELINE_CALIBRATED`, `RECALIBRATED`, `ERROR_NO_SESSION`, `ERROR_DOOR_OPEN`, `ERROR_NO_CONNECTIVITY`
+
+### 10.1 Jalur Kontrol Perintah (Frontend -> Backend -> Device)
+
+Urutan alur command saat user menekan trial preset di halaman kalibrasi:
+
+1. Frontend `CalibrationControlPanel` memanggil `sendCommand(deviceId, 'SET_SESSION', ...)` lalu `sendCommand(deviceId, 'START')`.
+2. API frontend mengarah ke `POST /api-cal/command`.
+3. Backend controller `sendCommand` memanggil `calibrationActuationService.sendCalibrationCommand(...)`.
+4. Service backend publish JSON command ke topic MQTT:
+   `warehouses/{warehouse_id}/areas/{area_id}/devices/{device_id}/commands`
+5. Firmware subscribe topic command, parse `cmd`, lalu eksekusi state transition (`SET_SESSION`, `START`, `STOP`, `MARK`, `RECAL`).
+
+Makna troubleshooting:
+
+- Jika tombol di UI sukses tapi device tidak bereaksi, cek broker/topic publish backend.
+- Jika `SET_SESSION` berhasil tapi `START` gagal, cek guard firmware (door closed, connectivity).
+
+### 10.2 Jalur Status Device (Device -> DB -> Backend API -> Frontend)
+
+Urutan alur status yang tampil di halaman kalibrasi:
+
+1. Firmware menulis status ke tabel `calibration_device_status` via Supabase REST (`publishDeviceStatusToSupabase()`).
+2. Write status terjadi periodik (heartbeat 15s) dan juga saat transisi state kritikal.
+3. Backend endpoint `GET /api-cal/status/:deviceId` hanya membaca row terbaru:
+   `SELECT * FROM calibration_device_status WHERE device_id = ? ORDER BY created_at DESC LIMIT 1`.
+4. Frontend mengambil status lewat `getDeviceStatus(deviceId)`.
+5. UI menampilkan status pada dua komponen:
+
+- `CalibrationControlPanel`: polling cepat 1 detik setelah command start (untuk indikator COUNTDOWN/CALIBRATING/RECORDING)
+- `CalibrationStatusDisplay`: polling reguler 5 detik + refresh cepat 1 detik setelah command dikirim.
+
+Makna troubleshooting:
+
+- Halaman kalibrasi bukan push realtime (belum WebSocket/SSE), melainkan near-realtime polling.
+- Backend MQTT client tidak insert status calibration dari topic MQTT (sengaja, agar tidak duplikasi dengan write langsung firmware).
+- Jika state di UI terlambat, cek timestamp `created_at` terakhir di `calibration_device_status`.
 
 ---
 
@@ -379,7 +448,16 @@ Dikirim ke topic `.../{DEVICE_ID}/status` setiap 15 detik, berisi:
 
 ### 11.3 `calibration_device_status` — Status Heartbeat
 
-Satu baris per heartbeat (15 detik), berisi snapshot status sensor: recording state, door state, WiFi RSSI, free heap, uptime.
+Menyimpan snapshot status sensor: `session`, `trial`, `recording`, `cal_state`, `door_state`, `wifi_rssi`, `free_heap`, `uptime_sec`, `device_id`, `created_at`.
+
+Frekuensi penulisan status:
+
+- Heartbeat periodik setiap 15 detik.
+- Immediate write saat transisi state penting (COUNTDOWN, CALIBRATING, RECORDING, PAUSED, IDLE).
+
+Implikasi:
+
+- UI dapat mengetahui kapan device benar-benar READY (`cal_state = RECORDING`) tanpa menebak timer lokal.
 
 ### 11.4 Views Turunan
 
@@ -393,6 +471,13 @@ Satu baris per heartbeat (15 detik), berisi snapshot status sensor: recording st
 ---
 
 ## 12. Perilaku yang Diketahui (Known Behaviors)
+
+### 12.0 Batasan Realtime Saat Ini
+
+- Halaman kalibrasi menggunakan polling HTTP (`/api-cal/status`) bukan push socket.
+- `CalibrationControlPanel` polling 1 detik dipakai untuk sinkron instruksi mulai simulasi.
+- `CalibrationStatusDisplay` polling 5 detik dipakai untuk panel status reguler.
+- Karena model pull/polling, selalu ada latensi kecil (network + query + interval polling).
 
 ### 12.1 Fluktuasi `n_samples` di Session A
 
@@ -511,24 +596,28 @@ backend/
 ├── device-simulator/
 │   └── calibration_firmware/
 │       └── calibration_firmware.ino     ← FIRMWARE UTAMA
+├── src/mqtt/
+│   └── client.ts                         ← MQTT infra backend (calibration status tidak diinsert ulang)
 ├── src/
 │   └── features/
 │       └── calibration/
 │           ├── controllers/             ← 9 REST API endpoints
 │           ├── services/
-│           │   ├── calibrationService.ts          ← query Supabase views
-│           │   └── calibrationActuationService.ts ← publish MQTT commands
-│           └── routes/
+│           │   ├── calibrationService.ts          ← query status/data dari DB
+│           │   └── calibrationActuationService.ts ← publish MQTT commands ke device
+│           └── routes/                            ← /api-cal/*
 ├── migrations/
 │   └── create_calibration_tables.sql    ← Definisi tabel & views
 └── KALIBRASI_SISTEM_DOKUMENTASI.md      ← DOKUMEN INI
 
 frontend/
+├── app/calibration/
+│   └── page.tsx                          ← orkestrasi panel kontrol + status + data table
 ├── features/calibration/
 │   ├── api/calibration.ts               ← TypeScript types & API calls
 │   └── components/
-│       ├── CalibrationControlPanel.tsx  ← UI kirim perintah
-│       ├── CalibrationStatusDisplay.tsx ← panel status real-time
+│       ├── CalibrationControlPanel.tsx  ← UI kirim command + poll status 1s untuk phase indicator
+│       ├── CalibrationStatusDisplay.tsx ← panel status + poll 5s
 │       └── CalibrationDataTable.tsx     ← 6 tab tabel data
 └── PANDUAN_HALAMAN_KALIBRASI.md         ← Panduan pengguna halaman kalibrasi
 ```
@@ -551,14 +640,118 @@ frontend/
 
 ## 17. Changelog Firmware
 
-| Versi               | Perubahan                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| v2.0 awal           | Firmware dasar: sessions A/B/C/D, countdown, door monitoring, retry queue, heartbeat                                              |
-| + Baseline fix      | `readDeltaG()` menggunakan `baselineMag` (bukan hardcoded 1.0f); tambah `readAccelMag()`, `autoCalibrate()`, global `baselineMag` |
-| + DLPF 44Hz         | `MPU6050_BAND_21_HZ` → `MPU6050_BAND_44_HZ` untuk menangkap lebih banyak energi impact                                            |
-| + SILENCE_THRESHOLD | 0.05f → 0.02f (noise floor turun dengan baseline yang benar)                                                                      |
-| + Door purge        | Summary buffer 5 slot + `purgeSummaryBuffer()` + delayed publish 20 detik                                                         |
-| + nextImuTick reset | `nextImuTick = millis()` di `beginRecording()` — mencegah burst sampling di awal                                                  |
+| Versi                | Perubahan                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| v2.0 awal            | Firmware dasar: sessions A/B/C/D, countdown, door monitoring, retry queue, heartbeat                                              |
+| + Baseline fix       | `readDeltaG()` menggunakan `baselineMag` (bukan hardcoded 1.0f); tambah `readAccelMag()`, `autoCalibrate()`, global `baselineMag` |
+| + DLPF 44Hz          | `MPU6050_BAND_21_HZ` → `MPU6050_BAND_44_HZ` untuk menangkap lebih banyak energi impact                                            |
+| + SILENCE_THRESHOLD  | 0.05f → 0.02f (noise floor turun dengan baseline yang benar)                                                                      |
+| + Door purge         | Summary buffer 5 slot + `purgeSummaryBuffer()` + delayed publish 20 detik                                                         |
+| + nextImuTick reset  | `nextImuTick = millis()` di `beginRecording()` — mencegah burst sampling di awal                                                  |
+| + cal_state granular | Tambah state `COUNTDOWN` dan `CALIBRATING`; status ditulis ke Supabase saat transisi state penting                                |
+
+## 18. Cheat Sheet Troubleshooting Lintas Chat
+
+### 18.1 Jika command di UI tidak menggerakkan device
+
+Telusuri dari atas ke bawah:
+
+1. Frontend request: `POST /api-cal/command` sukses?
+2. Backend publish MQTT: topic command benar (`warehouse/area/device`) dan broker connected?
+3. Firmware subscribe topic command aktif?
+4. Firmware log menerima `SET_SESSION`/`START`?
+
+### 18.2 Jika UI bilang belum mulai atau data impact tidak masuk
+
+1. Cek `calibration_device_status` row terbaru untuk `cal_state`.
+2. Simulasi fisik hanya dilakukan saat `cal_state = RECORDING` (banner hijau MULAI).
+3. Jika data hanya baseline/noise, biasanya impact dilakukan saat `COUNTDOWN` atau `CALIBRATING`.
+
+### 18.3 Jika status UI terasa terlambat
+
+1. Ingat model sinkronisasi adalah polling, bukan websocket.
+2. Cek interval polling komponen (`1s` di panel kontrol, `5s` di panel status).
+3. Cek `created_at` terbaru pada `calibration_device_status`; jika stale, fokus ke firmware write path.
+
+### 18.4 Query SQL cepat untuk debugging status
+
+```sql
+SELECT
+  device_id,
+  session,
+  trial,
+  recording,
+  cal_state,
+  door_state,
+  wifi_rssi,
+  created_at
+FROM calibration_device_status
+WHERE device_id = '8e819e4a-9710-491f-9fbc-741892ae6195'
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+## 19. Riwayat Perubahan yang Sudah Dilakukan di Sesi Chat Ini
+
+Bagian ini mencatat perubahan implementasi yang sudah dikerjakan (bukan rencana).
+
+### 19.1 Frontend (halaman kalibrasi)
+
+Perubahan utama:
+
+1. Sinkronisasi indikator fase pada `CalibrationControlPanel` diubah dari timer lokal menjadi polling status device aktual (`cal_state`) setiap 1 detik.
+2. Alur command preset ditegaskan: kirim `SET_SESSION` lalu `START`, kemudian frontend menunggu status aktual dari endpoint status.
+3. `CalibrationStatusDisplay` diperbarui untuk menampilkan state granular (`COUNTDOWN`, `CALIBRATING`, `RECORDING`, `PAUSED`, `IDLE`).
+4. Bug scroll halaman kalibrasi diperbaiki dengan wrapper halaman yang kembali menangani scrolling (`h-screen` + `overflow-y-auto`).
+
+Referensi commit frontend terkait:
+
+- `c701642` -> phase indicator awal + perbaikan mobile responsiveness.
+- `44ce84f` -> perbaikan scroll wrapper.
+- `7b9709b` -> finalisasi scroll behavior (`h-screen overflow-y-auto`).
+- `77159c2` -> sinkronisasi phase indicator dengan state device aktual via polling.
+
+### 19.2 Firmware kalibrasi
+
+Perubahan utama:
+
+1. Menambahkan state machine granular: `CAL_COUNTDOWN` dan `CAL_CALIBRATING` (selain `CAL_IDLE`, `CAL_RECORDING`, `CAL_PAUSED`).
+2. Menambahkan serialisasi state terstandar (`cal_state`) untuk sinkronisasi UI.
+3. Menulis status ke `calibration_device_status` secara immediate saat transisi state penting (tidak hanya heartbeat periodik).
+4. Menangani kondisi pintu dibuka saat countdown/kalibrasi dengan abort ke idle agar status tetap konsisten.
+
+Referensi commit backend/firmware terkait:
+
+- `fa9e206` -> granular `cal_state` sync ke Supabase dari firmware.
+
+### 19.3 Database status kalibrasi
+
+Perubahan utama:
+
+1. Kolom `cal_state` ditambahkan ke tabel `calibration_device_status` pada Supabase.
+2. Sumber status untuk UI tetap dari row terbaru tabel ini (`ORDER BY created_at DESC LIMIT 1`).
+
+Eksekusi SQL yang sudah dilakukan:
+
+```sql
+ALTER TABLE calibration_device_status
+ADD COLUMN IF NOT EXISTS cal_state TEXT DEFAULT 'IDLE';
+```
+
+### 19.4 Backend Express/MQTT (hasil verifikasi arsitektur)
+
+Hasil verifikasi yang sudah dikonfirmasi di sesi ini:
+
+1. Backend Express kalibrasi berfungsi sebagai jalur command (`/api-cal/command`) dan jalur baca status (`/api-cal/status/:deviceId`).
+2. Backend MQTT client tidak melakukan insert ulang status calibration dari topic MQTT (desain saat ini untuk menghindari duplikasi), karena status ditulis langsung oleh firmware ke Supabase.
+
+### 19.5 Dampak langsung ke proses troubleshooting
+
+Perbaikan ini membuat proses debug lebih deterministik:
+
+1. Instruksi mulai simulasi tidak lagi bergantung timer tebakan frontend.
+2. User dapat menunggu `cal_state = RECORDING` sebagai satu-satunya sinyal aman untuk mulai impact test.
+3. Analisis kasus data baseline/noise menjadi lebih mudah karena fase `COUNTDOWN` dan `CALIBRATING` sekarang terlihat jelas di UI dan tercatat di status.
 
 ---
 
