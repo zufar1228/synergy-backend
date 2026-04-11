@@ -93,6 +93,29 @@ static constexpr uint32_t RETRY_DELAY_MS        = 2000;   // backoff between ret
 static constexpr int      RETRY_QUEUE_SIZE      = 5;      // max queued failed requests
 
 // ============================================================================
+//  STRUCT DEFINITIONS (must appear before first function for Arduino preprocessor)
+// ============================================================================
+struct RawSample {
+  uint32_t ts;     // millis() timestamp
+  float    deltaG;
+};
+
+struct BufferedSummary {
+  float    dg_min;
+  float    dg_max;
+  float    dg_mean;
+  int      n_samples;
+  uint32_t window_ms;
+  uint32_t created_ms;  // millis() when buffered
+};
+
+struct RetryItem {
+  char   table[32];
+  String body;
+  int    attempts;
+};
+
+// ============================================================================
 //  STATE MACHINE
 // ============================================================================
 enum CalState { CAL_IDLE, CAL_COUNTDOWN, CAL_CALIBRATING, CAL_RECORDING, CAL_PAUSED };
@@ -116,10 +139,6 @@ static char     currentNote[128]   = "";
 //  RUNTIME GLOBALS
 // ============================================================================
 // Raw sample buffer (for Sessions B/C/D)
-struct RawSample {
-  uint32_t ts;     // millis() timestamp
-  float    deltaG;
-};
 static RawSample rawBuffer[RAW_BUFFER_SIZE];
 static int rawBufCount = 0;
 
@@ -131,14 +150,6 @@ static int    sumCount  = 0;
 static uint32_t summaryStartMs = 0;
 
 // Summary ring buffer (Session A: delayed publish for door-open purge)
-struct BufferedSummary {
-  float    dg_min;
-  float    dg_max;
-  float    dg_mean;
-  int      n_samples;
-  uint32_t window_ms;
-  uint32_t created_ms;  // millis() when buffered
-};
 static BufferedSummary summaryBuf[SUMMARY_BUF_CAP];
 static int summaryBufCount = 0;
 
@@ -161,11 +172,6 @@ static uint32_t lastSignificantHitMs = 0;  // last time Δg exceeded threshold
 static bool     silenceDetectionEnabled = true; // can be toggled for Session A
 
 // Feature: Retry queue (#12)
-struct RetryItem {
-  char   table[32];
-  String body;
-  int    attempts;
-};
 static RetryItem retryQueue[RETRY_QUEUE_SIZE];
 static int retryQueueCount = 0;
 static uint32_t lastRetryMs = 0;
