@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as calibrationService from '../services/calibrationService';
 import * as actuationService from '../services/calibrationActuationService';
+import * as eventBus from '../services/calibrationEventBus';
 
 const handleError = (res: Response, error: unknown) => {
   console.error('[CalibrationController] Error:', error);
@@ -155,4 +156,43 @@ export const getPeakSummary = async (req: Request, res: Response) => {
   } catch (error) {
     handleError(res, error);
   }
+};
+
+/**
+ * GET /api-cal/events/:deviceId
+ * Server-Sent Events stream for realtime calibration state updates.
+ * Relays MQTT status messages from firmware with <500ms latency.
+ */
+export const streamEvents = async (req: Request, res: Response) => {
+  const { deviceId } = req.params;
+
+  if (!deviceId) {
+    return res.status(400).json({ error: 'deviceId is required' });
+  }
+
+  // SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no' // disable nginx buffering
+  });
+
+  // Send current status from DB as initial event
+  try {
+    const currentStatus = await calibrationService.getDeviceStatus(deviceId);
+    if (currentStatus) {
+      res.write(`data: ${JSON.stringify(currentStatus)}\n\n`);
+    }
+  } catch {
+    // Non-fatal — SSE stream still works, just no initial state
+  }
+
+  // Subscribe to live MQTT events
+  const client = eventBus.subscribe(deviceId, res);
+
+  // Cleanup on disconnect
+  req.on('close', () => {
+    eventBus.unsubscribe(deviceId, client);
+  });
 };

@@ -339,6 +339,18 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
 
         // Calibration device status is written directly by firmware via Supabase REST.
         // No backend MQTT insertion needed — avoids duplicate rows.
+        // BUT we relay cal_state events to SSE clients for realtime UI sync.
+        try {
+          const statusData = JSON.parse(message);
+          if (statusData.cal_state) {
+            const { emit } = await import(
+              '../features/calibration/services/calibrationEventBus'
+            );
+            emit(deviceId, statusData);
+          }
+        } catch {
+          // Not JSON or no cal_state — ignore
+        }
 
         await updateDeviceHeartbeat(deviceId, extraFields);
         log.debug('Heartbeat processed for', deviceId);
