@@ -140,7 +140,7 @@
 | Session | Jumlah Trial | Contoh Note |
 |---------|-------------|-------------|
 | A | 1 (baseline) | "Full ambient baseline recording" |
-| B | 7 | "Pukulan tengah", "Senggolan bahu", "Tendangan keras" |
+| B | 7 | "Pukulan tengah", "Senggolan bahu", "Tendangan kuat", "Tendangan ringan" |
 | C | 7 | "Sela kusen kanan", "Sela bawah pintu", "Kusen atas" |
 
 ---
