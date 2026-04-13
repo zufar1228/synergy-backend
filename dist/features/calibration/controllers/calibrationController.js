@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getPeakSummary = exports.getTrialPeaks = exports.getSessionStats = exports.getStatistics = exports.getSummary = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
+exports.streamEvents = exports.getPeakSummary = exports.getTrialPeaks = exports.getSessionStats = exports.getStatistics = exports.getSummary = exports.getSessions = exports.getData = exports.getStatus = exports.sendCommand = void 0;
 const calibrationService = __importStar(require("../services/calibrationService"));
 const actuationService = __importStar(require("../services/calibrationActuationService"));
+const eventBus = __importStar(require("../services/calibrationEventBus"));
 const handleError = (res, error) => {
     console.error('[CalibrationController] Error:', error);
     const message = error instanceof Error ? error.message : 'Internal server error';
@@ -194,3 +195,38 @@ const getPeakSummary = async (req, res) => {
     }
 };
 exports.getPeakSummary = getPeakSummary;
+/**
+ * GET /api-cal/events/:deviceId
+ * Server-Sent Events stream for realtime calibration state updates.
+ * Relays MQTT status messages from firmware with <500ms latency.
+ */
+const streamEvents = async (req, res) => {
+    const { deviceId } = req.params;
+    if (!deviceId) {
+        return res.status(400).json({ error: 'deviceId is required' });
+    }
+    // SSE headers
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no' // disable nginx buffering
+    });
+    // Send current status from DB as initial event
+    try {
+        const currentStatus = await calibrationService.getDeviceStatus(deviceId);
+        if (currentStatus) {
+            res.write(`data: ${JSON.stringify(currentStatus)}\n\n`);
+        }
+    }
+    catch {
+        // Non-fatal — SSE stream still works, just no initial state
+    }
+    // Subscribe to live MQTT events
+    const client = eventBus.subscribe(deviceId, res);
+    // Cleanup on disconnect
+    req.on('close', () => {
+        eventBus.unsubscribe(deviceId, client);
+    });
+};
+exports.streamEvents = streamEvents;

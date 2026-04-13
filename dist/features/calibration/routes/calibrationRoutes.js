@@ -38,6 +38,8 @@ const calibrationController = __importStar(require("../controllers/calibrationCo
 const router = (0, express_1.Router)();
 // Send command to calibration device via MQTT
 router.post('/command', calibrationController.sendCommand);
+// SSE stream for realtime device state (MQTT relay, <500ms latency)
+router.get('/events/:deviceId', calibrationController.streamEvents);
 // Get latest device status
 router.get('/status/:deviceId', calibrationController.getStatus);
 // Get distinct session names (must be before /data/:session to avoid conflict)

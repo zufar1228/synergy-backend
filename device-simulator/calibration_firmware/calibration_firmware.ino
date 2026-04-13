@@ -4,7 +4,7 @@
 //  Sensors: MPU6050 (I²C), Reed Switch
 //  Connectivity: WiFi + MQTT over TLS (EMQX Cloud) + HTTPS (Supabase REST)
 //  Purpose: Collect vibration profile data for threshold calibration
-//           Sessions A (ambient), B (single impact), C (chiseling), D (ramming)
+//           Sessions A (ambient), B (ramming), C (chiseling)
 //
 //  Data Flow:
 //    Sensor data  → Supabase REST API (HTTP POST) — high volume, avoids MQTT limits
@@ -69,7 +69,7 @@ static const char* AREA_ID      = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 // ============================================================================
 static constexpr uint32_t IMU_SAMPLE_MS         = 10;     // 100 Hz sampling
 static constexpr uint32_t SUMMARY_INTERVAL_MS   = 5000;   // Session A: 5s summary
-static constexpr uint32_t RAW_FLUSH_MS          = 500;    // Session B/C/D: flush every 500ms
+static constexpr uint32_t RAW_FLUSH_MS          = 500;    // Session B/C: flush every 500ms
 static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 15000;  // MQTT heartbeat every 15s
 static constexpr uint32_t DOOR_RESUME_DELAY_MS  = 5000;   // Session A: auto-resume 5s after close
 static constexpr int      RAW_BUFFER_SIZE       = 55;     // circular buffer for raw samples
@@ -77,7 +77,7 @@ static constexpr int      RAW_BUFFER_SIZE       = 55;     // circular buffer for
 // Feature: Countdown before recording (#4)
 static constexpr uint32_t COUNTDOWN_MS          = 3000;   // 3-second countdown before START
 
-// Feature: Auto-STOP on silence for Sessions B/C/D (#3)
+// Feature: Auto-STOP on silence for Sessions B/C (#3)
 static constexpr float    SILENCE_THRESHOLD     = 0.02f;  // Δg below this = silence (lowered: proper baseline reduces noise floor)
 static constexpr uint32_t SILENCE_TIMEOUT_MS    = 5000;   // 5s of silence → auto-stop
 
@@ -131,14 +131,14 @@ static const char* calStateStr() {
     default:              return "IDLE";
   }
 }
-static char     currentSession[4]  = "";   // "A", "B", "C", or "D"
+static char     currentSession[4]  = "";   // "A", "B", or "C"
 static int      currentTrial       = 1;
 static char     currentNote[128]   = "";
 
 // ============================================================================
 //  RUNTIME GLOBALS
 // ============================================================================
-// Raw sample buffer (for Sessions B/C/D)
+// Raw sample buffer (for Sessions B/C)
 static RawSample rawBuffer[RAW_BUFFER_SIZE];
 static int rawBufCount = 0;
 
@@ -381,7 +381,7 @@ static void autoCalibrate(int nSamples, const char* label) {
 //  SUPABASE DATA PUBLISHING
 // ============================================================================
 
-// Flush raw buffer to Supabase (Sessions B/C/D)
+// Flush raw buffer to Supabase (Sessions B/C)
 static void flushRawBuffer() {
   if (rawBufCount == 0) return;
 
@@ -708,7 +708,7 @@ static void stopRecording() {
 
   calState = CAL_IDLE;
 
-  // Feature #1: Auto-increment trial for Sessions B/C/D
+  // Feature #1: Auto-increment trial for Sessions B/C
   if (currentSession[0] != 'A' && currentSession[0] != '\0') {
     currentTrial++;
     logMsg("[STATE] IDLE — Trial auto-incremented to " + String(currentTrial));
@@ -738,8 +738,8 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // --- SET_SESSION ---
   if (strcmp(cmd, "SET_SESSION") == 0) {
     const char* session = doc["session"] | "";
-    if (session[0] == '\0' || (session[0] != 'A' && session[0] != 'B' && session[0] != 'C' && session[0] != 'D')) {
-      logMsg("[CMD] Invalid session. Must be A, B, C, or D.");
+    if (session[0] == '\0' || (session[0] != 'A' && session[0] != 'B' && session[0] != 'C')) {
+      logMsg("[CMD] Invalid session. Must be A, B, or C.");
       return;
     }
     strncpy(currentSession, session, sizeof(currentSession) - 1);
@@ -862,7 +862,7 @@ void setup() {
   Serial.println("============================================");
   Serial.println(" MPU6050 Calibration Data Collection v2.0");
   Serial.println(" XIAO ESP32-S3 + Supabase REST + MQTT Ctrl");
-  Serial.println(" Sessions: A(ambient) B(impact) C(chisel) D(ram)");
+  Serial.println(" Sessions: A(ambient) B(ramming) C(chisel)");
   Serial.println("============================================");
 
   // --- Pin Setup ---
@@ -970,7 +970,7 @@ void loop() {
       if (dg > sumMax) sumMax = dg;
       sumCount++;
     } else {
-      // Sessions B/C/D: buffer raw samples
+      // Sessions B/C: buffer raw samples
       if (rawBufCount < RAW_BUFFER_SIZE) {
         rawBuffer[rawBufCount].ts     = millis();
         rawBuffer[rawBufCount].deltaG = dg;
@@ -1006,7 +1006,7 @@ postSampling:
     }
   }
 
-  // --- Sessions B/C/D: timed flush every 500ms ---
+  // --- Sessions B/C: timed flush every 500ms ---
   if (calState == CAL_RECORDING && currentSession[0] != 'A') {
     if (now - lastFlushMs >= RAW_FLUSH_MS) {
       lastFlushMs = now;

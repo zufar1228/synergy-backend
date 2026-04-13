@@ -44,7 +44,6 @@ const intrusiService = __importStar(require("../features/intrusi/services/intrus
 const lingkunganService = __importStar(require("../features/lingkungan/services/lingkunganService"));
 const deviceService_1 = require("../services/deviceService");
 const intrusiAlertingService = __importStar(require("../features/intrusi/services/intrusiAlertingService"));
-const calibrationService = __importStar(require("../features/calibration/services/calibrationService"));
 // Simple log-level utility
 const LOG_LEVEL = env_1.env.LOG_LEVEL ?? (env_1.env.NODE_ENV === 'production' ? 'info' : 'debug');
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -316,21 +315,14 @@ const registerEventHandlers = (mqttClient) => {
                 catch {
                     // Non-JSON heartbeat — that's fine, just update heartbeat
                 }
-                // Calibration heartbeat: detect cal_state field and save to calibration_device_status
+                // Calibration device status is written directly by firmware via Supabase REST.
+                // No backend MQTT insertion needed — avoids duplicate rows.
+                // BUT we relay cal_state events to SSE clients for realtime UI sync.
                 try {
                     const statusData = JSON.parse(message);
                     if (statusData.cal_state) {
-                        calibrationService.insertDeviceStatus({
-                            session: statusData.session || 'none',
-                            recording: statusData.cal_state === 'RECORDING',
-                            trial: statusData.trial || 1,
-                            uptime_sec: statusData.uptime_sec || 0,
-                            wifi_rssi: statusData.wifi_rssi || 0,
-                            free_heap: statusData.free_heap || 0,
-                            offline_buf: 0,
-                            device_id: statusData.device_id || deviceId,
-                            door_state: statusData.door || null
-                        }).catch((err) => log.error('Calibration status insert error:', err));
+                        const { emit } = await Promise.resolve().then(() => __importStar(require('../features/calibration/services/calibrationEventBus')));
+                        emit(deviceId, statusData);
                     }
                 }
                 catch {

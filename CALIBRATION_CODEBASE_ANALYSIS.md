@@ -98,7 +98,7 @@
                   │  (menunggu perintah START)  │
                   └──────────┬────────────────┘
                              │ START command
-                             │ (Session B/C/D)
+                             │ (Session B/C)
                   ┌──────────▼────────────────┐
                   │       CAL_COUNTDOWN        │
                   │  (3 detik hitung mundur)    │
@@ -132,18 +132,16 @@
 | Session | Tujuan | Metode Data | Sampling | Fitur Khusus |
 |---------|--------|-------------|----------|--------------|
 | **A** (Ambient) | Baseline derau lingkungan | Summary 5 detik | 100 Hz → aggregasi | Door-open purge 20s, auto-resume setelah pintu tutup 5s |
-| **B** (Single Impact) | Profil ketukan tunggal | Raw per-sample | 100 Hz langsung | Auto-stop setelah 5s silence, flush tiap 500ms |
+| **B** (Ramming) | Profil benturan tunggal | Raw per-sample | 100 Hz langsung | Auto-stop setelah 5s silence, flush tiap 500ms |
 | **C** (Chiseling) | Pola pembobolan obeng/pahat | Raw per-sample | 100 Hz langsung | Auto-stop setelah 5s silence |
-| **D** (Ramming) | Pola dobrak pintu | Raw per-sample | 100 Hz langsung | Auto-stop setelah 5s silence |
 
 ### Trial Presets (UI)
 
 | Session | Jumlah Trial | Contoh Note |
 |---------|-------------|-------------|
 | A | 1 (baseline) | "Full ambient baseline recording" |
-| B | 8 | "Ketuk 1x pelan", "Ketuk 1x kuat", "Ketuk 1x dg kunci" |
-| C | 10 | "Congkel obeng pelan 3x", "Pahat di engsel", "Kartu gesek kusen" |
-| D | 10 | "Dorong badan 1x pelan", "Tendang 1x", "Shoulder tackle" |
+| B | 7 | "Pukulan tengah", "Senggolan bahu", "Tendangan keras" |
+| C | 7 | "Sela kusen kanan", "Sela bawah pintu", "Kusen atas" |
 
 ---
 
@@ -152,7 +150,7 @@
 ### 4.1 Tabel
 
 #### `calibration_raw`
-Data mentah per-sample untuk Session B/C/D (~100 sampel/detik).
+Data mentah per-sample untuk Session B/C (~100 sampel/detik).
 
 | Kolom | Tipe | Keterangan |
 |-------|------|------------|
@@ -274,13 +272,13 @@ warehouses/{warehouse_id}/areas/{area_id}/devices/{device_id}/status
 ### 6.2 CalibrationControlPanel
 
 **State Management:**
-- `activeSession` — Tab session A/B/C/D
+- `activeSession` — Tab session A/B/C
 - `loading` — String tracking tombol mana yang loading
 - `completedTrials` — `Set<string>` untuk tracking progress UI
 - `calState` — Diterima via prop dari SSE hook (sebelumnya: internal polling)
 
 **Flow User:**
-1. Pilih tab session (A/B/C/D) → muncul daftar trial preset
+1. Pilih tab session (A/B/C) → muncul daftar trial preset
 2. Klik trial → `quickStart()`: SET_SESSION + START
 3. Phase indicator muncul: ⏳COUNTDOWN → 🔄KALIBRASI → 🟢MULAI!
 4. Audio cues pada setiap transisi state
@@ -458,8 +456,8 @@ Dengan HTTP polling 1 detik + latency Supabase write (~500-1000ms), indikator "�
 
 | # | Fitur | Keterangan |
 |---|-------|------------|
-| 1 | Auto-increment trial | Session B/C/D: trial++ otomatis setelah STOP |
-| 3 | Auto-stop on silence | Δg < 0.02 selama 5 detik → auto-stop (Session B/C/D) |
+| 1 | Auto-increment trial | Session B/C: trial++ otomatis setelah STOP |
+| 3 | Auto-stop on silence | Δg < 0.02 selama 5 detik → auto-stop (Session B/C) |
 | 4 | Countdown 3 detik | Delay sebelum RECORDING untuk persiapan |
 | 12 | Retry queue | POST gagal ke Supabase di-retry max 3x dengan delay 2 detik |
 | 14 | Connectivity check | Cek WiFi + Supabase sebelum START, tolak jika unreachable |
@@ -513,10 +511,10 @@ Dengan HTTP polling 1 detik + latency Supabase write (~500-1000ms), indikator "�
 
 ### Firmware
 - State machine 5 state: IDLE → COUNTDOWN → CALIBRATING → RECORDING → PAUSED
-- 4 jenis session (A/B/C/D) dengan mekanisme data berbeda
+- 3 jenis session (A/B/C) dengan mekanisme data berbeda
 - Retry queue untuk POST gagal (max 3 percobaan)
 - Door-open purge untuk Session A (buang 20 detik data kontaminasi)
-- Auto-stop pada silence 5 detik (Session B/C/D)
+- Auto-stop pada silence 5 detik (Session B/C)
 - Connectivity check sebelum START
 
 ### Database
