@@ -18,6 +18,8 @@ type TestScenario =
 
 type TriggerMode = 'device_command' | 'direct_mqtt';
 
+type BaseTopicSource = 'db_device_context' | 'mqtt_observed' | 'cli_override';
+
 interface CliOptions {
   runId: string;
   scenario: TestScenario;
@@ -26,8 +28,10 @@ interface CliOptions {
   intervalMs: number;
   settleMs: number;
   timeoutMs: number;
+  topicDiscoverTimeoutMs: number;
   slaP95Ms: number;
   deviceId?: string;
+  baseTopic?: string;
   outputDir: string;
   cleanupBefore: boolean;
 }
@@ -113,6 +117,22 @@ const percentile = (values: number[], p: number): number | null => {
 const formatMs = (value: number | null): string =>
   value === null ? '-' : value.toFixed(1);
 
+const hashToBase36 = (input: string): string => {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+};
+
+const buildRunTag = (runId: string): string => {
+  const compact = runId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+  const hash = hashToBase36(runId).padStart(6, '0').slice(0, 6);
+  const stem = compact.length > 0 ? compact : 'run';
+  return `lt-${stem}-${hash}`;
+};
+
 const parseCliArgs = (): CliOptions => {
   const raw = process.argv.slice(2);
   const parsed: Record<string, string | boolean> = {};
@@ -143,6 +163,9 @@ const parseCliArgs = (): CliOptions => {
   const intervalMs = Number(parsed['interval-ms'] ?? 1200);
   const settleMs = Number(parsed['settle-ms'] ?? 9000);
   const timeoutMs = Number(parsed['timeout-ms'] ?? 120000);
+  const topicDiscoverTimeoutMs = Number(
+    parsed['topic-discover-timeout-ms'] ?? 15000
+  );
   const slaP95Ms = Number(parsed['sla-p95-ms'] ?? 3000);
   const scenarioRaw = String(parsed.scenario ?? DEFAULT_SCENARIO);
   const triggerModeRaw = String(parsed['trigger-mode'] ?? 'device_command');
@@ -172,11 +195,19 @@ const parseCliArgs = (): CliOptions => {
       Number.isFinite(timeoutMs) && timeoutMs >= 5000
         ? Math.floor(timeoutMs)
         : 120000,
+    topicDiscoverTimeoutMs:
+      Number.isFinite(topicDiscoverTimeoutMs) && topicDiscoverTimeoutMs >= 1000
+        ? Math.floor(topicDiscoverTimeoutMs)
+        : 15000,
     slaP95Ms:
       Number.isFinite(slaP95Ms) && slaP95Ms > 0 ? Math.floor(slaP95Ms) : 3000,
     deviceId:
       typeof parsed['device-id'] === 'string'
         ? String(parsed['device-id'])
+        : undefined,
+    baseTopic:
+      typeof parsed['base-topic'] === 'string'
+        ? String(parsed['base-topic'])
         : undefined,
     outputDir: String(
       parsed['output-dir'] ?? path.join('tests', 'latency', 'reports')
@@ -260,6 +291,87 @@ const connectMqtt = async (): Promise<mqtt.MqttClient> => {
   return client;
 };
 
+const subscribeTopic = async (client: mqtt.MqttClient, topic: string) => {
+  await new Promise<void>((resolve, reject) => {
+    client.subscribe(topic, { qos: 1 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const unsubscribeTopic = async (client: mqtt.MqttClient, topic: string) => {
+  await new Promise<void>((resolve, reject) => {
+    client.unsubscribe(topic, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const normalizeBaseTopic = (topic: string): string => {
+  let base = topic.trim().replace(/\/+$/, '');
+  base = base.replace(/\/(status|commands|sensors\/intrusi)$/i, '');
+  return base;
+};
+
+const extractBaseTopicFromObservedTopic = (
+  topic: string,
+  deviceId: string
+): string | null => {
+  const statusSuffix = '/status';
+  const intrusiSuffix = '/sensors/intrusi';
+
+  let baseTopic: string | null = null;
+  if (topic.endsWith(statusSuffix)) {
+    baseTopic = topic.slice(0, -statusSuffix.length);
+  } else if (topic.endsWith(intrusiSuffix)) {
+    baseTopic = topic.slice(0, -intrusiSuffix.length);
+  }
+
+  if (!baseTopic) return null;
+  return baseTopic.endsWith(`/devices/${deviceId}`) ? baseTopic : null;
+};
+
+const discoverDeviceBaseTopic = async (
+  client: mqtt.MqttClient,
+  deviceId: string,
+  timeoutMs: number
+): Promise<string | null> => {
+  const probeTopics = [
+    `warehouses/+/areas/+/devices/${deviceId}/status`,
+    `warehouses/+/areas/+/devices/${deviceId}/sensors/intrusi`
+  ];
+
+  await Promise.all(probeTopics.map((topic) => subscribeTopic(client, topic)));
+
+  try {
+    const discovered = await new Promise<string | null>((resolve) => {
+      const finish = (result: string | null) => {
+        clearTimeout(timer);
+        client.off('message', onMessage);
+        resolve(result);
+      };
+
+      const onMessage = (topic: string) => {
+        const baseTopic = extractBaseTopicFromObservedTopic(topic, deviceId);
+        if (baseTopic) {
+          finish(baseTopic);
+        }
+      };
+
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      client.on('message', onMessage);
+    });
+
+    return discovered;
+  } finally {
+    await Promise.all(
+      probeTopics.map((topic) => unsubscribeTopic(client, topic).catch(() => undefined))
+    );
+  }
+};
+
 const publishJson = async (
   client: mqtt.MqttClient,
   topic: string,
@@ -277,16 +389,25 @@ const buildTracePayload = (
   traceId: string,
   runId: string,
   scenario: TestScenario,
-  seq: number
-) => ({
-  trace_id: traceId,
-  test_run_id: runId,
-  test_scenario: scenario,
-  test_bypass_cooldown: true,
-  seq,
-  publish_ms: Date.now(),
-  device_ms: Date.now()
-});
+  seq: number,
+  includeTimingMs: boolean
+) => {
+  const payload: Record<string, unknown> = {
+    trace_id: traceId,
+    test_run_id: runId,
+    test_scenario: scenario,
+    test_bypass_cooldown: true,
+    seq
+  };
+
+  if (includeTimingMs) {
+    const now = Date.now();
+    payload.publish_ms = now;
+    payload.device_ms = now;
+  }
+
+  return payload;
+};
 
 const sendPrimingStatus = async (
   client: mqtt.MqttClient,
@@ -315,7 +436,13 @@ const runOneScenario = async (
   const sensorTopic = `${baseTopic}/sensors/intrusi`;
   const statusTopic = `${baseTopic}/status`;
   const commandTopic = `${baseTopic}/commands`;
-  const trace = buildTracePayload(traceId, runId, scenario, seq);
+  const trace = buildTracePayload(
+    traceId,
+    runId,
+    scenario,
+    seq,
+    triggerMode !== 'device_command'
+  );
 
   if (triggerMode === 'device_command') {
     if (scenario === 'intrusi_alarm') {
@@ -635,12 +762,24 @@ const toCsv = (rows: TraceLatency[]): string => {
 
 const buildMarkdownSummary = (params: {
   options: CliOptions;
+  runTag: string;
   device: DeviceContext;
+  baseTopic: string;
+  baseTopicSource: BaseTopicSource;
   rows: TraceLatency[];
   metrics: ReturnType<typeof buildMetricSummary>;
   reportDir: string;
 }) => {
-  const { options, device, rows, metrics, reportDir } = params;
+  const {
+    options,
+    runTag,
+    device,
+    baseTopic,
+    baseTopicSource,
+    rows,
+    metrics,
+    reportDir
+  } = params;
   const deliveredCount = rows.filter((row) => row.telegramSent).length;
   const suppressedCount = rows.filter((row) => row.cooldownSuppressed).length;
   const errorCount = rows.filter((row) => row.error && row.error.length > 0).length;
@@ -661,19 +800,41 @@ const buildMarkdownSummary = (params: {
     .map((row) => `- ${row.traceId}: ${row.error}`)
     .join('\n');
 
-  return `# Ringkasan Uji Latensi Intrusi\n\n- Run ID: ${options.runId}\n- Device: ${device.deviceName} (${device.deviceId})\n- Lokasi: ${device.warehouseName} / ${device.areaName}\n- Scenario input: ${options.scenario}\n- Trigger mode: ${options.triggerMode}\n- Jumlah trace dikirim: ${options.count}\n- Jumlah trace terekam: ${rows.length}\n- Telegram terkirim: ${deliveredCount}\n- Cooldown suppressed: ${suppressedCount}\n- Trace error/missing: ${errorCount}\n- SLA target: p95 E2E Publish -> Telegram ACK <= ${options.slaP95Ms} ms\n- Hasil SLA: ${slaPass ? 'PASS' : 'FAIL'}\n\n## Percentile Metrik (ms)\n| Metrik | Samples | p50 | p95 | p99 |\n|---|---:|---:|---:|---:|\n${metricTable}\n\n## Error Trace (max 30)\n${failedRows || '- Tidak ada error trace.'}\n\n## Artefak\n- ${path.join(reportDir, 'latency_raw.csv')}\n- ${path.join(reportDir, 'summary.json')}\n- ${path.join(reportDir, 'summary.md')}\n`;
+  return `# Ringkasan Uji Latensi Intrusi\n\n- Run ID: ${options.runId}\n- Run tag (payload): ${runTag}\n- Device: ${device.deviceName} (${device.deviceId})\n- Lokasi: ${device.warehouseName} / ${device.areaName}\n- Scenario input: ${options.scenario}\n- Trigger mode: ${options.triggerMode}\n- Base topic: ${baseTopic}\n- Sumber base topic: ${baseTopicSource}\n- Jumlah trace dikirim: ${options.count}\n- Jumlah trace terekam: ${rows.length}\n- Telegram terkirim: ${deliveredCount}\n- Cooldown suppressed: ${suppressedCount}\n- Trace error/missing: ${errorCount}\n- SLA target: p95 E2E Publish -> Telegram ACK <= ${options.slaP95Ms} ms\n- Hasil SLA: ${slaPass ? 'PASS' : 'FAIL'}\n\n## Percentile Metrik (ms)\n| Metrik | Samples | p50 | p95 | p99 |\n|---|---:|---:|---:|---:|\n${metricTable}\n\n## Error Trace (max 30)\n${failedRows || '- Tidak ada error trace.'}\n\n## Artefak\n- ${path.join(reportDir, 'latency_raw.csv')}\n- ${path.join(reportDir, 'summary.json')}\n- ${path.join(reportDir, 'summary.md')}\n`;
 };
 
 const main = async () => {
   const options = parseCliArgs();
+  const runTag = buildRunTag(options.runId);
   const device = await resolveDeviceContext(options.deviceId);
 
   if (options.cleanupBefore) {
-    await cleanupLatencyRowsByRunId(options.runId);
+    await cleanupLatencyRowsByRunId(runTag);
   }
 
   const mqttClient = await connectMqtt();
-  const baseTopic = `warehouses/${device.warehouseId}/areas/${device.areaId}/devices/${device.deviceId}`;
+  const dbBaseTopic = `warehouses/${device.warehouseId}/areas/${device.areaId}/devices/${device.deviceId}`;
+
+  let baseTopic = dbBaseTopic;
+  let baseTopicSource: BaseTopicSource = 'db_device_context';
+
+  if (options.baseTopic && options.baseTopic.trim().length > 0) {
+    baseTopic = normalizeBaseTopic(options.baseTopic);
+    baseTopicSource = 'cli_override';
+  } else if (options.triggerMode === 'device_command') {
+    console.log(
+      `[Harness] Mendeteksi base topic MQTT aktual (timeout ${options.topicDiscoverTimeoutMs} ms)...`
+    );
+    const discoveredBaseTopic = await discoverDeviceBaseTopic(
+      mqttClient,
+      device.deviceId,
+      options.topicDiscoverTimeoutMs
+    );
+    if (discoveredBaseTopic) {
+      baseTopic = discoveredBaseTopic;
+      baseTopicSource = 'mqtt_observed';
+    }
+  }
 
   const expectedTraceIds: string[] = [];
 
@@ -681,7 +842,14 @@ const main = async () => {
   console.log(
     `[Harness] runId=${options.runId} scenario=${options.scenario} triggerMode=${options.triggerMode} count=${options.count} intervalMs=${options.intervalMs}`
   );
+  console.log(`[Harness] runTag(payload)=${runTag}`);
   console.log(`[Harness] target device=${device.deviceId} (${device.deviceName})`);
+  console.log(`[Harness] baseTopic=${baseTopic} source=${baseTopicSource}`);
+  if (baseTopicSource === 'db_device_context' && options.triggerMode === 'device_command') {
+    console.log(
+      '[Harness] Warning: base topic belum terkonfirmasi dari trafik MQTT, masih memakai konteks database.'
+    );
+  }
 
   try {
     for (let i = 0; i < options.count; i++) {
@@ -690,7 +858,7 @@ const main = async () => {
           ? SCENARIO_CYCLE[i % SCENARIO_CYCLE.length]
           : options.scenario;
 
-      const traceId = `lt-${options.runId}-${String(i + 1).padStart(4, '0')}`;
+      const traceId = `${runTag}-${String(i + 1).padStart(4, '0')}`;
       expectedTraceIds.push(traceId);
 
       await runOneScenario(
@@ -699,7 +867,7 @@ const main = async () => {
         scenario,
         options.triggerMode,
         traceId,
-        options.runId,
+        runTag,
         i + 1
       );
 
@@ -717,7 +885,7 @@ const main = async () => {
     await sleep(options.settleMs);
 
     const rowsFromDb = await waitForRows(
-      options.runId,
+      runTag,
       expectedTraceIds.length,
       options.timeoutMs
     );
@@ -731,7 +899,10 @@ const main = async () => {
     const csv = toCsv(rows);
     const markdownSummary = buildMarkdownSummary({
       options,
+      runTag,
       device,
+      baseTopic,
+      baseTopicSource,
       rows,
       metrics,
       reportDir
@@ -739,8 +910,11 @@ const main = async () => {
 
     const jsonSummary = {
       runId: options.runId,
+      runTag,
       scenario: options.scenario,
       triggerMode: options.triggerMode,
+      baseTopic,
+      baseTopicSource,
       countSent: options.count,
       countRecorded: rows.length,
       metrics,
