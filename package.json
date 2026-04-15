@@ -13,6 +13,7 @@
     "db:studio": "drizzle-kit studio",
     "simulator:keamanan": "tsx device-simulator/keamanan-simulator.ts",
     "typecheck": "tsc --noEmit",
+    "test:latency:intrusi": "tsx tests/latency/intrusi-latency-harness.ts",
     "test:cal:api": "npx tsx tests/calibration/api-endpoints.test.ts",
     "test:cal:db": "npx tsx tests/calibration/db-views.test.ts",
     "test:cal:firmware": "npx tsx tests/calibration/firmware-dataflow.test.ts",

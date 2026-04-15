@@ -5,6 +5,7 @@ import * as intrusiService from '../features/intrusi/services/intrusiService';
 import * as lingkunganService from '../features/lingkungan/services/lingkunganService';
 import { updateDeviceHeartbeat } from '../services/deviceService';
 import * as intrusiAlertingService from '../features/intrusi/services/intrusiAlertingService';
+import { recordLatencyStage } from '../features/intrusi/services/latencyTrackerService';
 
 // Simple log-level utility
 const LOG_LEVEL =
@@ -21,6 +22,15 @@ const log = {
   error: (...args: any[]) =>
     currentLevel <= 3 && console.error('[MQTT]', ...args)
 };
+
+const toOptionalNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const toBooleanFlag = (value: unknown): boolean =>
+  value === true || value === 'true' || value === 1 || value === '1';
 
 // Environment variables (validated by env.ts)
 const MQTT_HOST = env.MQTT_HOST;
@@ -226,6 +236,7 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
       // Status/heartbeat messages
       if (topicParts.length === 7 && topicParts[6] === 'status') {
         log.debug('Heartbeat from', deviceId);
+        const mqttRxMs = Date.now();
 
         let extraFields:
           | {
@@ -246,6 +257,35 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
 
         try {
           const statusData = JSON.parse(message);
+          const latencyMeta = {
+            traceId:
+              typeof statusData.trace_id === 'string'
+                ? statusData.trace_id
+                : undefined,
+            runId:
+              typeof statusData.test_run_id === 'string'
+                ? statusData.test_run_id
+                : undefined,
+            scenario:
+              typeof statusData.test_scenario === 'string'
+                ? statusData.test_scenario
+                : undefined,
+            publishMs: toOptionalNumber(statusData.publish_ms),
+            deviceMs: toOptionalNumber(statusData.device_ms),
+            mqttRxMs,
+            bypassCooldown: toBooleanFlag(statusData.test_bypass_cooldown)
+          };
+
+          await recordLatencyStage({
+            traceId: latencyMeta.traceId,
+            runId: latencyMeta.runId,
+            scenario: latencyMeta.scenario,
+            deviceId,
+            eventType: 'status',
+            t0PublishMs: latencyMeta.publishMs,
+            deviceMs: latencyMeta.deviceMs,
+            t1MqttRxMs: latencyMeta.mqttRxMs
+          });
 
           // Detect intrusi-specific fields
           if (
@@ -328,7 +368,7 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
                   statusData.vbat_pct !== undefined
                     ? parseInt(statusData.vbat_pct, 10)
                     : undefined
-              });
+              }, latencyMeta);
             } catch (alertErr) {
               log.error('Power alert processing error:', alertErr);
             }
@@ -363,11 +403,48 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
         log.debug('Sensor data from', deviceId, 'type:', systemType);
 
         const data = JSON.parse(message);
+        const mqttRxMs = Date.now();
+        const latencyMeta = {
+          traceId:
+            typeof data.trace_id === 'string' ? data.trace_id : undefined,
+          runId:
+            typeof data.test_run_id === 'string' ? data.test_run_id : undefined,
+          scenario:
+            typeof data.test_scenario === 'string'
+              ? data.test_scenario
+              : undefined,
+          publishMs: toOptionalNumber(data.publish_ms),
+          deviceMs: toOptionalNumber(data.device_ms),
+          mqttRxMs,
+          bypassCooldown: toBooleanFlag(data.test_bypass_cooldown)
+        };
+
+        await recordLatencyStage({
+          traceId: latencyMeta.traceId,
+          runId: latencyMeta.runId,
+          scenario: latencyMeta.scenario,
+          deviceId,
+          eventType:
+            typeof data.type === 'string' && data.type.length > 0
+              ? data.type
+              : systemType,
+          t0PublishMs: latencyMeta.publishMs,
+          deviceMs: latencyMeta.deviceMs,
+          t1MqttRxMs: latencyMeta.mqttRxMs
+        });
 
         // QoS 1 dedup: skip if we already processed an identical message recently
-        const payloadHash = `${data.type ?? ''}|${data.temperature ?? ''}|${data.humidity ?? ''}|${data.co2 ?? ''}|${data.door ?? ''}`;
+        const payloadHash = `${data.type ?? ''}|${data.temperature ?? ''}|${data.humidity ?? ''}|${data.co2 ?? ''}|${data.door ?? ''}|${data.trace_id ?? ''}|${data.test_run_id ?? ''}|${data.seq ?? ''}|${data.vbat_pct ?? ''}|${data.power ?? ''}`;
         if (isDuplicate(deviceId, systemType, payloadHash)) {
           log.debug('Duplicate QoS 1 message skipped for', deviceId);
+          await recordLatencyStage({
+            traceId: latencyMeta.traceId,
+            runId: latencyMeta.runId,
+            scenario: latencyMeta.scenario,
+            deviceId,
+            eventType: data.type,
+            error: 'mqtt_dedup_suppressed'
+          });
           return;
         }
 
@@ -401,13 +478,26 @@ const registerEventHandlers = (mqttClient: mqtt.MqttClient) => {
             payload: data
           });
 
+          await recordLatencyStage({
+            traceId: latencyMeta.traceId,
+            runId: latencyMeta.runId,
+            scenario: latencyMeta.scenario,
+            deviceId,
+            eventType: data.type,
+            t2DbInsertMs: Date.now()
+          });
+
           log.info('Intrusi event saved:', data.type, 'device:', deviceId);
 
           // Process alerts for alarm events
           const alarmEvents = ['FORCED_ENTRY_ALARM', 'UNAUTHORIZED_OPEN'];
           if (alarmEvents.includes(data.type)) {
             log.info('Alarm event detected, processing alerts...');
-            await intrusiAlertingService.processIntrusiAlert(deviceId, data);
+            await intrusiAlertingService.processIntrusiAlert(
+              deviceId,
+              data,
+              latencyMeta
+            );
           }
         } else if (systemType === 'lingkungan') {
           await updateDeviceHeartbeat(deviceId, {

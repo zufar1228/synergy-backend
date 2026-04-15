@@ -79,7 +79,7 @@ static constexpr uint32_t COUNTDOWN_MS          = 3000;   // 3-second countdown 
 
 // Feature: Auto-STOP on silence for Sessions B/C (#3)
 static constexpr float    SILENCE_THRESHOLD     = 0.02f;  // Δg below this = silence (lowered: proper baseline reduces noise floor)
-static constexpr uint32_t SILENCE_TIMEOUT_MS    = 5000;   // 5s of silence → auto-stop
+static constexpr uint32_t SILENCE_TIMEOUT_MS    = 15000;   // 15s of silence → auto-stop
 
 // Feature: Purge contaminated data on Session A door open
 // When door opens, handle/knob vibration contaminates recent ambient data.

@@ -5,6 +5,56 @@ import { eq, and } from 'drizzle-orm';
 import * as webPushService from './webPushService';
 import * as telegramService from './telegramService';
 import { shouldSendLingkunganTelegram } from '../features/lingkungan/services/lingkunganAlertingService';
+import {
+  isLatencyTrace,
+  recordLatencyStage
+} from '../features/intrusi/services/latencyTrackerService';
+
+const ALERT_HINTS = ['PERINGATAN', 'ALARM', 'KRITIS', 'BAHAYA', 'DAYA BERALIH'];
+const RECOVERY_HINTS = [
+  'KEMBALI NORMAL',
+  'DAYA PULIH',
+  'PEMULIHAN',
+  'TERHUBUNG KEMBALI',
+  'RECOVERY'
+];
+
+const resolveAlertState = (subject: string, emailProps: any): boolean => {
+  if (typeof emailProps?.isAlert === 'boolean') {
+    return emailProps.isAlert;
+  }
+
+  const normalizedSubject = subject.toUpperCase();
+  const normalizedIncident =
+    typeof emailProps?.incidentType === 'string'
+      ? emailProps.incidentType.toUpperCase()
+      : '';
+
+  if (
+    RECOVERY_HINTS.some(
+      (hint) =>
+        normalizedSubject.includes(hint) || normalizedIncident.includes(hint)
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    ALERT_HINTS.some(
+      (hint) =>
+        normalizedSubject.includes(hint) || normalizedIncident.includes(hint)
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    subject.includes('🚨') ||
+    subject.includes('⚠️') ||
+    subject.includes('🪫') ||
+    subject.includes('⚡')
+  );
+};
 
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
@@ -15,6 +65,24 @@ export const notifySubscribers = async (
   subject: string,
   emailProps: any
 ) => {
+  const isAlert = resolveAlertState(subject, emailProps);
+  const latencyTrace = emailProps?.latencyTrace;
+  const hasLatencyTrace = isLatencyTrace(latencyTrace?.traceId);
+
+  if (hasLatencyTrace) {
+    await recordLatencyStage({
+      traceId: latencyTrace.traceId,
+      runId: latencyTrace.runId,
+      scenario: latencyTrace.scenario,
+      deviceId: latencyTrace.deviceId,
+      eventType: latencyTrace.eventType,
+      t0PublishMs: latencyTrace.publishMs,
+      deviceMs: latencyTrace.deviceMs,
+      t1MqttRxMs: latencyTrace.mqttRxMs,
+      t4NotifyDispatchMs: Date.now()
+    });
+  }
+
   // 1. Ambil User ID yang subscribe
   const prefs = await db.query.user_notification_preferences.findMany({
     where: and(
@@ -28,8 +96,6 @@ export const notifySubscribers = async (
   // === TASK 1: KIRIM KE TELEGRAM GROUP (SELALU, tidak tergantung subscriber) ===
   const telegramTask = (async () => {
     try {
-      const isAlert = subject.includes('PERINGATAN') || subject.includes('🚨');
-
       if (systemType === 'lingkungan') {
         const allowed = shouldSendLingkunganTelegram(
           emailProps.deviceId,
@@ -68,9 +134,34 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
 <i>Harap segera diperiksa.</i>
 `.trim();
 
-      await telegramService.sendGroupAlert(message);
+      const sent = await telegramService.sendGroupAlert(message);
+      if (hasLatencyTrace) {
+        await recordLatencyStage({
+          traceId: latencyTrace.traceId,
+          runId: latencyTrace.runId,
+          scenario: latencyTrace.scenario,
+          deviceId: latencyTrace.deviceId,
+          eventType: latencyTrace.eventType,
+          t5TelegramApiAckMs: Date.now(),
+          telegramSent: sent
+        });
+      }
       console.log('[Alerting] Telegram notification sent to group.');
     } catch (error) {
+      if (hasLatencyTrace) {
+        await recordLatencyStage({
+          traceId: latencyTrace.traceId,
+          runId: latencyTrace.runId,
+          scenario: latencyTrace.scenario,
+          deviceId: latencyTrace.deviceId,
+          eventType: latencyTrace.eventType,
+          telegramSent: false,
+          error:
+            error instanceof Error
+              ? `telegram_send_failed:${error.message}`
+              : 'telegram_send_failed'
+        });
+      }
       console.error('[Alerting] Telegram notification failed:', error);
     }
   })();
@@ -89,10 +180,7 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
       `[Alerting] Starting push task for ${userIds.length} users:`,
       userIds
     );
-    const pushTitle =
-      subject.includes('PERINGATAN') || subject.includes('🚨')
-        ? '🚨 BAHAYA TERDETEKSI'
-        : '✅ KEMBALI NORMAL';
+    const pushTitle = isAlert ? '🚨 BAHAYA TERDETEKSI' : '✅ KEMBALI NORMAL';
     const pushBody = `Lokasi: ${emailProps.warehouseName} - ${
       emailProps.areaName
     }. ${emailProps.incidentType || 'Status Update'}.`;

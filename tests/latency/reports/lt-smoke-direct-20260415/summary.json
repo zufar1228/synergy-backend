@@ -1,0 +1,89 @@
+{
+  "runId": "lt-smoke-direct-20260415",
+  "scenario": "intrusi_alarm",
+  "triggerMode": "direct_mqtt",
+  "countSent": 1,
+  "countRecorded": 1,
+  "metrics": [
+    {
+      "key": "publish_to_mqtt_ms",
+      "label": "Publish -> MQTT RX",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    {
+      "key": "mqtt_to_db_ms",
+      "label": "MQTT RX -> DB Insert",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    {
+      "key": "mqtt_to_alert_decision_ms",
+      "label": "MQTT RX -> Alert Decision",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    {
+      "key": "alert_decision_to_dispatch_ms",
+      "label": "Alert Decision -> Dispatch",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    {
+      "key": "dispatch_to_telegram_ack_ms",
+      "label": "Dispatch -> Telegram ACK",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    {
+      "key": "e2e_publish_to_telegram_ms",
+      "label": "E2E Publish -> Telegram ACK",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    {
+      "key": "e2e_device_to_telegram_ms",
+      "label": "E2E Device -> Telegram ACK",
+      "samples": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    }
+  ],
+  "rows": [
+    {
+      "traceId": "lt-lt-smoke-direct-20260415-0001",
+      "scenario": "unknown",
+      "eventType": "unknown",
+      "cooldownSuppressed": false,
+      "telegramSent": false,
+      "error": "missing_trace_row",
+      "t0PublishMs": null,
+      "deviceMs": null,
+      "t1MqttRxMs": null,
+      "t2DbInsertMs": null,
+      "t3AlertDecisionMs": null,
+      "t4NotifyDispatchMs": null,
+      "t5TelegramAckMs": null,
+      "publishToMqttMs": null,
+      "mqttToDbMs": null,
+      "mqttToAlertDecisionMs": null,
+      "alertDecisionToDispatchMs": null,
+      "dispatchToTelegramAckMs": null,
+      "e2ePublishToTelegramMs": null,
+      "e2eDeviceToTelegramMs": null
+    }
+  ]
+}

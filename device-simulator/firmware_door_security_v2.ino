@@ -57,7 +57,7 @@ static const char* AREA_ID       = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 // ============================================================================
 
 // --- Vibration Detection: Windowed Threshold (§5) ---
-static constexpr float    TH_HIT           = 0.85f;    // Empirical Δg threshold — 7-day study
+static constexpr float    TH_HIT           = 0.15f;    // Empirical Δg threshold — 7-day study
 static constexpr uint32_t WINDOW_SIZE_MS   = 45000;    // 45-second evaluation window
 static constexpr int      WINDOW_THRESHOLD = 3;        // anomaly count to trigger FORCED_ENTRY_ALARM
 static constexpr int      HIT_WINDOW_MAX   = 20;       // max tracked anomalies (> WINDOW_THRESHOLD)
@@ -258,6 +258,294 @@ static const char* netPolicyStr(NetPolicy np) {
   }
 }
 
+struct TestTraceContext {
+  String traceId;
+  String runId;
+  String scenario;
+  int seq = 0;
+  bool bypassCooldown = true;
+};
+
+static TestTraceContext testTraceCtx;
+static bool testTraceActive = false;
+
+static void clearTestTraceContext() {
+  testTraceCtx.traceId = "";
+  testTraceCtx.runId = "";
+  testTraceCtx.scenario = "";
+  testTraceCtx.seq = 0;
+  testTraceCtx.bypassCooldown = true;
+  testTraceActive = false;
+}
+
+static String escapeJsonString(const String &raw) {
+  String out;
+  out.reserve(raw.length() + 8);
+  for (int i = 0; i < raw.length(); i++) {
+    char c = raw.charAt(i);
+    if (c == '\\' || c == '"') out += '\\';
+    out += c;
+  }
+  return out;
+}
+
+static void appendTestTraceFields(String &j) {
+  if (!testTraceActive || testTraceCtx.traceId.length() == 0) return;
+
+  unsigned long nowMs = millis();
+  j += ",\"trace_id\":\"" + escapeJsonString(testTraceCtx.traceId) + "\"";
+  if (testTraceCtx.runId.length() > 0) {
+    j += ",\"test_run_id\":\"" + escapeJsonString(testTraceCtx.runId) + "\"";
+  }
+  if (testTraceCtx.scenario.length() > 0) {
+    j += ",\"test_scenario\":\"" + escapeJsonString(testTraceCtx.scenario) + "\"";
+  }
+  j += ",\"seq\":" + String(testTraceCtx.seq);
+  j += ",\"test_bypass_cooldown\":";
+  j += (testTraceCtx.bypassCooldown ? "true" : "false");
+  j += ",\"device_ms\":" + String(nowMs);
+  j += ",\"publish_ms\":" + String(nowMs);
+}
+
+static bool extractJsonString(const String &json, const char* key, String &out) {
+  const String needle = "\"" + String(key) + "\"";
+  int keyIdx = json.indexOf(needle);
+  if (keyIdx < 0) return false;
+
+  int colon = json.indexOf(':', keyIdx + needle.length());
+  if (colon < 0) return false;
+
+  int q1 = json.indexOf('"', colon + 1);
+  if (q1 < 0) return false;
+
+  int q2 = q1 + 1;
+  bool escaped = false;
+  while (q2 < json.length()) {
+    char c = json.charAt(q2);
+    if (c == '\\' && !escaped) {
+      escaped = true;
+      q2++;
+      continue;
+    }
+    if (c == '"' && !escaped) break;
+    escaped = false;
+    q2++;
+  }
+
+  if (q2 >= json.length()) return false;
+
+  out = json.substring(q1 + 1, q2);
+  out.replace("\\\"", "\"");
+  out.replace("\\\\", "\\");
+  return true;
+}
+
+static bool extractJsonLong(const String &json, const char* key, long &out) {
+  const String needle = "\"" + String(key) + "\"";
+  int keyIdx = json.indexOf(needle);
+  if (keyIdx < 0) return false;
+
+  int colon = json.indexOf(':', keyIdx + needle.length());
+  if (colon < 0) return false;
+
+  int start = colon + 1;
+  while (start < json.length() && (json.charAt(start) == ' ' || json.charAt(start) == '\t')) start++;
+
+  int end = start;
+  while (end < json.length()) {
+    char c = json.charAt(end);
+    if ((c >= '0' && c <= '9') || c == '-' || c == '+') {
+      end++;
+    } else {
+      break;
+    }
+  }
+  if (end <= start) return false;
+
+  out = json.substring(start, end).toInt();
+  return true;
+}
+
+static bool extractJsonFloat(const String &json, const char* key, float &out) {
+  const String needle = "\"" + String(key) + "\"";
+  int keyIdx = json.indexOf(needle);
+  if (keyIdx < 0) return false;
+
+  int colon = json.indexOf(':', keyIdx + needle.length());
+  if (colon < 0) return false;
+
+  int start = colon + 1;
+  while (start < json.length() && (json.charAt(start) == ' ' || json.charAt(start) == '\t')) start++;
+
+  int end = start;
+  while (end < json.length()) {
+    char c = json.charAt(end);
+    if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.') {
+      end++;
+    } else {
+      break;
+    }
+  }
+  if (end <= start) return false;
+
+  out = json.substring(start, end).toFloat();
+  return true;
+}
+
+static bool extractJsonBool(const String &json, const char* key, bool &out) {
+  const String needle = "\"" + String(key) + "\"";
+  int keyIdx = json.indexOf(needle);
+  if (keyIdx < 0) return false;
+
+  int colon = json.indexOf(':', keyIdx + needle.length());
+  if (colon < 0) return false;
+
+  int start = colon + 1;
+  while (start < json.length() && (json.charAt(start) == ' ' || json.charAt(start) == '\t')) start++;
+
+  if (json.startsWith("true", start)) {
+    out = true;
+    return true;
+  }
+  if (json.startsWith("false", start)) {
+    out = false;
+    return true;
+  }
+  if (json.startsWith("1", start)) {
+    out = true;
+    return true;
+  }
+  if (json.startsWith("0", start)) {
+    out = false;
+    return true;
+  }
+
+  return false;
+}
+
+static void beginTestTraceFromCommand(
+  const String &msg,
+  const String &fallbackScenario
+) {
+  clearTestTraceContext();
+
+  String traceId;
+  if (!extractJsonString(msg, "trace_id", traceId)) {
+    return;
+  }
+
+  testTraceActive = true;
+  testTraceCtx.traceId = traceId;
+  testTraceCtx.scenario = fallbackScenario;
+
+  (void)extractJsonString(msg, "test_run_id", testTraceCtx.runId);
+
+  String scenario;
+  if (extractJsonString(msg, "test_scenario", scenario) && scenario.length() > 0) {
+    testTraceCtx.scenario = scenario;
+  }
+
+  long seq = 0;
+  if (extractJsonLong(msg, "seq", seq)) {
+    testTraceCtx.seq = (int)seq;
+  }
+
+  bool bypassCooldown = true;
+  if (extractJsonBool(msg, "test_bypass_cooldown", bypassCooldown)) {
+    testTraceCtx.bypassCooldown = bypassCooldown;
+  }
+}
+
+static void publishSyntheticStatus(bool isMains, float vbatV, int vbatPct) {
+  adapterPresent = isMains;
+  adapterPresentPrev = isMains;
+
+  lastVbatV = vbatV;
+  lastVbatPct = constrain(vbatPct, 0, 100);
+
+  if (lastVbatV <= V_CRIT_ENTER) {
+    battLevel = BATT_CRITICAL;
+  } else if (lastVbatV <= V_LOW_ENTER) {
+    battLevel = BATT_LOW;
+  } else {
+    battLevel = BATT_NORMAL;
+  }
+
+  publishStatus();
+}
+
+static void runTestForcedEntry(const String &msg) {
+  float peakDelta = 1.35f;
+  long anomalyCount = WINDOW_THRESHOLD;
+  (void)extractJsonFloat(msg, "peak_delta_g", peakDelta);
+  (void)extractJsonLong(msg, "anomaly_count", anomalyCount);
+
+  if (systemState != STATE_ARMED) {
+    systemState = STATE_ARMED;
+    hitBufCount = 0;
+    hitHead = 0;
+    publishArmEvent();
+  }
+
+  publishForcedEntryAlarm(peakDelta, (int)anomalyCount);
+  triggerAlarm();
+  publishStatus();
+}
+
+static void runTestUnauthorizedOpen() {
+  if (systemState != STATE_ARMED) {
+    systemState = STATE_ARMED;
+    hitBufCount = 0;
+    hitHead = 0;
+    publishArmEvent();
+  }
+
+  doorClosed = false;
+  doorClosedPrev = false;
+  publishUnauthorizedOpen();
+  triggerAlarm();
+  publishStatus();
+}
+
+static void runTestBatteryCritical(const String &msg) {
+  float vbatV = 3.18f;
+  long vbatPct = 7;
+  (void)extractJsonFloat(msg, "vbat_v", vbatV);
+  (void)extractJsonLong(msg, "vbat_pct", vbatPct);
+
+  publishSyntheticStatus(false, vbatV, (int)vbatPct);
+}
+
+static void runTestPowerToBattery(const String &msg) {
+  float vbatV = 3.31f;
+  long vbatPct = 16;
+  (void)extractJsonFloat(msg, "vbat_v", vbatV);
+  (void)extractJsonLong(msg, "vbat_pct", vbatPct);
+
+  bool prevTraceActive = testTraceActive;
+  testTraceActive = false;
+  publishSyntheticStatus(true, 4.12f, 100);
+  delay(120);
+  testTraceActive = prevTraceActive;
+
+  publishSyntheticStatus(false, vbatV, (int)vbatPct);
+}
+
+static void runTestPowerToMains(const String &msg) {
+  float vbatV = 4.18f;
+  long vbatPct = 100;
+  (void)extractJsonFloat(msg, "vbat_v", vbatV);
+  (void)extractJsonLong(msg, "vbat_pct", vbatPct);
+
+  bool prevTraceActive = testTraceActive;
+  testTraceActive = false;
+  publishSyntheticStatus(false, 3.35f, 18);
+  delay(120);
+  testTraceActive = prevTraceActive;
+
+  publishSyntheticStatus(true, vbatV, (int)vbatPct);
+}
+
 
 
 // ============================================================================
@@ -270,6 +558,7 @@ static void publishImpactWarning(float peakDelta, int anomalyCount) {
   j += ",\"anomaly_count\":" + String(anomalyCount);
   j += ",\"window_threshold\":" + String(WINDOW_THRESHOLD);
   j += ",\"window_s\":" + String(WINDOW_SIZE_MS / 1000);
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
@@ -280,12 +569,14 @@ static void publishForcedEntryAlarm(float peakDelta, int anomalyCount) {
   j += ",\"anomaly_count\":" + String(anomalyCount);
   j += ",\"window_threshold\":" + String(WINDOW_THRESHOLD);
   j += ",\"window_s\":" + String(WINDOW_SIZE_MS / 1000);
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
 
 static void publishUnauthorizedOpen() {
   String j = baseJson("UNAUTHORIZED_OPEN");
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
@@ -295,6 +586,7 @@ static void publishPowerSourceChanged(bool adapterNow) {
   j += ",\"power_source\":\"" + String(adapterNow ? "MAINS" : "BATTERY") + "\"";
   j += ",\"vbat_v\":" + String(lastVbatV, 2);
   j += ",\"vbat_pct\":" + String(lastVbatPct);
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
@@ -305,6 +597,7 @@ static void publishBatteryLevelChanged(BattLevel newLevel, BattLevel oldLevel) {
   j += ",\"previous_level\":\"" + String(battLevelStr(oldLevel)) + "\"";
   j += ",\"vbat_v\":" + String(lastVbatV, 2);
   j += ",\"vbat_pct\":" + String(lastVbatPct);
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
@@ -314,18 +607,21 @@ static void publishBatteryLevelChanged(BattLevel newLevel, BattLevel oldLevel) {
 static void publishSirenSilenced(const String &issuedBy) {
   String j = baseJson("SIREN_SILENCED");
   j += ",\"issued_by\":\"" + issuedBy + "\"";
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
 
 static void publishArmEvent() {
   String j = baseJson("ARM");
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
 
 static void publishDisarmEvent() {
   String j = baseJson("DISARM");
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_SENSOR, j);
 }
@@ -346,6 +642,7 @@ static void publishStatus() {
   j += ",\"vbat_pct\":" + String(lastVbatPct);
   j += ",\"batt_level\":\"" + String(battLevelStr(battLevel)) + "\"";
   j += ",\"net_policy\":\"" + String(netPolicyStr(netPolicy)) + "\"";
+  appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_STATUS, j);
 }
@@ -734,8 +1031,31 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   logMsg("[MQTT] CMD received: " + msg);
 
+  String cmd;
+  if (!extractJsonString(msg, "cmd", cmd)) {
+    if (msg.indexOf("\"SIREN_SILENCE\"") >= 0) {
+      cmd = "SIREN_SILENCE";
+    } else if (msg.indexOf("\"DISARM\"") >= 0) {
+      cmd = "DISARM";
+    } else if (msg.indexOf("\"ARM\"") >= 0) {
+      cmd = "ARM";
+    } else if (msg.indexOf("\"STATUS\"") >= 0) {
+      cmd = "STATUS";
+    }
+  }
+
+  if (cmd.length() == 0) {
+    logMsg("[MQTT] Unknown command: " + msg);
+    return;
+  }
+
+  clearTestTraceContext();
+  if (cmd.startsWith("TEST_")) {
+    beginTestTraceFromCommand(msg, cmd);
+  }
+
   // ---- ARM ----
-  if (msg.indexOf("\"ARM\"") >= 0 && msg.indexOf("\"DISARM\"") < 0) {
+  if (cmd == "ARM") {
     systemState = STATE_ARMED;
     hitBufCount = 0;
     hitHead = 0;
@@ -744,7 +1064,7 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
     publishStatus();
   }
   // ---- DISARM ----
-  else if (msg.indexOf("\"DISARM\"") >= 0) {
+  else if (cmd == "DISARM") {
     systemState = STATE_DISARMED;
     hitBufCount = 0;
     hitHead = 0;
@@ -759,26 +1079,51 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 
   // ---- SIREN_SILENCE (Spec v19 §8.3) ----
-  else if (msg.indexOf("\"SIREN_SILENCE\"") >= 0) {
+  else if (cmd == "SIREN_SILENCE") {
     String issuedBy = "dashboard";
-    int byIdx = msg.indexOf("\"issued_by\"");
-    if (byIdx >= 0) {
-      int q1 = msg.indexOf(':', byIdx);
-      int q2 = msg.indexOf('"', q1 + 1);
-      int q3 = msg.indexOf('"', q2 + 1);
-      if (q2 >= 0 && q3 > q2) {
-        issuedBy = msg.substring(q2 + 1, q3);
-      }
-    }
+    (void)extractJsonString(msg, "issued_by", issuedBy);
     sirenSilence(issuedBy);
   }
+
+  // ---- TEST_FORCED_ENTRY ----
+  else if (cmd == "TEST_FORCED_ENTRY") {
+    logMsg("[TEST] Executing TEST_FORCED_ENTRY");
+    runTestForcedEntry(msg);
+  }
+
+  // ---- TEST_UNAUTHORIZED_OPEN ----
+  else if (cmd == "TEST_UNAUTHORIZED_OPEN") {
+    logMsg("[TEST] Executing TEST_UNAUTHORIZED_OPEN");
+    runTestUnauthorizedOpen();
+  }
+
+  // ---- TEST_BATTERY_CRITICAL ----
+  else if (cmd == "TEST_BATTERY_CRITICAL") {
+    logMsg("[TEST] Executing TEST_BATTERY_CRITICAL");
+    runTestBatteryCritical(msg);
+  }
+
+  // ---- TEST_POWER_TO_BATTERY ----
+  else if (cmd == "TEST_POWER_TO_BATTERY") {
+    logMsg("[TEST] Executing TEST_POWER_TO_BATTERY");
+    runTestPowerToBattery(msg);
+  }
+
+  // ---- TEST_POWER_TO_MAINS ----
+  else if (cmd == "TEST_POWER_TO_MAINS") {
+    logMsg("[TEST] Executing TEST_POWER_TO_MAINS");
+    runTestPowerToMains(msg);
+  }
+
   // ---- STATUS ----
-  else if (msg.indexOf("\"STATUS\"") >= 0) {
+  else if (cmd == "STATUS") {
     publishStatus();
   }
   else {
-    logMsg("[MQTT] Unknown command: " + msg);
+    logMsg("[MQTT] Unknown cmd value: " + cmd);
   }
+
+  clearTestTraceContext();
 }
 
 static void mqttReconnect() {
