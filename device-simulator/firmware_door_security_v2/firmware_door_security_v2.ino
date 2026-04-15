@@ -14,6 +14,7 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <time.h>
+#include <sys/time.h>
 
 // ============================================================================
 //  PIN MAPPING (XIAO ESP32-S3) — per Spec v18 §2.5
@@ -21,8 +22,8 @@
 #define PIN_SDA             5   // D4
 #define PIN_SCL             6   // D5
 #define PIN_MPU_INT         1   // D0
-#define PIN_ADAPTER_PRESENT 3   // D1 (ADC) — Spec §2.5.2
-#define PIN_VBAT_SENSE      2   // D2 (digital) — Spec §2.5.1
+#define PIN_ADAPTER_PRESENT 2   // D1 (ADC) — Spec §2.5.2
+#define PIN_VBAT_SENSE      3   // D2 (digital) — Spec §2.5.1
 #define PIN_DOOR_SWITCH     4   // D3 (reed switch, INPUT_PULLUP)
 #define PIN_SIREN           8   // D9 (output)
 
@@ -58,7 +59,7 @@ static const char* AREA_ID       = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 
 // --- Vibration Detection: Windowed Threshold (§5) ---
 static constexpr float    TH_HIT           = 0.15f;    // Empirical Δg threshold — 7-day study
-static constexpr uint32_t WINDOW_SIZE_MS   = 45000;    // 45-second evaluation window
+static constexpr uint32_t WINDOW_SIZE_MS   = 15000;    // 15-second evaluation window
 static constexpr int      WINDOW_THRESHOLD = 3;        // anomaly count to trigger FORCED_ENTRY_ALARM
 static constexpr int      HIT_WINDOW_MAX   = 20;       // max tracked anomalies (> WINDOW_THRESHOLD)
 static constexpr uint32_t MIN_INTERHIT_MS  = 300;      // debounce between hits
@@ -69,7 +70,7 @@ static constexpr uint32_t IMU_SAMPLE_MS    = 10;       // 100 Hz
 // --- Siren Policy (§8) ---
 static constexpr uint32_t SIREN_ON_MS      = 30000;    // 30s siren duration
 static constexpr uint32_t ALARM_COOLDOWN_MS = 30000;   // 30s cooldown after siren off
-static const int SIREN_MAX_PWM = 100;                  // Batas aman PWM untuk baterai saat ini
+static const int SIREN_MAX_PWM = 100;                  // atur kekuatan pwm
 
 // --- Battery Monitoring: Robust (§9) ---
 static constexpr uint32_t VBAT_READ_INTERVAL_MS        = 10000;  // read every 10s
@@ -129,6 +130,8 @@ static NetPolicy netPolicy = NET_IDLE_SAVE;
 
 // --- NTP ---
 static bool ntpSynced = false;
+static uint32_t lastNtpRetryMs = 0;
+static constexpr uint32_t NTP_RETRY_INTERVAL_MS = 60000;
 
 // --- MQTT Topics (160 bytes for long UUID paths) ---
 static char TOPIC_SENSOR[160];
@@ -178,6 +181,23 @@ static String isoTimestamp() {
     return String("\"ts\":\"") + buf + "\"";
   }
   return String("\"ts_ms\":") + String((unsigned long)millis());
+}
+
+static uint64_t currentEpochMs() {
+  struct timeval tv;
+  if (gettimeofday(&tv, nullptr) == 0 && tv.tv_sec > 1700000000) {
+    return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)(tv.tv_usec / 1000);
+  }
+  return 0;
+}
+
+static void appendUint64Field(String &j, const char* key, uint64_t value) {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%llu", (unsigned long long)value);
+  j += ",\"";
+  j += key;
+  j += "\":";
+  j += buf;
 }
 
 
@@ -292,6 +312,7 @@ static String escapeJsonString(const String &raw) {
 static void appendTestTraceFields(String &j) {
   if (!testTraceActive || testTraceCtx.traceId.length() == 0) return;
 
+  uint64_t epochMs = currentEpochMs();
   unsigned long nowMs = millis();
   j += ",\"trace_id\":\"" + escapeJsonString(testTraceCtx.traceId) + "\"";
   if (testTraceCtx.runId.length() > 0) {
@@ -303,8 +324,16 @@ static void appendTestTraceFields(String &j) {
   j += ",\"seq\":" + String(testTraceCtx.seq);
   j += ",\"test_bypass_cooldown\":";
   j += (testTraceCtx.bypassCooldown ? "true" : "false");
-  j += ",\"device_ms\":" + String(nowMs);
-  j += ",\"publish_ms\":" + String(nowMs);
+
+  // Keep `device_ms`/`publish_ms` in epoch milliseconds for backend E2E math.
+  if (epochMs > 0) {
+    appendUint64Field(j, "device_ms", epochMs);
+    appendUint64Field(j, "publish_ms", epochMs);
+  } else {
+    // Fallback avoids mixing time bases when NTP is not yet synced.
+    j += ",\"device_uptime_ms\":" + String(nowMs);
+    j += ",\"publish_uptime_ms\":" + String(nowMs);
+  }
 }
 
 static bool extractJsonString(const String &json, const char* key, String &out) {
@@ -1220,6 +1249,7 @@ void setup() {
 
   // --- NTP ---
   ntpSync();
+  lastNtpRetryMs = millis();
 
   // --- MQTT (TLS) ---
   wifiSecureClient.setInsecure();
@@ -1253,6 +1283,15 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnect();
     if (WiFi.status() == WL_CONNECTED && !ntpSynced) {
+      ntpSync();
+      lastNtpRetryMs = millis();
+    }
+  }
+
+  if (!ntpSynced && WiFi.status() == WL_CONNECTED) {
+    uint32_t nowMs = millis();
+    if (nowMs - lastNtpRetryMs >= NTP_RETRY_INTERVAL_MS) {
+      lastNtpRetryMs = nowMs;
       ntpSync();
     }
   }

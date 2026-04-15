@@ -80,6 +80,15 @@ const toMs = (value: string | null): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeEpochMs = (value: number | null): number | null => {
+  if (value === null) return null;
+
+  // Guard against uptime-based milliseconds from firmware (not Unix epoch).
+  if (value < 1_500_000_000_000 || value > 4_100_000_000_000) return null;
+
+  return value;
+};
+
 const duration = (start: number | null, end: number | null): number | null => {
   if (start === null || end === null) return null;
   const diff = end - start;
@@ -311,10 +320,8 @@ const runOneScenario = async (
   if (triggerMode === 'device_command') {
     if (scenario === 'intrusi_alarm') {
       await publishJson(client, commandTopic, {
-        cmd: 'TEST_FORCED_ENTRY',
-        ...trace,
-        peak_delta_g: Number((1.2 + Math.random() * 0.5).toFixed(3)),
-        anomaly_count: 3
+        cmd: 'TEST_UNAUTHORIZED_OPEN',
+        ...trace
       });
       return;
     }
@@ -473,8 +480,8 @@ const buildLatencyRows = (
       };
     }
 
-    const t0PublishMs = toMs(row.t0_publish_ms);
-    const deviceMs = toMs(row.device_ms);
+    const t0PublishMs = normalizeEpochMs(toMs(row.t0_publish_ms));
+    const deviceMs = normalizeEpochMs(toMs(row.device_ms));
     const t1MqttRxMs = toMs(row.t1_mqtt_rx_ms);
     const t2DbInsertMs = toMs(row.t2_db_insert_ms);
     const t3AlertDecisionMs = toMs(row.t3_alert_decision_ms);
