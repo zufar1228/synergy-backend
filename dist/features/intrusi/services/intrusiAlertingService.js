@@ -1,17 +1,28 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processPowerAlert = exports.processIntrusiAlert = void 0;
+exports.processPowerAlert = exports.processIntrusiAlert = exports.resetIntrusiAlertCooldownForTest = void 0;
 // features/intrusi/services/intrusiAlertingService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");
 const time_1 = require("../../../utils/time");
 const alertingService_1 = require("../../../services/alertingService");
+const latencyTrackerService_1 = require("./latencyTrackerService");
 // Cooldown to suppress duplicate Telegram alerts when the firmware sends both
 // UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
 const deviceIntrusiAlertState = new Map();
 const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const devicePowerState = new Map();
+const resetIntrusiAlertCooldownForTest = (deviceId) => {
+    if (deviceId) {
+        deviceIntrusiAlertState.delete(deviceId);
+        devicePowerState.delete(deviceId);
+        return;
+    }
+    deviceIntrusiAlertState.clear();
+    devicePowerState.clear();
+};
+exports.resetIntrusiAlertCooldownForTest = resetIntrusiAlertCooldownForTest;
 // Prune stale entries every 30 minutes to avoid orphaned device entries
 setInterval(() => {
     const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
@@ -31,14 +42,35 @@ setInterval(() => {
  * Process alarm events from the door security (intrusi) system.
  * Called for FORCED_ENTRY_ALARM and UNAUTHORIZED_OPEN events.
  */
-const processIntrusiAlert = async (deviceId, data) => {
+const processIntrusiAlert = async (deviceId, data, meta = {}) => {
     console.log(`[Alerting] 🚨 Intrusi alarm: ${data.type} for device ${deviceId}`);
+    await (0, latencyTrackerService_1.recordLatencyStage)({
+        traceId: meta.traceId,
+        runId: meta.runId,
+        scenario: meta.scenario,
+        deviceId,
+        eventType: data.type,
+        t0PublishMs: meta.publishMs,
+        deviceMs: meta.deviceMs,
+        t1MqttRxMs: meta.mqttRxMs,
+        t3AlertDecisionMs: Date.now()
+    });
     // Suppress duplicate alerts for the same device within the cooldown window.
     const now = new Date();
     const lastSent = deviceIntrusiAlertState.get(deviceId);
-    if (lastSent &&
+    if (!meta.bypassCooldown &&
+        lastSent &&
         now.getTime() - lastSent.getTime() < INTRUSION_ALERT_COOLDOWN_MS) {
         console.log(`[Alerting] Intrusi alert suppressed (cooldown) for device ${deviceId} — last sent ${Math.round((now.getTime() - lastSent.getTime()) / 1000)}s ago`);
+        await (0, latencyTrackerService_1.recordLatencyStage)({
+            traceId: meta.traceId,
+            runId: meta.runId,
+            scenario: meta.scenario,
+            deviceId,
+            eventType: data.type,
+            cooldownSuppressed: true,
+            error: 'intrusi_cooldown_suppressed'
+        });
         return;
     }
     deviceIntrusiAlertState.set(deviceId, now);
@@ -86,12 +118,27 @@ const processIntrusiAlert = async (deviceId, data) => {
     }
     const emailProps = {
         deviceId,
+        isAlert: true,
         incidentType,
         warehouseName: warehouse.name,
         areaName: area.name,
         deviceName: device.name,
         timestamp,
-        details
+        details,
+        ...((0, latencyTrackerService_1.isLatencyTrace)(meta.traceId)
+            ? {
+                latencyTrace: {
+                    traceId: meta.traceId,
+                    runId: meta.runId,
+                    scenario: meta.scenario,
+                    deviceMs: meta.deviceMs,
+                    publishMs: meta.publishMs,
+                    mqttRxMs: meta.mqttRxMs,
+                    eventType: data.type,
+                    deviceId
+                }
+            }
+            : {})
     };
     const subject = `🚨 [ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
     try {
@@ -113,7 +160,7 @@ const BATTERY_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
  * - Power source changes (MAINS ↔ BATTERY)
  * - Battery percentage drops to critical level
  */
-const processPowerAlert = async (deviceId, data) => {
+const processPowerAlert = async (deviceId, data, meta = {}) => {
     const state = devicePowerState.get(deviceId) || {};
     let shouldAlert = false;
     let alertType = 'power_change';
@@ -132,17 +179,56 @@ const processPowerAlert = async (deviceId, data) => {
         data.power_source === 'BATTERY') {
         const now = new Date();
         const lastSent = state.lastBatteryCriticalSentAt;
-        if (!lastSent ||
+        if (meta.bypassCooldown ||
+            !lastSent ||
             now.getTime() - lastSent.getTime() > BATTERY_ALERT_COOLDOWN_MS) {
             shouldAlert = true;
             alertType = 'battery_critical';
             state.lastBatteryCriticalSentAt = now;
             console.log(`[Alerting] 🪫 Battery critical for ${deviceId}: ${data.vbat_pct}%`);
         }
+        else {
+            await (0, latencyTrackerService_1.recordLatencyStage)({
+                traceId: meta.traceId,
+                runId: meta.runId,
+                scenario: meta.scenario,
+                deviceId,
+                eventType: 'battery_critical',
+                cooldownSuppressed: true,
+                error: 'battery_cooldown_suppressed'
+            });
+        }
     }
     devicePowerState.set(deviceId, state);
-    if (!shouldAlert)
+    if (!shouldAlert) {
+        if ((0, latencyTrackerService_1.isLatencyTrace)(meta.traceId)) {
+            await (0, latencyTrackerService_1.recordLatencyStage)({
+                traceId: meta.traceId,
+                runId: meta.runId,
+                scenario: meta.scenario,
+                deviceId,
+                eventType: 'power_status',
+                error: 'no_power_alert_emitted'
+            });
+        }
         return;
+    }
+    const resolvedEventType = alertType === 'battery_critical'
+        ? 'battery_critical'
+        : data.power_source === 'BATTERY'
+            ? 'power_to_battery'
+            : 'power_to_mains';
+    await (0, latencyTrackerService_1.recordLatencyStage)({
+        traceId: meta.traceId,
+        runId: meta.runId,
+        scenario: meta.scenario,
+        deviceId,
+        eventType: resolvedEventType,
+        t0PublishMs: meta.publishMs,
+        deviceMs: meta.deviceMs,
+        t1MqttRxMs: meta.mqttRxMs,
+        t3AlertDecisionMs: Date.now()
+    });
     const device = await drizzle_1.db.query.devices.findFirst({
         where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
         with: { area: { with: { warehouse: true } } }
@@ -154,10 +240,12 @@ const processPowerAlert = async (deviceId, data) => {
     const { area } = device;
     const { warehouse } = area;
     const timestamp = (0, time_1.formatTimestampWIB)();
+    let isAlert = false;
     let incidentType;
     let subject;
     const details = [];
     if (alertType === 'battery_critical') {
+        isAlert = true;
         incidentType = 'Baterai Kritis';
         subject = `🪫 [BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
         details.push({ key: 'Kapasitas Baterai', value: `${data.vbat_pct}%` });
@@ -168,6 +256,7 @@ const processPowerAlert = async (deviceId, data) => {
     }
     else {
         const isSwitchToBattery = data.power_source === 'BATTERY';
+        isAlert = isSwitchToBattery;
         incidentType = isSwitchToBattery
             ? 'Sumber Daya Beralih ke Baterai'
             : 'Sumber Daya Adaptor Terhubung Kembali';
@@ -186,12 +275,27 @@ const processPowerAlert = async (deviceId, data) => {
         }
     }
     const emailProps = {
+        isAlert,
         incidentType,
         warehouseName: warehouse.name,
         areaName: area.name,
         deviceName: device.name,
         timestamp,
-        details
+        details,
+        ...((0, latencyTrackerService_1.isLatencyTrace)(meta.traceId)
+            ? {
+                latencyTrace: {
+                    traceId: meta.traceId,
+                    runId: meta.runId,
+                    scenario: meta.scenario,
+                    deviceMs: meta.deviceMs,
+                    publishMs: meta.publishMs,
+                    mqttRxMs: meta.mqttRxMs,
+                    eventType: resolvedEventType,
+                    deviceId
+                }
+            }
+            : {})
     };
     try {
         await (0, alertingService_1.notifySubscribers)('intrusi', subject, emailProps);

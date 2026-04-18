@@ -45,6 +45,7 @@ static const char* MQTT_BROKER   = "mfe19520.ala.asia-southeast1.emqxsl.com";
 static const int   MQTT_PORT     = 8883;  // MQTT over TLS
 static const char* MQTT_USER     = "device-8e819e4a-9710-491f-9fbc-741892ae6195";
 static const char* MQTT_PASS     = "pwd-8e819e4a-9710-491f-9fbc-741892ae6195-1772377701318";
+static const int   MQTT_BUFFER_BYTES = 1024;
 
 // ============================================================================
 //  DEVICE & TOPOLOGY CONFIG — dari provisioning dashboard
@@ -67,10 +68,21 @@ static constexpr uint32_t MIN_INTERHIT_MS  = 300;      // debounce between hits
 // --- IMU Sampling (§5) ---
 static constexpr uint32_t IMU_SAMPLE_MS    = 10;       // 100 Hz
 
+// --- IMU Baseline Calibration ---
+static constexpr int      IMU_BASELINE_BOOT_SAMPLES    = 200;
+static constexpr int      IMU_BASELINE_ARM_SAMPLES     = 120;
+static constexpr int      IMU_BASELINE_RECAL_SAMPLES   = 300;
+static constexpr uint32_t IMU_BASELINE_SAMPLE_DELAY_MS = 10;
+static constexpr uint32_t IMU_BASELINE_SETTLE_MS       = 300;
+static constexpr uint32_t IMU_RECAL_QUIET_MS           = 5000;
+static constexpr float    IMU_BASELINE_MIN_G           = 0.60f;
+static constexpr float    IMU_BASELINE_MAX_G           = 1.40f;
+static constexpr float    IMU_BASELINE_MAX_SPREAD_G    = 0.12f;
+
 // --- Siren Policy (§8) ---
 static constexpr uint32_t SIREN_ON_MS      = 30000;    // 30s siren duration
 static constexpr uint32_t ALARM_COOLDOWN_MS = 30000;   // 30s cooldown after siren off
-static const int SIREN_MAX_PWM = 100;                  // atur kekuatan pwm
+static const int SIREN_MAX_PWM = 20;                  // atur kekuatan pwm
 
 // --- Battery Monitoring: Robust (§9) ---
 static constexpr uint32_t VBAT_READ_INTERVAL_MS        = 10000;  // read every 10s
@@ -142,6 +154,10 @@ static uint32_t lastStatusPublish = 0;
 
 // --- IMU Timing ---
 static uint32_t nextImuTick = 0;
+static float baselineMag = 1.0f;  // calibrated resting acceleration magnitude (g)
+static float baselineSpreadMag = 0.0f;
+static uint32_t baselineLastCalMs = 0;
+static bool imuReady = false;
 
 // --- Hardware Instances ---
 static Adafruit_MPU6050 mpu;
@@ -238,11 +254,19 @@ static void buildTopics() {
 }
 
 static void mqttPublish(const char* topic, const String &payload) {
-  if (mqtt.connected()) {
-    mqtt.publish(topic, payload.c_str(), false);
+  if (!mqtt.connected()) {
+    logMsg("[MQTT] Not connected. Event lost: " + payload.substring(0, 80));
+    return;
+  }
+
+  const bool ok = mqtt.publish(topic, payload.c_str(), false);
+  if (ok) {
     logMsg("[MQTT] PUB " + String(topic) + " → " + payload.substring(0, 140));
   } else {
-    logMsg("[MQTT] Not connected. Event lost: " + payload.substring(0, 80));
+    logMsg("[MQTT] PUB FAILED (payload_len=" + String(payload.length())
+         + ", topic_len=" + String(strlen(topic))
+         + ", buffer=" + String(MQTT_BUFFER_BYTES)
+         + ")");
   }
 }
 
@@ -671,6 +695,9 @@ static void publishStatus() {
   j += ",\"vbat_pct\":" + String(lastVbatPct);
   j += ",\"batt_level\":\"" + String(battLevelStr(battLevel)) + "\"";
   j += ",\"net_policy\":\"" + String(netPolicyStr(netPolicy)) + "\"";
+  j += ",\"imu_baseline_g\":" + String(baselineMag, 6);
+  j += ",\"imu_baseline_spread_g\":" + String(baselineSpreadMag, 6);
+  j += ",\"imu_baseline_last_cal_ms\":" + String((unsigned long)baselineLastCalMs);
   appendTestTraceFields(j);
   j += "}";
   mqttPublish(TOPIC_STATUS, j);
@@ -749,7 +776,9 @@ static void sirenUpdate() {
 // ============================================================================
 //  IMU READING (Spec v19 §5)
 // ============================================================================
-static float readDeltaG() {
+static float readAccelMag() {
+  if (!imuReady) return baselineMag;
+
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
@@ -758,8 +787,77 @@ static float readDeltaG() {
   float ay_g = a.acceleration.y / G;
   float az_g = a.acceleration.z / G;
 
-  float a_mag = sqrtf(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
-  return fabsf(a_mag - 1.0f);
+  return sqrtf(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
+}
+
+static bool canRecalibrateBaseline() {
+  const uint32_t now = millis();
+  if (systemState != STATE_DISARMED) return false;
+  if (!doorClosed) return false;
+  if (sirenState != SIREN_OFF) return false;
+  if (hitBufCount > 0) return false;
+  if (lastHitTs != 0 && (now - lastHitTs) < IMU_RECAL_QUIET_MS) return false;
+  return true;
+}
+
+static bool autoCalibrateBaseline(int sampleCount, const char* reason, bool force = false) {
+  if (!imuReady) {
+    logMsg("[CAL] IMU not ready — baseline recalibration skipped.");
+    return false;
+  }
+
+  if (sampleCount <= 0) return false;
+
+  if (!force && !canRecalibrateBaseline()) {
+    logMsg("[CAL] Recalibration blocked (unsafe state: require DISARMED + door CLOSED + siren OFF + quiet).");
+    return false;
+  }
+
+  delay(IMU_BASELINE_SETTLE_MS);
+
+  float sum = 0.0f;
+  int valid = 0;
+  float minMag = 99.0f;
+  float maxMag = 0.0f;
+
+  for (int i = 0; i < sampleCount; i++) {
+    float mag = readAccelMag();
+    if (!isnan(mag) && !isinf(mag) && mag > 0.20f && mag < 3.00f) {
+      sum += mag;
+      valid++;
+      if (mag < minMag) minMag = mag;
+      if (mag > maxMag) maxMag = mag;
+    }
+    delay(IMU_BASELINE_SAMPLE_DELAY_MS);
+  }
+
+  if (valid < (sampleCount / 2)) {
+    logMsg("[CAL] Recalibration failed — insufficient valid samples.");
+    return false;
+  }
+
+  const float candidate = sum / (float)valid;
+  const float spread = maxMag - minMag;
+
+  if (spread > IMU_BASELINE_MAX_SPREAD_G) {
+    logMsg("[CAL] Recalibration rejected — unstable samples (spread=" + String(spread, 6) + "g)");
+    return false;
+  }
+
+  if (candidate < IMU_BASELINE_MIN_G || candidate > IMU_BASELINE_MAX_G) {
+    logMsg("[CAL] Recalibration rejected — candidate baseline out of range: " + String(candidate, 6) + "g");
+    return false;
+  }
+
+  baselineMag = candidate;
+  baselineSpreadMag = spread;
+  baselineLastCalMs = millis();
+  logMsg("[CAL] Baseline updated (" + String(reason) + ") = " + String(baselineMag, 6) + "g, spread=" + String(spread, 6) + "g from " + String(valid) + "/" + String(sampleCount) + " samples");
+  return true;
+}
+
+static float readDeltaG() {
+  return fabsf(readAccelMag() - baselineMag);
 }
 
 // ============================================================================
@@ -1085,9 +1183,25 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   // ---- ARM ----
   if (cmd == "ARM") {
-    systemState = STATE_ARMED;
+    if (!doorClosed) {
+      logMsg("[STATE] ARM blocked — door OPEN.");
+      publishStatus();
+      clearTestTraceContext();
+      return;
+    }
+
     hitBufCount = 0;
     hitHead = 0;
+
+    if (!autoCalibrateBaseline(IMU_BASELINE_ARM_SAMPLES, "pre_arm", false)) {
+      logMsg("[STATE] ARM blocked — baseline calibration failed or unstable. Keep DISARMED.");
+      publishStatus();
+      clearTestTraceContext();
+      return;
+    }
+
+    systemState = STATE_ARMED;
+
     logMsg("[STATE] ARMED");
     publishArmEvent();
     publishStatus();
@@ -1144,6 +1258,14 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
     runTestPowerToMains(msg);
   }
 
+  // ---- RECAL / RECAL_BASELINE ----
+  else if (cmd == "RECAL" || cmd == "RECAL_BASELINE") {
+    logMsg("[CAL] Recalibration requested by command.");
+    if (autoCalibrateBaseline(IMU_BASELINE_RECAL_SAMPLES, "command_recal", false)) {
+      publishStatus();
+    }
+  }
+
   // ---- STATUS ----
   else if (cmd == "STATUS") {
     publishStatus();
@@ -1194,8 +1316,7 @@ void setup() {
   Serial.println(" Warehouse Door Security System v4.0");
   Serial.println(" XIAO ESP32-S3 + MPU6050 + Reed Switch");
   Serial.println(" Spec: v20 — Windowed Threshold Algorithm");
-  Serial.println(" Detection: TH_HIT=0.85g, Window=45s, N=3");
-  Serial.println(" TH_HIT=0.85g (hardcoded, no calibration)");
+  Serial.println(" Detection: measured baseline + windowed threshold");
   Serial.println("============================================");
 
   // --- Pin Setup ---
@@ -1219,16 +1340,24 @@ void setup() {
   if (!mpu.begin()) {
     logMsg("[MPU] NOT FOUND! Check wiring (SDA=D4, SCL=D5).");
   } else {
+    imuReady = true;
     mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
     mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-    logMsg("[MPU] Initialized. Range=+-8g");
+    mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+    logMsg("[MPU] Initialized. Range=+-8g BW=44Hz");
   }
 
   // --- Initial door state ---
   doorClosed     = (digitalRead(PIN_DOOR_SWITCH) == LOW);
   doorClosedPrev = doorClosed;
   logMsg("[DOOR] Initial: " + String(doorClosed ? "CLOSED" : "OPEN"));
+
+  if (!autoCalibrateBaseline(IMU_BASELINE_BOOT_SAMPLES, "boot", true)) {
+    baselineMag = 1.0f;
+    baselineSpreadMag = 0.0f;
+    baselineLastCalMs = millis();
+    logMsg("[CAL] Using fallback baseline=1.000000g");
+  }
 
   // --- Initial power state (non-gated initial read) ---
   adapterPresent     = (digitalRead(PIN_ADAPTER_PRESENT) == HIGH);
@@ -1256,7 +1385,7 @@ void setup() {
   buildTopics();
   mqtt.setServer(MQTT_BROKER, MQTT_PORT);
   mqtt.setCallback(mqttCallback);
-  mqtt.setBufferSize(512);
+  mqtt.setBufferSize(MQTT_BUFFER_BYTES);
 
   // --- Init timing ---
   nextImuTick       = millis();
@@ -1273,6 +1402,7 @@ void setup() {
   logMsg("[SYS] TH_HIT=" + String(TH_HIT, 4)
        + " WINDOW_THRESHOLD=" + String(WINDOW_THRESHOLD)
        + " WINDOW_SIZE=" + String(WINDOW_SIZE_MS / 1000) + "s");
+  logMsg("[SYS] IMU baseline=" + String(baselineMag, 6) + "g");
 }
 
 // ============================================================================

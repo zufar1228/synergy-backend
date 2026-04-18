@@ -41,11 +41,55 @@ const drizzle_orm_1 = require("drizzle-orm");
 const webPushService = __importStar(require("./webPushService"));
 const telegramService = __importStar(require("./telegramService"));
 const lingkunganAlertingService_1 = require("../features/lingkungan/services/lingkunganAlertingService");
+const latencyTrackerService_1 = require("../features/intrusi/services/latencyTrackerService");
+const ALERT_HINTS = ['PERINGATAN', 'ALARM', 'KRITIS', 'BAHAYA', 'DAYA BERALIH'];
+const RECOVERY_HINTS = [
+    'KEMBALI NORMAL',
+    'DAYA PULIH',
+    'PEMULIHAN',
+    'TERHUBUNG KEMBALI',
+    'RECOVERY'
+];
+const resolveAlertState = (subject, emailProps) => {
+    if (typeof emailProps?.isAlert === 'boolean') {
+        return emailProps.isAlert;
+    }
+    const normalizedSubject = subject.toUpperCase();
+    const normalizedIncident = typeof emailProps?.incidentType === 'string'
+        ? emailProps.incidentType.toUpperCase()
+        : '';
+    if (RECOVERY_HINTS.some((hint) => normalizedSubject.includes(hint) || normalizedIncident.includes(hint))) {
+        return false;
+    }
+    if (ALERT_HINTS.some((hint) => normalizedSubject.includes(hint) || normalizedIncident.includes(hint))) {
+        return true;
+    }
+    return (subject.includes('🚨') ||
+        subject.includes('⚠️') ||
+        subject.includes('🪫') ||
+        subject.includes('⚡'));
+};
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
  * CATATAN: Telegram dikirim ke GROUP terlepas dari ada tidaknya subscriber
  */
 const notifySubscribers = async (systemType, subject, emailProps) => {
+    const isAlert = resolveAlertState(subject, emailProps);
+    const latencyTrace = emailProps?.latencyTrace;
+    const hasLatencyTrace = (0, latencyTrackerService_1.isLatencyTrace)(latencyTrace?.traceId);
+    if (hasLatencyTrace) {
+        await (0, latencyTrackerService_1.recordLatencyStage)({
+            traceId: latencyTrace.traceId,
+            runId: latencyTrace.runId,
+            scenario: latencyTrace.scenario,
+            deviceId: latencyTrace.deviceId,
+            eventType: latencyTrace.eventType,
+            t0PublishMs: latencyTrace.publishMs,
+            deviceMs: latencyTrace.deviceMs,
+            t1MqttRxMs: latencyTrace.mqttRxMs,
+            t4NotifyDispatchMs: Date.now()
+        });
+    }
     // 1. Ambil User ID yang subscribe
     const prefs = await drizzle_1.db.query.user_notification_preferences.findMany({
         where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.system_type, systemType), (0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.is_enabled, true)),
@@ -55,7 +99,6 @@ const notifySubscribers = async (systemType, subject, emailProps) => {
     // === TASK 1: KIRIM KE TELEGRAM GROUP (SELALU, tidak tergantung subscriber) ===
     const telegramTask = (async () => {
         try {
-            const isAlert = subject.includes('PERINGATAN') || subject.includes('🚨');
             if (systemType === 'lingkungan') {
                 const allowed = (0, lingkunganAlertingService_1.shouldSendLingkunganTelegram)(emailProps.deviceId, isAlert);
                 if (!allowed) {
@@ -83,10 +126,34 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
 
 <i>Harap segera diperiksa.</i>
 `.trim();
-            await telegramService.sendGroupAlert(message);
+            const sent = await telegramService.sendGroupAlert(message);
+            if (hasLatencyTrace) {
+                await (0, latencyTrackerService_1.recordLatencyStage)({
+                    traceId: latencyTrace.traceId,
+                    runId: latencyTrace.runId,
+                    scenario: latencyTrace.scenario,
+                    deviceId: latencyTrace.deviceId,
+                    eventType: latencyTrace.eventType,
+                    t5TelegramApiAckMs: Date.now(),
+                    telegramSent: sent
+                });
+            }
             console.log('[Alerting] Telegram notification sent to group.');
         }
         catch (error) {
+            if (hasLatencyTrace) {
+                await (0, latencyTrackerService_1.recordLatencyStage)({
+                    traceId: latencyTrace.traceId,
+                    runId: latencyTrace.runId,
+                    scenario: latencyTrace.scenario,
+                    deviceId: latencyTrace.deviceId,
+                    eventType: latencyTrace.eventType,
+                    telegramSent: false,
+                    error: error instanceof Error
+                        ? `telegram_send_failed:${error.message}`
+                        : 'telegram_send_failed'
+                });
+            }
             console.error('[Alerting] Telegram notification failed:', error);
         }
     })();
@@ -98,9 +165,7 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
     // === TASK 2: SIAPKAN PUSH NOTIFICATION ===
     const pushTask = (async () => {
         console.log(`[Alerting] Starting push task for ${userIds.length} users:`, userIds);
-        const pushTitle = subject.includes('PERINGATAN') || subject.includes('🚨')
-            ? '🚨 BAHAYA TERDETEKSI'
-            : '✅ KEMBALI NORMAL';
+        const pushTitle = isAlert ? '🚨 BAHAYA TERDETEKSI' : '✅ KEMBALI NORMAL';
         const pushBody = `Lokasi: ${emailProps.warehouseName} - ${emailProps.areaName}. ${emailProps.incidentType || 'Status Update'}.`;
         const pushPromises = userIds.map((userId) => webPushService.sendPushNotification(userId, {
             title: pushTitle,

@@ -327,10 +327,7 @@ export const processPowerAlert = async (
     isAlert = true;
     incidentType = 'Baterai Kritis';
     subject = `🪫 [BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
-    details.push({ key: 'Kapasitas Baterai', value: `${data.vbat_pct}%` });
-    if (data.vbat_v !== undefined) {
-      details.push({ key: 'Tegangan', value: `${data.vbat_v.toFixed(2)}V` });
-    }
+    details.push({ key: 'Kapasitas Baterai', value: 'Kritis' });
     details.push({ key: 'Sumber Daya', value: 'BATERAI (Adaptor Terputus)' });
   } else {
     const isSwitchToBattery = data.power_source === 'BATTERY';
@@ -346,10 +343,9 @@ export const processPowerAlert = async (
       value: isSwitchToBattery ? 'BATERAI' : 'ADAPTOR (PLN)'
     });
     if (data.vbat_pct !== undefined) {
-      details.push({ key: 'Kapasitas Baterai', value: `${data.vbat_pct}%` });
-    }
-    if (data.vbat_v !== undefined) {
-      details.push({ key: 'Tegangan', value: `${data.vbat_v.toFixed(2)}V` });
+      const batteryLabel =
+        data.vbat_pct <= BATTERY_CRITICAL_PCT ? 'Kritis' : 'Aman';
+      details.push({ key: 'Kapasitas Baterai', value: batteryLabel });
     }
   }
 

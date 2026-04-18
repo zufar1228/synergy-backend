@@ -1,2 +1,0 @@
-trace_id,scenario,event_type,cooldown_suppressed,telegram_sent,error,t0_publish_ms,device_ms,t1_mqtt_rx_ms,t2_db_insert_ms,t3_alert_decision_ms,t4_notify_dispatch_ms,t5_telegram_ack_ms,publish_to_mqtt_ms,mqtt_to_db_ms,mqtt_to_alert_decision_ms,alert_decision_to_dispatch_ms,dispatch_to_telegram_ack_ms,e2e_publish_to_telegram_ms,e2e_device_to_telegram_ms
-lt-lt-smoke-devicecmd-live-20260415-0001,unknown,unknown,false,false,missing_trace_row,,,,,,,,,,,,,,
