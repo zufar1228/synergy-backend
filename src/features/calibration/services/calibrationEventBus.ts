@@ -1,3 +1,12 @@
+/**
+ * @file calibrationEventBus.ts
+ * @purpose In-memory SSE event bus — relays MQTT calibration status to browser clients
+ * @usedBy calibrationController (subscribe), mqtt/client (emit)
+ * @deps express Response
+ * @exports subscribe, unsubscribe, emit, getClientCount
+ * @sideEffects SSE streaming to connected clients
+ */
+
 import { Response } from 'express';
 
 /**

@@ -1,4 +1,12 @@
-// backend/src/mqtt/client.ts
+/**
+ * @file client.ts
+ * @purpose MQTT client — connects to EMQX broker, routes messages to feature services
+ * @usedBy server.ts (startup)
+ * @deps mqtt, env, intrusiService, lingkunganService, deviceService, intrusiAlertingService, latencyTrackerService
+ * @exports initializeMqttClient, client
+ * @sideEffects MQTT connection, message subscription, triggers DB writes via services
+ */
+
 import mqtt from 'mqtt';
 import { env } from '../config/env';
 import * as intrusiService from '../features/intrusi/services/intrusiService';

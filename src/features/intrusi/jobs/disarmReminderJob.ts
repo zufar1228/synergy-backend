@@ -1,4 +1,12 @@
-// backend/src/jobs/disarmReminderJob.ts
+/**
+ * @file disarmReminderJob.ts
+ * @purpose Cron job — sends reminder if intrusi device DISARMED for >1 hour
+ * @usedBy server.ts (startup)
+ * @deps node-cron, db/drizzle, schema (devices, intrusi_logs), alertingService
+ * @exports startDisarmReminderJob
+ * @sideEffects DB read, Telegram + Web Push notifications, runs every 15min
+ */
+
 //
 // Sends a reminder notification (Telegram + Web Push) if an intrusi device
 // has been in the DISARMED state for more than 1 hour.

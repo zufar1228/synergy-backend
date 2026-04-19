@@ -1,3 +1,12 @@
+/**
+ * @file lingkunganAnalytics.ts
+ * @purpose Analytics query builder for lingkungan logs (paginated, filterable)
+ * @usedBy analyticsService
+ * @deps db/drizzle, schema (lingkungan_logs, devices)
+ * @exports lingkunganAnalyticsConfig
+ * @sideEffects DB read (lingkungan_logs)
+ */
+
 import { db } from '../../../db/drizzle';
 import { lingkungan_logs, devices } from '../../../db/schema';
 import { eq, and, gte, lte, inArray, count, desc, type SQL } from 'drizzle-orm';

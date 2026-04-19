@@ -1,3 +1,12 @@
+/**
+ * @file deviceService.ts
+ * @purpose CRUD + heartbeat operations for IoT devices with EMQX provisioning
+ * @usedBy deviceController, mqtt/client, heartbeatChecker
+ * @deps db/drizzle, schema (devices, areas), emqxService, ApiError
+ * @exports getAllDevices, createDevice, updateDevice, deleteDevice, getDeviceById, getDeviceByAreaAndSystem, updateDeviceHeartbeat
+ * @sideEffects DB read/write (devices), EMQX API calls
+ */
+
 import { db } from '../db/drizzle';
 import { devices, areas } from '../db/schema';
 import type { DeviceInsert } from '../db/schema';

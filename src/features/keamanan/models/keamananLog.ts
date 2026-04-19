@@ -1,4 +1,12 @@
-// backend/src/db/models/keamananLog.ts
+/**
+ * @file keamananLog.ts
+ * @purpose Legacy Sequelize model for keamanan (security camera) logs
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports KeamananLogAttributes, KeamananLogCreationAttributes, KeamananLog (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4, CreationOptional } from "sequelize";
 import { sequelize } from "../../../db/config";
 import { IncidentStatus } from "../../../db/models/incident";

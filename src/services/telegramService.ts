@@ -1,4 +1,12 @@
-// backend/src/services/telegramService.ts
+/**
+ * @file telegramService.ts
+ * @purpose Telegram Bot API client for group alerts, invites, kicks, and webhook management
+ * @usedBy telegramAdminController, alertingService
+ * @deps axios, env
+ * @exports sendGroupAlert, createSingleUseInviteLink, kickMember, setWebhook, getWebhookInfo, deleteWebhook
+ * @sideEffects HTTP calls to Telegram Bot API
+ */
+
 import axios, { AxiosError } from 'axios';
 import { env } from '../config/env';
 

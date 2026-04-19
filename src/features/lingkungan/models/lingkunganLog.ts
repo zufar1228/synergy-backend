@@ -1,4 +1,12 @@
-// backend/src/db/models/lingkunganLog.ts
+/**
+ * @file lingkunganLog.ts
+ * @purpose Legacy Sequelize model for lingkungan (environment) sensor logs
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports AcknowledgeStatus, LingkunganLogAttributes, LingkunganLogCreationAttributes, LingkunganLog (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize';
 import { sequelize } from '../../../db/config';
 

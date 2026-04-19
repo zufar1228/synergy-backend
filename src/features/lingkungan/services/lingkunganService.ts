@@ -1,4 +1,12 @@
-// backend/src/services/lingkunganService.ts
+/**
+ * @file lingkunganService.ts
+ * @purpose Core data operations for lingkungan — ingest sensor data, predictions, actuator control, queries
+ * @usedBy lingkunganController, mqtt/client
+ * @deps db/drizzle, schema (devices, areas, lingkungan_logs, prediction_results), mqtt/client
+ * @exports ingestSensorData, handlePredictionResult, sendActuatorCommand, handleManualControl, switchToAutoMode, getLingkunganLogs, getLingkunganSummary, getChartData, getLingkunganStatus, updateLingkunganLogStatus
+ * @sideEffects DB read/write, MQTT publish
+ */
+
 import { db } from '../../../db/drizzle';
 import {
   devices,

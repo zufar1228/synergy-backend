@@ -1,3 +1,12 @@
+/**
+ * @file calibrationActuationService.ts
+ * @purpose Sends calibration commands to devices via MQTT
+ * @usedBy calibrationController
+ * @deps mqtt/client, db/drizzle, schema (devices, areas)
+ * @exports CalibrationCommand, sendCalibrationCommand
+ * @sideEffects MQTT publish, DB read (device lookup)
+ */
+
 import { client as mqttClient } from '../../../mqtt/client';
 import { db } from '../../../db/drizzle';
 import { devices, areas } from '../../../db/schema';

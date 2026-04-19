@@ -1,4 +1,12 @@
-// backend/src/jobs/repeatDetectionJob.ts
+/**
+ * @file repeatDetectionJob.ts
+ * @purpose Cron job — checks for repeated security detections within time window
+ * @usedBy server.ts (startup)
+ * @deps node-cron, repeatDetectionService
+ * @exports startRepeatDetectionJob
+ * @sideEffects DB read, Telegram notification, runs every 5min
+ */
+
 import cron from 'node-cron';
 import * as repeatDetectionService from '../services/repeatDetectionService';
 

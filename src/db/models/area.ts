@@ -1,4 +1,12 @@
-// backend/src/db/models/area.ts
+/**
+ * @file area.ts
+ * @purpose Legacy Sequelize model for areas table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports AreaAttributes, AreaCreationAttributes, Area (default)
+ * @sideEffects None
+ */
+
 
 import { Model, DataTypes, UUIDV4, CreationOptional } from "sequelize";
 import { sequelize } from "../config";

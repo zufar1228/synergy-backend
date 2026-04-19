@@ -1,4 +1,12 @@
-// backend/src/db/models/userNotificationPreference.ts
+/**
+ * @file userNotificationPreference.ts
+ * @purpose Legacy Sequelize model for user_notification_preferences table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports UserNotificationPreferenceAttributes, UserNotificationPreferenceCreationAttributes, UserNotificationPreference (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, CreationOptional, UUIDV4 } from "sequelize";
 import { sequelize } from "../config";
 

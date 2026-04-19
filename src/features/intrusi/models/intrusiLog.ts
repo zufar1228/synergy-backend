@@ -1,4 +1,12 @@
-// backend/src/db/models/intrusiLog.ts
+/**
+ * @file intrusiLog.ts
+ * @purpose Legacy Sequelize model + type definitions for intrusi event logs
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports IntrusiEventType, DoorState, SystemState, AcknowledgeStatus, IntrusiLogAttributes, IntrusiLogCreationAttributes, IntrusiLog (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize';
 import { sequelize } from '../../../db/config';
 

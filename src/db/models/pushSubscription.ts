@@ -1,3 +1,12 @@
+/**
+ * @file pushSubscription.ts
+ * @purpose Legacy Sequelize model for push_subscriptions table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports PushSubscription (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4, CreationOptional, InferAttributes, InferCreationAttributes } from 'sequelize';
 import { sequelize } from '../config';
 

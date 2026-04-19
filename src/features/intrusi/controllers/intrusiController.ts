@@ -1,4 +1,12 @@
-// backend/src/api/controllers/intrusiController.ts
+/**
+ * @file intrusiController.ts
+ * @purpose HTTP handlers for intrusi logs, summary, status, and device commands
+ * @usedBy intrusiRoutes
+ * @deps intrusiService, actuationService, ApiError
+ * @exports getLogs, getSummary, getStatus, updateStatus, sendCommand
+ * @sideEffects DB read/write, MQTT publish
+ */
+
 import { Request, Response } from 'express';
 import * as intrusiService from '../services/intrusiService';
 import * as actuationService from '../services/actuationService';

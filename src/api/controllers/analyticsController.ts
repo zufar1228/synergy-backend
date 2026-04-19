@@ -1,3 +1,12 @@
+/**
+ * @file analyticsController.ts
+ * @purpose HTTP handler for analytics data retrieval per system type
+ * @usedBy analyticsRoutes.ts
+ * @deps analyticsService, ApiError
+ * @exports getAnalytics
+ * @sideEffects DB read (keamanan/intrusi/lingkungan logs)
+ */
+
 import { Request, Response } from 'express';
 import * as analyticsService from '../../services/analyticsService';
 import ApiError from '../../utils/apiError';

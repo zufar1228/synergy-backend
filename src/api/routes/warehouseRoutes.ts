@@ -1,4 +1,12 @@
-// backend/src/api/routes/warehouseRoutes.ts
+/**
+ * @file warehouseRoutes.ts
+ * @purpose Express router for warehouse CRUD endpoints with Zod validation
+ * @usedBy server.ts
+ * @deps warehouseController, authMiddleware, validateRequest, zod
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import { z } from 'zod';
 import * as warehouseController from '../controllers/warehouseController';

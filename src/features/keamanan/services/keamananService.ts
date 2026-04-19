@@ -1,4 +1,12 @@
-// backend/src/services/keamananService.ts
+/**
+ * @file keamananService.ts
+ * @purpose Updates keamanan log incident status (acknowledge/resolve/false_alarm)
+ * @usedBy keamananController
+ * @deps db/drizzle, schema (keamanan_logs), ApiError
+ * @exports updateKeamananLogStatus
+ * @sideEffects DB write (keamanan_logs)
+ */
+
 import { db } from '../../../db/drizzle';
 import { keamanan_logs, type IncidentStatus } from '../../../db/schema';
 import { eq } from 'drizzle-orm';

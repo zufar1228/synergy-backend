@@ -1,3 +1,12 @@
+/**
+ * @file warehouse.ts
+ * @purpose Legacy Sequelize model for warehouses table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports WarehouseAttributes, Warehouse (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4 } from "sequelize";
 import { sequelize } from "../config"; // Kita akan buat file config ini nanti
 

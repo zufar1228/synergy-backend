@@ -1,3 +1,12 @@
+/**
+ * @file index.ts
+ * @purpose Re-exports Drizzle schema/client as canonical DB layer + connection test utility
+ * @usedBy server.ts
+ * @deps drizzle.ts, schema.ts
+ * @exports db, all schema tables, initDatabase
+ * @sideEffects DB connection test on initDatabase()
+ */
+
 // Re-export Drizzle schema and client as the canonical database layer.
 // Legacy Sequelize models are no longer used at runtime.
 export { db } from '../drizzle';

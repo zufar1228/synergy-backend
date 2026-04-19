@@ -1,4 +1,12 @@
-// backend/src/api/controllers/userController.ts
+/**
+ * @file userController.ts
+ * @purpose HTTP handlers for user management, profile, preferences, push notifications
+ * @usedBy userRoutes.ts
+ * @deps userService, webPushService, ApiError, env
+ * @exports verifyAccess, inviteUser, listUsers, deleteUser, getMyProfile, updateMyProfile, updateUserRole, updateUserStatus, getMyPreferences, updateMyPreferences, subscribeToPush, getVapidPublicKey, syncAllRoles, testPushNotification
+ * @sideEffects DB read/write (profiles, user_roles, push_subscriptions), Supabase Auth API, Resend email
+ */
+
 import { Request, Response } from 'express';
 import { env } from '../../config/env';
 import * as userService from '../../services/userService';

@@ -1,4 +1,12 @@
-// backend/src/api/controllers/telegramWebhookController.ts
+/**
+ * @file telegramWebhookController.ts
+ * @purpose Handles incoming Telegram webhook updates (member join/leave, commands)
+ * @usedBy telegramRoutes.ts (public endpoint, no auth)
+ * @deps env, db/drizzle, telegram_subscribers schema
+ * @exports handleWebhook
+ * @sideEffects DB write (telegram_subscribers), Telegram API signature verification
+ */
+
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { env } from '../../config/env';

@@ -1,3 +1,12 @@
+/**
+ * @file calibrationRoutes.ts
+ * @purpose Express router for calibration endpoints (data, sessions, SSE, commands)
+ * @usedBy server.ts
+ * @deps calibrationController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as calibrationController from '../controllers/calibrationController';
 

@@ -1,4 +1,12 @@
-// backend/src/api/middlewares/authMiddleware.ts
+/**
+ * @file authMiddleware.ts
+ * @purpose JWT auth middleware + role-based access control via Supabase JWKS
+ * @usedBy All protected routes via server.ts
+ * @deps jsonwebtoken, axios, crypto, ApiError
+ * @exports authMiddleware, roleBasedAuth
+ * @sideEffects HTTP call to Supabase JWKS endpoint (cached 1h)
+ */
+
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';

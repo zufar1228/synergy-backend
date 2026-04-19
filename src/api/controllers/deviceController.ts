@@ -1,4 +1,12 @@
-// backend/src/api/controllers/deviceController.ts
+/**
+ * @file deviceController.ts
+ * @purpose CRUD HTTP handlers for device management
+ * @usedBy deviceRoutes.ts
+ * @deps deviceService, ApiError
+ * @exports listDevices, getDeviceById, createDevice, updateDevice, deleteDevice, getDeviceDetailsByArea
+ * @sideEffects DB read/write (devices), EMQX provisioning
+ */
+
 
 import { Request, Response } from "express";
 import * as deviceService from "../../services/deviceService";

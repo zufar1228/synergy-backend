@@ -1,4 +1,12 @@
-// Feature: Intrusi (Intrusion Detection — Door Security)
+/**
+ * @file intrusi/index.ts
+ * @purpose Barrel export for intrusi (door security) feature module
+ * @usedBy server.ts
+ * @deps IntrusiLog model, intrusiRoutes, disarmReminderJob
+ * @exports IntrusiLog, intrusiRoutes, startDisarmReminderJob
+ * @sideEffects None
+ */
+
 // Models
 export { default as IntrusiLog } from './models/intrusiLog';
 

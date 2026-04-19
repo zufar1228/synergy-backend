@@ -1,3 +1,12 @@
+/**
+ * @file alertingService.ts
+ * @purpose Shared notification dispatcher — routes alerts to Telegram + Web Push based on user preferences
+ * @usedBy lingkunganAlertingService, intrusiAlertingService, keamanan features
+ * @deps db/drizzle, user_notification_preferences, webPushService, telegramService, latencyTrackerService
+ * @exports notifySubscribers
+ * @sideEffects DB read (preferences), Telegram API, Web Push API
+ */
+
 // Shared notification dispatcher — domain-specific alert logic lives in features/
 import { db } from '../db/drizzle';
 import { user_notification_preferences } from '../db/schema';

@@ -1,4 +1,12 @@
-// backend/src/services/emqxService.ts
+/**
+ * @file emqxService.ts
+ * @purpose EMQX broker API client for device MQTT credential provisioning/deprovisioning
+ * @usedBy deviceService
+ * @deps axios, env
+ * @exports provisionDeviceInEMQX, deprovisionDeviceInEMQX
+ * @sideEffects HTTP calls to EMQX Management API
+ */
+
 import axios from 'axios';
 import { env } from '../config/env';
 

@@ -1,3 +1,12 @@
+/**
+ * @file heartbeatChecker.ts
+ * @purpose Cron job that marks devices as Offline if no heartbeat received within threshold
+ * @usedBy server.ts (startup)
+ * @deps node-cron, db/drizzle, schema (devices)
+ * @exports startHeartbeatJob
+ * @sideEffects DB write (devices.status), runs every 30s
+ */
+
 import cron from 'node-cron';
 import { db } from '../db/drizzle';
 import { devices } from '../db/schema';

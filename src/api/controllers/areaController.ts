@@ -1,4 +1,12 @@
-// backend/src/api/controllers/areaController.ts
+/**
+ * @file areaController.ts
+ * @purpose CRUD HTTP handlers for area management
+ * @usedBy areaRoutes.ts
+ * @deps areaService, ApiError
+ * @exports listAreas, createArea, updateArea, deleteArea
+ * @sideEffects DB read/write (areas)
+ */
+
 import { Request, Response } from "express";
 import * as areaService from "../../services/areaService";
 import ApiError from "../../utils/apiError";

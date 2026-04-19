@@ -1,3 +1,12 @@
+/**
+ * @file calibrationService.ts
+ * @purpose Data access layer for calibration device status, raw data, sessions, and statistics
+ * @usedBy calibrationController
+ * @deps db/drizzle, drizzle-orm (raw SQL)
+ * @exports getDeviceStatus, insertDeviceStatus, getRawData, getDistinctSessions, getSummaryData, getStatistics, getSessionStats, getTrialPeaks, getPeakSummary
+ * @sideEffects DB read/write (calibration_device_status, calibration_raw_data)
+ */
+
 import { db } from '../../../db/drizzle';
 import { sql } from 'drizzle-orm';
 

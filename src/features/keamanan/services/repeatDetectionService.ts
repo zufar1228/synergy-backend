@@ -1,4 +1,12 @@
-// backend/src/services/repeatDetectionService.ts
+/**
+ * @file repeatDetectionService.ts
+ * @purpose Detects repeated unresolved keamanan events within time window and sends Telegram alerts
+ * @usedBy keamananController, repeatDetectionJob
+ * @deps db/drizzle, schema (keamanan_logs, devices), telegramService, time util
+ * @exports findAndNotifyRepeatDetections
+ * @sideEffects DB read (keamanan_logs), Telegram API call
+ */
+
 import { db } from '../../../db/drizzle';
 import { keamanan_logs, devices } from '../../../db/schema';
 import { eq, and, isNull, gt, ne, inArray } from 'drizzle-orm';

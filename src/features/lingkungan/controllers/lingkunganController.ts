@@ -1,4 +1,12 @@
-// backend/src/api/controllers/lingkunganController.ts
+/**
+ * @file lingkunganController.ts
+ * @purpose HTTP handlers for lingkungan logs, summary, status, chart, control commands
+ * @usedBy lingkunganRoutes
+ * @deps lingkunganService, ApiError
+ * @exports getLogs, getSummary, getStatus, getChartData, sendControlCommand, updateStatus
+ * @sideEffects DB read/write, MQTT publish via service
+ */
+
 import { Request, Response } from 'express';
 import * as lingkunganService from '../services/lingkunganService';
 import { type AcknowledgeStatus } from '../../../db/schema';

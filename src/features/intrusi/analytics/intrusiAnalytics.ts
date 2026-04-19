@@ -1,3 +1,12 @@
+/**
+ * @file intrusiAnalytics.ts
+ * @purpose Analytics query builder for intrusi logs (paginated, filterable)
+ * @usedBy analyticsService
+ * @deps db/drizzle, schema (intrusi_logs, devices)
+ * @exports intrusiAnalyticsConfig
+ * @sideEffects DB read (intrusi_logs)
+ */
+
 import { db } from '../../../db/drizzle';
 import { intrusi_logs, devices } from '../../../db/schema';
 import { eq, and, gte, lte, inArray, count, desc, type SQL } from 'drizzle-orm';

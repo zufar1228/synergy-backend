@@ -1,3 +1,12 @@
+/**
+ * @file schema.ts
+ * @purpose Drizzle ORM table definitions and relations for all entities
+ * @usedBy drizzle.ts, all services
+ * @deps drizzle-orm/pg-core
+ * @exports All table schemas + relations + insert/select types
+ * @sideEffects None (schema definition only)
+ */
+
 import {
   pgTable,
   uuid,

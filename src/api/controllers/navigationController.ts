@@ -1,4 +1,12 @@
-// backend/src/api/controllers/navigationController.ts
+/**
+ * @file navigationController.ts
+ * @purpose HTTP handler for sidebar navigation data (areas grouped by system)
+ * @usedBy navigationRoutes.ts
+ * @deps navigationService, ApiError
+ * @exports listAreasBySystem
+ * @sideEffects DB read (areas, devices, warehouses)
+ */
+
 import { Request, Response } from "express";
 import * as navigationService from "../../services/navigationService";
 import ApiError from "../../utils/apiError";

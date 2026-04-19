@@ -1,3 +1,12 @@
+/**
+ * @file userService.ts
+ * @purpose User lifecycle management — auth verification, invite, profile, roles, preferences
+ * @usedBy userController
+ * @deps supabaseAdmin, env, notificationService, db/drizzle, schema (profiles, user_roles, user_notification_preferences)
+ * @exports verifyUserAccess, inviteUser, getAllUsers, deleteUser, getUserProfile, updateUserRole, updateUserStatus, updateUserProfile, getUserPreferences, syncAllRolesToSupabase
+ * @sideEffects DB read/write, Supabase Auth API, email sending
+ */
+
 import { supabaseAdmin } from '../config/supabaseAdmin';
 import { env } from '../config/env';
 import { sendInviteEmail } from './notificationService';

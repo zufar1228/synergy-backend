@@ -1,4 +1,12 @@
-// features/intrusi/services/intrusiAlertingService.ts
+/**
+ * @file intrusiAlertingService.ts
+ * @purpose Domain-specific alert logic for intrusi events (cooldown, formatting, dispatch)
+ * @usedBy mqtt/client (on intrusi message)
+ * @deps db/drizzle, schema (devices), alertingService, latencyTrackerService, time util
+ * @exports resetIntrusiAlertCooldownForTest, processIntrusiAlert, processPowerAlert
+ * @sideEffects DB read, Telegram + Web Push via alertingService
+ */
+
 import { db } from '../../../db/drizzle';
 import { devices } from '../../../db/schema';
 import { eq } from 'drizzle-orm';

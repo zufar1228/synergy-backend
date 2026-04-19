@@ -1,4 +1,12 @@
-// backend/src/db/models/incident.ts
+/**
+ * @file incident.ts
+ * @purpose Legacy Sequelize model for incidents table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports IncidentStatus, IncidentAttributes, IncidentCreationAttributes, Incident (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4, CreationOptional } from "sequelize";
 import { sequelize } from "../config";
 

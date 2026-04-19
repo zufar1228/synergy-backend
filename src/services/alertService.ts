@@ -1,3 +1,12 @@
+/**
+ * @file alertService.ts
+ * @purpose Queries active (unresolved) alerts across all system types for a warehouse
+ * @usedBy alertController
+ * @deps db/drizzle, schema (keamanan_logs, intrusi_logs, lingkungan_logs, devices)
+ * @exports getActiveAlerts
+ * @sideEffects DB read (multi-table query)
+ */
+
 import { db } from '../db/drizzle';
 import { incidents, devices, areas } from '../db/schema';
 import { eq, and } from 'drizzle-orm';

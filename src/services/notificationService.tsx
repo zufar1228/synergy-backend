@@ -1,4 +1,12 @@
-// backend/src/services/notificationService.ts
+/**
+ * @file notificationService.tsx
+ * @purpose Email sending service using Resend + React Email templates
+ * @usedBy userService (invite flow)
+ * @deps resend, InviteEmail template, @react-email/render
+ * @exports sendInviteEmail
+ * @sideEffects Resend API call (email delivery)
+ */
+
 import { Resend } from "resend";
 import { InviteEmail } from "../emails/InviteEmail";
 import { render } from "@react-email/render";

@@ -1,3 +1,12 @@
+/**
+ * @file latencyTrackerService.ts
+ * @purpose End-to-end latency measurement for intrusi event pipeline (testing/benchmarking)
+ * @usedBy intrusiAlertingService, alertingService, mqtt/client
+ * @deps db/drizzle (pool — raw SQL)
+ * @exports LatencyStageUpdate, LatencyTraceRow, isLatencyTrace, recordLatencyStage, getLatencyRowsByRunId, cleanupLatencyRowsByRunId
+ * @sideEffects DB read/write (latency_traces table)
+ */
+
 import { pool } from '../../../db/drizzle';
 
 export interface LatencyStageUpdate {

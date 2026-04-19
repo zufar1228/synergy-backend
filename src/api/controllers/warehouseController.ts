@@ -1,4 +1,12 @@
-// backend/src/api/controllers/warehouseController.ts
+/**
+ * @file warehouseController.ts
+ * @purpose CRUD HTTP handlers for warehouse management
+ * @usedBy warehouseRoutes.ts
+ * @deps warehouseService, ApiError, db/drizzle
+ * @exports getAreasWithSystems, listWarehouses, createWarehouse, getWarehouseById, updateWarehouse, deleteWarehouse
+ * @sideEffects DB read/write (warehouses)
+ */
+
 
 import { Request, Response } from "express";
 import * as warehouseService from "../../services/warehouseService";

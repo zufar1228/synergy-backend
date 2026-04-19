@@ -1,3 +1,12 @@
+/**
+ * @file userRole.ts
+ * @purpose Legacy Sequelize model for user_roles table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports UserRole (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, CreationOptional, Optional } from 'sequelize';
 import { sequelize } from '../config';
 

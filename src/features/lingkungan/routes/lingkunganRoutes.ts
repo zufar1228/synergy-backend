@@ -1,4 +1,12 @@
-// backend/src/api/routes/lingkunganRoutes.ts
+/**
+ * @file lingkunganRoutes.ts
+ * @purpose Express router for lingkungan endpoints with Zod validation
+ * @usedBy server.ts
+ * @deps lingkunganController, authMiddleware, validateRequest, zod
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as lingkunganController from '../controllers/lingkunganController';
 import { validate } from '../../../api/middlewares/validateRequest';

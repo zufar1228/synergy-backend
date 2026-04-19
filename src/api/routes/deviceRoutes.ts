@@ -1,4 +1,12 @@
-// backend/src/api/routes/deviceRoutes.ts
+/**
+ * @file deviceRoutes.ts
+ * @purpose Express router for device CRUD endpoints with Zod validation
+ * @usedBy server.ts
+ * @deps deviceController, authMiddleware, validateRequest, zod
+ * @exports default router
+ * @sideEffects None
+ */
+
 
 import { Router } from 'express';
 import * as deviceController from '../controllers/deviceController';

@@ -1,3 +1,12 @@
+/**
+ * @file time.ts
+ * @purpose Timestamp formatting utility for WIB (Asia/Jakarta) timezone
+ * @usedBy alerting services, telegram admin controller
+ * @deps Intl.DateTimeFormat
+ * @exports formatTimestampWIB
+ * @sideEffects None
+ */
+
 export const formatTimestampWIB = (date: Date = new Date()): string => {
   const parts = new Intl.DateTimeFormat('id-ID', {
     timeZone: 'Asia/Jakarta',

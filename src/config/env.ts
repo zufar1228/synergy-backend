@@ -1,3 +1,12 @@
+/**
+ * @file env.ts
+ * @purpose Centralized environment variable loader and validator
+ * @usedBy All modules requiring env config
+ * @deps dotenv
+ * @exports env
+ * @sideEffects Reads process.env, throws on missing required vars
+ */
+
 import { z } from 'zod';
 import 'dotenv/config';
 

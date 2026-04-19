@@ -1,3 +1,12 @@
+/**
+ * @file calibrationController.ts
+ * @purpose HTTP + SSE handlers for MPU6050 calibration data collection and device control
+ * @usedBy calibrationRoutes
+ * @deps calibrationService, calibrationActuationService, calibrationEventBus, ApiError
+ * @exports getStatus, getRawData, getSessions, getSummary, getStats, sendCommand, subscribe (SSE), getSessionStats, getTrialPeaks, getPeakSummary
+ * @sideEffects DB read, SSE streaming, MQTT publish via actuation service
+ */
+
 import { Request, Response } from 'express';
 import * as calibrationService from '../services/calibrationService';
 import * as actuationService from '../services/calibrationActuationService';

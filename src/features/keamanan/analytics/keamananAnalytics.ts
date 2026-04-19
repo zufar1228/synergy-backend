@@ -1,3 +1,12 @@
+/**
+ * @file keamananAnalytics.ts
+ * @purpose Analytics query builder for keamanan logs (paginated, filterable)
+ * @usedBy analyticsService
+ * @deps db/drizzle, schema (keamanan_logs, devices)
+ * @exports keamananAnalyticsConfig
+ * @sideEffects DB read (keamanan_logs)
+ */
+
 import { db } from '../../../db/drizzle';
 import { keamanan_logs, devices } from '../../../db/schema';
 import { eq, and, gte, lte, inArray, count, desc, type SQL } from 'drizzle-orm';

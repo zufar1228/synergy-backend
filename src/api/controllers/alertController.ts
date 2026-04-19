@@ -1,4 +1,12 @@
-// backend/src/api/controllers/alertController.ts
+/**
+ * @file alertController.ts
+ * @purpose HTTP handler for active alert queries
+ * @usedBy alertRoutes.ts
+ * @deps alertService, ApiError
+ * @exports listActiveAlerts
+ * @sideEffects DB read (devices, area_system_pairs)
+ */
+
 import { Request, Response } from "express";
 import * as alertService from "../../services/alertService";
 

@@ -1,4 +1,12 @@
-// backend/src/api/routes/intrusiRoutes.ts
+/**
+ * @file intrusiRoutes.ts
+ * @purpose Express router for intrusi endpoints with Zod validation
+ * @usedBy server.ts
+ * @deps intrusiController, authMiddleware, validateRequest, zod
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as intrusiController from '../controllers/intrusiController';
 import { validate } from '../../../api/middlewares/validateRequest';

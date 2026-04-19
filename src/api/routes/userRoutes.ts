@@ -1,4 +1,12 @@
-// backend/src/api/routes/userRoutes.ts
+/**
+ * @file userRoutes.ts
+ * @purpose Express router for user management, profile, and push notification endpoints
+ * @usedBy server.ts
+ * @deps userController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from "express";
 import * as userController from "../controllers/userController";
 import { authMiddleware, roleBasedAuth } from "../middlewares/authMiddleware";

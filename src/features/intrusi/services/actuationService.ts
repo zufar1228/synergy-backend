@@ -1,4 +1,12 @@
-// backend/src/services/actuationService.ts
+/**
+ * @file actuationService.ts
+ * @purpose Sends ARM/DISARM/SILENCE commands to intrusi devices via MQTT
+ * @usedBy intrusiController
+ * @deps mqtt/client, db/drizzle, schema (devices, areas), ApiError
+ * @exports IntrusiCommand, sendIntrusiCommand
+ * @sideEffects MQTT publish, DB read (device+area lookup)
+ */
+
 import { client as mqttClient } from '../../../mqtt/client';
 import { db } from '../../../db/drizzle';
 import { devices, areas } from '../../../db/schema';

@@ -1,4 +1,12 @@
-// backend/src/config/supabaseAdmin.ts
+/**
+ * @file supabaseAdmin.ts
+ * @purpose Supabase Admin client (service_role) for server-side auth operations
+ * @usedBy userService
+ * @deps @supabase/supabase-js, env
+ * @exports supabaseAdmin
+ * @sideEffects None
+ */
+
 import { createClient } from '@supabase/supabase-js';
 import { env } from './env';
 

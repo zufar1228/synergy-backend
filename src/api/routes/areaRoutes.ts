@@ -1,4 +1,12 @@
-// backend/src/api/routes/areaRoutes.ts
+/**
+ * @file areaRoutes.ts
+ * @purpose Express router for area CRUD endpoints with Zod validation
+ * @usedBy server.ts
+ * @deps areaController, authMiddleware, validateRequest, zod
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import { z } from 'zod';
 import * as areaController from '../controllers/areaController';

@@ -1,4 +1,12 @@
-// backend/src/api/routes/telegramRoutes.ts
+/**
+ * @file telegramRoutes.ts
+ * @purpose Express router for Telegram webhook (public) and admin (protected) endpoints
+ * @usedBy server.ts
+ * @deps telegramWebhookController, telegramAdminController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as webhookController from '../controllers/telegramWebhookController';
 import * as adminController from '../controllers/telegramAdminController';

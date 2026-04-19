@@ -1,4 +1,12 @@
-// backend/src/emails/InviteEmail.tsx
+/**
+ * @file InviteEmail.tsx
+ * @purpose React Email template for user invitation emails
+ * @usedBy notificationService
+ * @deps react
+ * @exports InviteEmail
+ * @sideEffects None (pure template)
+ */
+
 import * as React from "react";
 
 interface InviteEmailProps {

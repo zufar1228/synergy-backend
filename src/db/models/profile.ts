@@ -1,4 +1,12 @@
-// backend/src/db/models/profile.ts
+/**
+ * @file profile.ts
+ * @purpose Legacy Sequelize model for profiles table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports ProfileAttributes, ProfileCreationAttributes, Profile (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, CreationOptional } from "sequelize";
 import { sequelize } from "../config";
 

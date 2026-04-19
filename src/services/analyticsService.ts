@@ -1,3 +1,12 @@
+/**
+ * @file analyticsService.ts
+ * @purpose Analytics data aggregation dispatcher — delegates to per-system analytics configs
+ * @usedBy analyticsController
+ * @deps keamananAnalytics, intrusiAnalytics, lingkunganAnalytics, ApiError
+ * @exports AnalyticsQuery, AnalyticsConfig, getAnalyticsData
+ * @sideEffects DB read (delegated to feature analytics)
+ */
+
 import ApiError from '../utils/apiError';
 
 import { keamananAnalyticsConfig } from '../features/keamanan/analytics/keamananAnalytics';

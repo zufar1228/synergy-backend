@@ -1,4 +1,12 @@
-// backend/src/api/controllers/telegramAdminController.ts
+/**
+ * @file telegramAdminController.ts
+ * @purpose HTTP handlers for Telegram bot admin operations (invite, kick, webhook)
+ * @usedBy telegramRoutes.ts
+ * @deps telegramService, db/drizzle, ApiError, time util
+ * @exports createInvite, kickSubscriber, getSubscribers, getWebhookInfo, setupWebhook, sendTestAlert
+ * @sideEffects DB read/write (telegram_subscribers), Telegram API calls
+ */
+
 import { Request, Response } from 'express';
 import * as telegramService from '../../services/telegramService';
 import { db } from '../../db/drizzle';

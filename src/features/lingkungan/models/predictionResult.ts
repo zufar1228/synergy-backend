@@ -1,4 +1,12 @@
-// backend/src/db/models/predictionResult.ts
+/**
+ * @file predictionResult.ts
+ * @purpose Legacy Sequelize model for ML prediction results
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports PredictionResultAttributes, PredictionResultCreationAttributes, PredictionResult (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, UUIDV4, CreationOptional } from 'sequelize';
 import { sequelize } from '../../../db/config';
 

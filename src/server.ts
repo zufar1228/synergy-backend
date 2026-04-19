@@ -1,3 +1,12 @@
+/**
+ * @file server.ts
+ * @purpose Express application entry point — mounts routes, middleware, MQTT, cron jobs
+ * @usedBy Node.js runtime (main entry)
+ * @deps express, cors, rate-limit, all routes, mqtt/client, jobs, db/models
+ * @exports None (self-starting server)
+ * @sideEffects HTTP server listen, DB init, MQTT connect, cron jobs start, Telegram webhook setup
+ */
+
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';

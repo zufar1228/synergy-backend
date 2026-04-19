@@ -1,3 +1,12 @@
+/**
+ * @file warehouseService.ts
+ * @purpose CRUD operations for warehouses with area/device stats
+ * @usedBy warehouseController
+ * @deps db/drizzle, schema (warehouses, areas, devices), ApiError
+ * @exports getWarehouseWithAreaSystems, getAllWarehousesWithStats, createWarehouse, updateWarehouse, deleteWarehouse
+ * @sideEffects DB read/write (warehouses)
+ */
+
 import { db } from '../db/drizzle';
 import { warehouses, areas, devices } from '../db/schema';
 import type { WarehouseInsert } from '../db/schema';

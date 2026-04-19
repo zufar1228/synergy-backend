@@ -1,4 +1,12 @@
-// backend/src/api/routes/alertRoutes.ts
+/**
+ * @file alertRoutes.ts
+ * @purpose Express router for alert endpoints
+ * @usedBy server.ts
+ * @deps alertController
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as alertController from '../controllers/alertController';
 

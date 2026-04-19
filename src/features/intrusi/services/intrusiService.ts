@@ -1,4 +1,12 @@
-// backend/src/services/intrusiService.ts
+/**
+ * @file intrusiService.ts
+ * @purpose Core data operations for intrusi — ingest events, query logs/summary/status, update status
+ * @usedBy intrusiController, mqtt/client
+ * @deps db/drizzle, schema (intrusi_logs, devices, areas)
+ * @exports ingestIntrusiEvent, getIntrusiLogs, getIntrusiSummary, getIntrusiStatus, updateIntrusiLogStatus
+ * @sideEffects DB read/write (intrusi_logs, devices)
+ */
+
 import { db } from '../../../db/drizzle';
 import {
   intrusi_logs,

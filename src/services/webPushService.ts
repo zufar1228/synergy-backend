@@ -1,3 +1,12 @@
+/**
+ * @file webPushService.ts
+ * @purpose Web Push notification sender + subscription persistence
+ * @usedBy userController, alertingService
+ * @deps web-push, db/drizzle, schema (push_subscriptions), env
+ * @exports saveSubscription, sendPushNotification
+ * @sideEffects DB read/write (push_subscriptions), Web Push API calls
+ */
+
 import webpush from 'web-push';
 import { db } from '../db/drizzle';
 import { push_subscriptions } from '../db/schema';

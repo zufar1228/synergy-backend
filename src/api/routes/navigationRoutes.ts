@@ -1,4 +1,12 @@
-// backend/src/api/routes/navigationRoutes.ts
+/**
+ * @file navigationRoutes.ts
+ * @purpose Express router for sidebar navigation endpoint
+ * @usedBy server.ts
+ * @deps navigationController
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as navigationController from '../controllers/navigationController';
 

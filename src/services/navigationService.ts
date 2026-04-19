@@ -1,3 +1,12 @@
+/**
+ * @file navigationService.ts
+ * @purpose Retrieves areas grouped by system type for sidebar navigation
+ * @usedBy navigationController
+ * @deps db/drizzle, schema (areas, devices, warehouses)
+ * @exports getAreasBySystemType
+ * @sideEffects DB read (join areas+devices+warehouses)
+ */
+
 import { db } from '../db/drizzle';
 import { areas, devices, warehouses } from '../db/schema';
 import { eq, asc } from 'drizzle-orm';

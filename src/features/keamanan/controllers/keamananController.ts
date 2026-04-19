@@ -1,4 +1,12 @@
-// backend/src/api/controllers/keamananController.ts
+/**
+ * @file keamananController.ts
+ * @purpose HTTP handlers for keamanan incident status update and repeat detection trigger
+ * @usedBy keamananRoutes
+ * @deps keamananService, repeatDetectionService, ApiError
+ * @exports updateStatus, triggerRepeatDetection
+ * @sideEffects DB write (keamanan_logs), Telegram notification
+ */
+
 import { Request, Response } from 'express';
 import * as keamananService from '../services/keamananService';
 import { findAndNotifyRepeatDetections } from '../services/repeatDetectionService';

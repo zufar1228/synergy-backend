@@ -1,4 +1,12 @@
-// backend/src/db/models/telegramSubscriber.ts
+/**
+ * @file telegramSubscriber.ts
+ * @purpose Legacy Sequelize model for telegram_subscribers table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports TelegramSubscriberAttributes, TelegramSubscriberCreationAttributes, TelegramSubscriber (default)
+ * @sideEffects None
+ */
+
 import { Model, DataTypes, CreationOptional, Optional } from 'sequelize';
 import { sequelize } from '../config';
 

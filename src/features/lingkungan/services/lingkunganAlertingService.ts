@@ -1,4 +1,12 @@
-// features/lingkungan/services/lingkunganAlertingService.ts
+/**
+ * @file lingkunganAlertingService.ts
+ * @purpose Domain-specific alert logic for lingkungan — anti-spam gatekeeper + alert formatting
+ * @usedBy mqtt/client (on lingkungan message), alertingService
+ * @deps db/drizzle, schema (devices), alertingService, time util, env
+ * @exports shouldSendLingkunganTelegram, processLingkunganAlert
+ * @sideEffects DB read, Telegram + Web Push via alertingService
+ */
+
 import { db } from '../../../db/drizzle';
 import { devices } from '../../../db/schema';
 import { eq } from 'drizzle-orm';

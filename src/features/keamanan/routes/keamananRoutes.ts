@@ -1,4 +1,12 @@
-// backend/src/api/routes/keamananRoutes.ts
+/**
+ * @file keamananRoutes.ts
+ * @purpose Express router for keamanan endpoints (status update, repeat detection)
+ * @usedBy server.ts
+ * @deps keamananController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
+
 import { Router } from 'express';
 import * as keamananController from '../controllers/keamananController';
 import { roleBasedAuth } from '../../../api/middlewares/authMiddleware';
