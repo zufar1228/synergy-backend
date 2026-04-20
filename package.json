@@ -41,10 +41,8 @@
     "mqtt": "^5.14.1",
     "node-cron": "^4.2.1",
     "pg": "^8.16.3",
-    "pg-hstore": "^2.3.4",
     "react": "^19.1.1",
     "resend": "^6.1.0",
-    "sequelize": "^6.37.7",
     "web-push": "^3.6.7",
     "zod": "^4.1.11"
   },
@@ -58,7 +56,6 @@
     "@types/react": "^19.1.14",
     "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.10",
-    "sequelize-cli": "^6.6.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2"
   },

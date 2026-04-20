@@ -53,7 +53,7 @@ DLPF bandwidth      : 44Hz  // dipilih: cukup untuk menangkap transien impact
 ### 1.4 Konektivitas
 
 ```
-Frontend Web UI → Backend REST (/api-cal/command, /api-cal/status)
+Frontend Web UI → Backend REST (/api-cal/command, /api-cal/status/:deviceId, /api-cal/events/:deviceId)
 Backend REST → MQTT over TLS (EMQX Cloud) : publish perintah ke device
 Device firmware → Supabase REST API       : write calibration_raw, calibration_summary,
                                              calibration_device_status (sumber status utama UI)
@@ -65,7 +65,7 @@ Catatan penting arsitektur saat ini:
 
 - Jalur kontrol command menggunakan Frontend -> Backend -> MQTT -> Device.
 - Jalur status UI menggunakan Frontend -> Backend -> DB read, sementara data status ditulis oleh firmware langsung ke Supabase.
-- Halaman kalibrasi belum memakai WebSocket/SSE; sinkronisasi status dilakukan via polling HTTP.
+- Halaman kalibrasi menggunakan SSE sebagai kanal realtime utama dengan fallback polling saat SSE terputus.
 
 ---
 
@@ -402,12 +402,12 @@ Urutan alur status yang tampil di halaman kalibrasi:
 4. Frontend mengambil status lewat `getDeviceStatus(deviceId)`.
 5. UI menampilkan status pada dua komponen:
 
-- `CalibrationControlPanel`: polling cepat 1 detik setelah command start (untuk indikator COUNTDOWN/CALIBRATING/RECORDING)
-- `CalibrationStatusDisplay`: polling reguler 5 detik + refresh cepat 1 detik setelah command dikirim.
+- `CalibrationControlPanel`: mengikuti stream SSE untuk indikator COUNTDOWN/CALIBRATING/RECORDING, fallback polling saat koneksi SSE terputus.
+- `CalibrationStatusDisplay`: memakai status SSE sebagai sumber utama, fallback polling periodik saat SSE terputus.
 
 Makna troubleshooting:
 
-- Halaman kalibrasi bukan push realtime (belum WebSocket/SSE), melainkan near-realtime polling.
+- Halaman kalibrasi bersifat push realtime melalui SSE; polling hanya fallback ketika koneksi SSE down.
 - Backend MQTT client tidak insert status calibration dari topic MQTT (sengaja, agar tidak duplikasi dengan write langsung firmware).
 - Jika state di UI terlambat, cek timestamp `created_at` terakhir di `calibration_device_status`.
 
@@ -474,10 +474,10 @@ Implikasi:
 
 ### 12.0 Batasan Realtime Saat Ini
 
-- Halaman kalibrasi menggunakan polling HTTP (`/api-cal/status`) bukan push socket.
-- `CalibrationControlPanel` polling 1 detik dipakai untuk sinkron instruksi mulai simulasi.
-- `CalibrationStatusDisplay` polling 5 detik dipakai untuk panel status reguler.
-- Karena model pull/polling, selalu ada latensi kecil (network + query + interval polling).
+- Halaman kalibrasi menggunakan SSE (`/api-cal/events/:deviceId`) sebagai kanal realtime utama.
+- `CalibrationControlPanel` mengikuti `cal_state` dari SSE untuk sinkron instruksi mulai simulasi.
+- `CalibrationStatusDisplay` memakai status SSE; fallback polling HTTP (`/api-cal/status`) berjalan tiap 3 detik saat SSE terputus.
+- Karena ada fallback polling, latensi akan naik sementara ketika koneksi SSE sedang down.
 
 ### 12.1 Fluktuasi `n_samples` di Session A
 
@@ -669,8 +669,8 @@ Telusuri dari atas ke bawah:
 
 ### 18.3 Jika status UI terasa terlambat
 
-1. Ingat model sinkronisasi adalah polling, bukan websocket.
-2. Cek interval polling komponen (`1s` di panel kontrol, `5s` di panel status).
+1. Model sinkronisasi utama adalah SSE (`/api-cal/events/:deviceId`), bukan polling-only.
+2. Jika status terasa terlambat, cek apakah koneksi SSE aktif atau sedang fallback ke polling.
 3. Cek `created_at` terbaru pada `calibration_device_status`; jika stale, fokus ke firmware write path.
 
 ### 18.4 Query SQL cepat untuk debugging status
@@ -699,7 +699,7 @@ Bagian ini mencatat perubahan implementasi yang sudah dikerjakan (bukan rencana)
 
 Perubahan utama:
 
-1. Sinkronisasi indikator fase pada `CalibrationControlPanel` diubah dari timer lokal menjadi polling status device aktual (`cal_state`) setiap 1 detik.
+1. Sinkronisasi indikator fase pada `CalibrationControlPanel` diubah dari timer lokal menjadi sinkronisasi status device aktual (SSE-first dengan fallback polling).
 2. Alur command preset ditegaskan: kirim `SET_SESSION` lalu `START`, kemudian frontend menunggu status aktual dari endpoint status.
 3. `CalibrationStatusDisplay` diperbarui untuk menampilkan state granular (`COUNTDOWN`, `CALIBRATING`, `RECORDING`, `PAUSED`, `IDLE`).
 4. Bug scroll halaman kalibrasi diperbaiki dengan wrapper halaman yang kembali menangani scrolling (`h-screen` + `overflow-y-auto`).
@@ -709,7 +709,7 @@ Referensi commit frontend terkait:
 - `c701642` -> phase indicator awal + perbaikan mobile responsiveness.
 - `44ce84f` -> perbaikan scroll wrapper.
 - `7b9709b` -> finalisasi scroll behavior (`h-screen overflow-y-auto`).
-- `77159c2` -> sinkronisasi phase indicator dengan state device aktual via polling.
+- `77159c2` -> sinkronisasi phase indicator dengan state device aktual.
 
 ### 19.2 Firmware kalibrasi
 

@@ -22,7 +22,7 @@ async function getSupabasePublicKey(iss, kid) {
     try {
         const now = Date.now();
         // Refresh cache jika kosong atau lebih tua dari 1 jam (3600000 ms)
-        if (!jwksCache || (now - jwksCache.lastFetch) > 3600000) {
+        if (!jwksCache || now - jwksCache.lastFetch > 3600000) {
             // URL JWKS biasanya: https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
             // iss dari token biasanya: https://<project-ref>.supabase.co/auth/v1
             const baseUrl = iss.replace(/\/$/, '');
@@ -34,7 +34,7 @@ async function getSupabasePublicKey(iss, kid) {
                     keys: response.data.keys,
                     lastFetch: now
                 };
-                console.log("✅ JWKS cached successfully.");
+                console.log('✅ JWKS cached successfully.');
             }
         }
         if (!jwksCache)
@@ -48,7 +48,7 @@ async function getSupabasePublicKey(iss, kid) {
         return crypto_1.default.createPublicKey({ key: jwk, format: 'jwk' });
     }
     catch (err) {
-        console.error("❌ Error fetching/parsing JWKS:", err.message);
+        console.error('❌ Error fetching/parsing JWKS:', err.message);
         return null;
     }
 }
@@ -89,7 +89,7 @@ const authMiddleware = async (req, res, next) => {
         else {
             // === SYMMETRIC KEY (HS256) ===
             // Token ini menggunakan Shared Secret (SUPABASE_JWT_SECRET).
-            const rawSecret = process.env.SUPABASE_JWT_SECRET || "";
+            const rawSecret = process.env.SUPABASE_JWT_SECRET || '';
             if (!rawSecret) {
                 throw new apiError_1.default(500, 'Server Error: SUPABASE_JWT_SECRET belum diset.');
             }
@@ -108,7 +108,9 @@ const authMiddleware = async (req, res, next) => {
         }
         // 4. Verifikasi Token
         try {
-            const decoded = jsonwebtoken_1.default.verify(token, secretOrPublicKey, { algorithms: [alg] });
+            const decoded = jsonwebtoken_1.default.verify(token, secretOrPublicKey, {
+                algorithms: [alg]
+            });
             if (!decoded.sub) {
                 throw new apiError_1.default(401, 'Token tidak memiliki User ID (sub).');
             }
@@ -116,7 +118,7 @@ const authMiddleware = async (req, res, next) => {
             req.user = {
                 id: decoded.sub,
                 email: decoded.email,
-                role: userRole,
+                role: userRole
             };
             next();
         }
@@ -137,13 +139,13 @@ const roleBasedAuth = (allowedRoles) => {
     return (req, _res, next) => {
         const user = req.user;
         if (!user || !user.role) {
-            return next(new apiError_1.default(401, "Unauthorized: User data is missing"));
+            return next(new apiError_1.default(401, 'Unauthorized: User data is missing'));
         }
         if (allowedRoles.includes(user.role)) {
             next();
         }
         else {
-            return next(new apiError_1.default(403, "Forbidden: You do not have permission to perform this action"));
+            return next(new apiError_1.default(403, 'Forbidden: You do not have permission to perform this action'));
         }
     };
 };

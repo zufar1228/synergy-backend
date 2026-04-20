@@ -24,7 +24,6 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.initDatabase = exports.db = void 0;
 // Re-export Drizzle schema and client as the canonical database layer.
-// Legacy Sequelize models are no longer used at runtime.
 var drizzle_1 = require("../drizzle");
 Object.defineProperty(exports, "db", { enumerable: true, get: function () { return drizzle_1.db; } });
 __exportStar(require("../schema"), exports);

@@ -8,7 +8,6 @@
  */
 
 // Re-export Drizzle schema and client as the canonical database layer.
-// Legacy Sequelize models are no longer used at runtime.
 export { db } from '../drizzle';
 export * from '../schema';
 
