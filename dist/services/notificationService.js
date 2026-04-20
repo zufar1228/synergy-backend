@@ -2,7 +2,14 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendInviteEmail = void 0;
 const jsx_runtime_1 = require("react/jsx-runtime");
-// backend/src/services/notificationService.ts
+/**
+ * @file notificationService.tsx
+ * @purpose Email sending service using Resend + React Email templates
+ * @usedBy userService (invite flow)
+ * @deps resend, InviteEmail template, @react-email/render
+ * @exports sendInviteEmail
+ * @sideEffects Resend API call (email delivery)
+ */
 const resend_1 = require("resend");
 const InviteEmail_1 = require("../emails/InviteEmail");
 const render_1 = require("@react-email/render");

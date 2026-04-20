@@ -1,10 +1,17 @@
 "use strict";
+/**
+ * @file intrusiService.ts
+ * @purpose Core data operations for intrusi — ingest events, query logs/summary/status, update status
+ * @usedBy intrusiController, mqtt/client
+ * @deps db/drizzle, schema (intrusi_logs, devices, areas)
+ * @exports ingestIntrusiEvent, getIntrusiLogs, getIntrusiSummary, getIntrusiStatus, updateIntrusiLogStatus
+ * @sideEffects DB read/write (intrusi_logs, devices)
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateIntrusiLogStatus = exports.getIntrusiStatus = exports.getIntrusiSummary = exports.getIntrusiLogs = exports.ingestIntrusiEvent = void 0;
-// backend/src/services/intrusiService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");

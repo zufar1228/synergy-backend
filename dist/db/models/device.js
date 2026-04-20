@@ -1,5 +1,12 @@
 "use strict";
-// backend/src/db/models/device.ts
+/**
+ * @file device.ts
+ * @purpose Legacy Sequelize model for devices table with type definitions
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports DeviceStatus, FanState, DehumidifierState, ControlMode, DoorState, IntrusiSystemState, SirenState, PowerSource, DeviceAttributes, DeviceCreationAttributes, Device (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 const sequelize_1 = require("sequelize"); // <-- IMPORT CreationOptional
 const config_1 = require("../config");

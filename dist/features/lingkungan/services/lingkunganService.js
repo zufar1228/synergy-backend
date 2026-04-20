@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file lingkunganService.ts
+ * @purpose Core data operations for lingkungan — ingest sensor data, predictions, actuator control, queries
+ * @usedBy lingkunganController, mqtt/client
+ * @deps db/drizzle, schema (devices, areas, lingkungan_logs, prediction_results), mqtt/client
+ * @exports ingestSensorData, handlePredictionResult, sendActuatorCommand, handleManualControl, switchToAutoMode, getLingkunganLogs, getLingkunganSummary, getChartData, getLingkunganStatus, updateLingkunganLogStatus
+ * @sideEffects DB read/write, MQTT publish
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -37,7 +45,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateLingkunganLogStatus = exports.getLingkunganStatus = exports.getChartData = exports.getLingkunganSummary = exports.getLingkunganLogs = exports.switchToAutoMode = exports.handleManualControl = exports.sendActuatorCommand = exports.handlePredictionResult = exports.ingestSensorData = void 0;
-// backend/src/services/lingkunganService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");

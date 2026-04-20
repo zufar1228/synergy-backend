@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file lingkunganLog.ts
+ * @purpose Legacy Sequelize model for lingkungan (environment) sensor logs
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports AcknowledgeStatus, LingkunganLogAttributes, LingkunganLogCreationAttributes, LingkunganLog (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/lingkunganLog.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../../../db/config");
 class LingkunganLog extends sequelize_1.Model {

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file alertService.ts
+ * @purpose Queries active (unresolved) alerts across all system types for a warehouse
+ * @usedBy alertController
+ * @deps db/drizzle, schema (keamanan_logs, intrusi_logs, lingkungan_logs, devices)
+ * @exports getActiveAlerts
+ * @sideEffects DB read (multi-table query)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getActiveAlerts = void 0;
 const drizzle_1 = require("../db/drizzle");

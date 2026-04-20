@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file schema.ts
+ * @purpose Drizzle ORM table definitions and relations for all entities
+ * @usedBy drizzle.ts, all services
+ * @deps drizzle-orm/pg-core
+ * @exports All table schemas + relations + insert/select types
+ * @sideEffects None (schema definition only)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.keamananLogsRelations = exports.intrusiLogsRelations = exports.predictionResultsRelations = exports.lingkunganLogsRelations = exports.pushSubscriptionsRelations = exports.userNotificationPreferencesRelations = exports.incidentsRelations = exports.userRolesRelations = exports.profilesRelations = exports.devicesRelations = exports.areasRelations = exports.warehousesRelations = exports.keamanan_logs = exports.intrusi_logs = exports.prediction_results = exports.lingkungan_logs = exports.telegram_subscribers = exports.push_subscriptions = exports.user_notification_preferences = exports.incidents = exports.user_roles = exports.profiles = exports.devices = exports.areas = exports.warehouses = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");

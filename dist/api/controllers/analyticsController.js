@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file analyticsController.ts
+ * @purpose HTTP handler for analytics data retrieval per system type
+ * @usedBy analyticsRoutes.ts
+ * @deps analyticsService, ApiError
+ * @exports getAnalytics
+ * @sideEffects DB read (keamanan/intrusi/lingkungan logs)
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

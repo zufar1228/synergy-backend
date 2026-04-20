@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file heartbeatChecker.ts
+ * @purpose Cron job that marks devices as Offline if no heartbeat received within threshold
+ * @usedBy server.ts (startup)
+ * @deps node-cron, db/drizzle, schema (devices)
+ * @exports startHeartbeatJob
+ * @sideEffects DB write (devices.status), runs every 30s
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };

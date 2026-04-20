@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file server.ts
+ * @purpose Express application entry point — mounts routes, middleware, MQTT, cron jobs
+ * @usedBy Node.js runtime (main entry)
+ * @deps express, cors, rate-limit, all routes, mqtt/client, jobs, db/models
+ * @exports None (self-starting server)
+ * @sideEffects HTTP server listen, DB init, MQTT connect, cron jobs start, Telegram webhook setup
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };

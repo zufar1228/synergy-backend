@@ -1,5 +1,12 @@
 "use strict";
-// backend/src/api/controllers/deviceController.ts
+/**
+ * @file deviceController.ts
+ * @purpose CRUD HTTP handlers for device management
+ * @usedBy deviceRoutes.ts
+ * @deps deviceService, ApiError
+ * @exports listDevices, getDeviceById, createDevice, updateDevice, deleteDevice, getDeviceDetailsByArea
+ * @sideEffects DB read/write (devices), EMQX provisioning
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

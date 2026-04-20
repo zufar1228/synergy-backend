@@ -1,10 +1,17 @@
 "use strict";
+/**
+ * @file actuationService.ts
+ * @purpose Sends ARM/DISARM/SILENCE commands to intrusi devices via MQTT
+ * @usedBy intrusiController
+ * @deps mqtt/client, db/drizzle, schema (devices, areas), ApiError
+ * @exports IntrusiCommand, sendIntrusiCommand
+ * @sideEffects MQTT publish, DB read (device+area lookup)
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendIntrusiCommand = void 0;
-// backend/src/services/actuationService.ts
 const client_1 = require("../../../mqtt/client");
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");

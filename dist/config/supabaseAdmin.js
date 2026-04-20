@@ -1,7 +1,14 @@
 "use strict";
+/**
+ * @file supabaseAdmin.ts
+ * @purpose Supabase Admin client (service_role) for server-side auth operations
+ * @usedBy userService
+ * @deps @supabase/supabase-js, env
+ * @exports supabaseAdmin
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.supabaseAdmin = void 0;
-// backend/src/config/supabaseAdmin.ts
 const supabase_js_1 = require("@supabase/supabase-js");
 const env_1 = require("./env");
 // Klien ini memiliki hak akses admin dan hanya boleh digunakan di backend.

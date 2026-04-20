@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file userService.ts
+ * @purpose User lifecycle management — auth verification, invite, profile, roles, preferences
+ * @usedBy userController
+ * @deps supabaseAdmin, env, notificationService, db/drizzle, schema (profiles, user_roles, user_notification_preferences)
+ * @exports verifyUserAccess, inviteUser, getAllUsers, deleteUser, getUserProfile, updateUserRole, updateUserStatus, updateUserProfile, getUserPreferences, updateUserPreferences, syncAllRolesToSupabase
+ * @sideEffects DB read/write, Supabase Auth API, email sending
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -288,30 +296,27 @@ const syncAllRolesToSupabase = async () => {
 exports.syncAllRolesToSupabase = syncAllRolesToSupabase;
 const updateUserPreferences = async (userId, preferences) => {
     try {
+        // Batch strategy: DELETE existing + INSERT all in one transaction.
+        // Reduces O(2N) round-trips (per-item SELECT + UPDATE/INSERT) to O(2).
+        // Safe because transaction guarantees atomicity — no partial state.
         await drizzle_1.db.transaction(async (tx) => {
-            for (const pref of preferences) {
-                const existing = await tx.query.user_notification_preferences.findFirst({
-                    where: (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.user_id, userId), (0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.system_type, pref.system_type))
-                });
-                if (existing) {
-                    await tx
-                        .update(schema_1.user_notification_preferences)
-                        .set({ is_enabled: pref.is_enabled, updated_at: new Date() })
-                        .where((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.id, existing.id));
-                }
-                else {
-                    await tx.insert(schema_1.user_notification_preferences).values({
-                        user_id: userId,
-                        system_type: pref.system_type,
-                        is_enabled: pref.is_enabled
-                    });
-                }
+            // 1. Delete all existing preferences for this user (single DELETE)
+            await tx
+                .delete(schema_1.user_notification_preferences)
+                .where((0, drizzle_orm_1.eq)(schema_1.user_notification_preferences.user_id, userId));
+            // 2. Batch insert all preferences (single INSERT with multiple values)
+            if (preferences.length > 0) {
+                await tx.insert(schema_1.user_notification_preferences).values(preferences.map((pref) => ({
+                    user_id: userId,
+                    system_type: pref.system_type,
+                    is_enabled: pref.is_enabled
+                })));
             }
         });
         return (0, exports.getUserPreferences)(userId);
     }
     catch (error) {
-        console.error('!!! DEBUG: Gagal saat update preferensi:', error);
+        console.error('[UserService] Failed to update preferences:', error);
         throw new apiError_1.default(500, 'Gagal menyimpan preferensi.');
     }
 };

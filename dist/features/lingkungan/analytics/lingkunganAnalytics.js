@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file lingkunganAnalytics.ts
+ * @purpose Analytics query builder for lingkungan logs (paginated, filterable)
+ * @usedBy analyticsService
+ * @deps db/drizzle, schema (lingkungan_logs, devices)
+ * @exports lingkunganAnalyticsConfig
+ * @sideEffects DB read (lingkungan_logs)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.lingkunganAnalyticsConfig = void 0;
 const drizzle_1 = require("../../../db/drizzle");

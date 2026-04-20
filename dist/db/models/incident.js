@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file incident.ts
+ * @purpose Legacy Sequelize model for incidents table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports IncidentStatus, IncidentAttributes, IncidentCreationAttributes, Incident (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/incident.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../config");
 class Incident extends sequelize_1.Model {

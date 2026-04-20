@@ -1,7 +1,14 @@
 "use strict";
+/**
+ * @file lingkunganAlertingService.ts
+ * @purpose Domain-specific alert logic for lingkungan — anti-spam gatekeeper + alert formatting
+ * @usedBy mqtt/client (on lingkungan message), alertingService
+ * @deps db/drizzle, schema (devices), alertingService, time util, env
+ * @exports shouldSendLingkunganTelegram, processLingkunganAlert
+ * @sideEffects DB read, Telegram + Web Push via alertingService
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processLingkunganAlert = exports.shouldSendLingkunganTelegram = void 0;
-// features/lingkungan/services/lingkunganAlertingService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");

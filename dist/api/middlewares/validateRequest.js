@@ -1,5 +1,12 @@
 "use strict";
-// backend/src/api/middlewares/validateRequest.ts
+/**
+ * @file validateRequest.ts
+ * @purpose Zod schema validation middleware for request body/query/params
+ * @usedBy Route files that need input validation
+ * @deps zod
+ * @exports validate
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.validate = void 0;
 const validate = (schema) => (req, res, next) => {

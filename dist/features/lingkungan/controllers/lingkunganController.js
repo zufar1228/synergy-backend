@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file lingkunganController.ts
+ * @purpose HTTP handlers for lingkungan logs, summary, status, chart, control commands
+ * @usedBy lingkunganRoutes
+ * @deps lingkunganService, ApiError
+ * @exports getLogs, getSummary, getStatus, getChartData, sendControlCommand, updateStatus
+ * @sideEffects DB read/write, MQTT publish via service
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

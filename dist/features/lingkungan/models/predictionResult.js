@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file predictionResult.ts
+ * @purpose Legacy Sequelize model for ML prediction results
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports PredictionResultAttributes, PredictionResultCreationAttributes, PredictionResult (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/predictionResult.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../../../db/config");
 class PredictionResult extends sequelize_1.Model {

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file navigationRoutes.ts
+ * @purpose Express router for sidebar navigation endpoint
+ * @usedBy server.ts
+ * @deps navigationController
+ * @exports default router
+ * @sideEffects None
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,7 +41,6 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/api/routes/navigationRoutes.ts
 const express_1 = require("express");
 const navigationController = __importStar(require("../controllers/navigationController"));
 const router = (0, express_1.Router)();

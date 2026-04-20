@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file intrusiController.ts
+ * @purpose HTTP handlers for intrusi logs, summary, status, and device commands
+ * @usedBy intrusiRoutes
+ * @deps intrusiService, actuationService, ApiError
+ * @exports getLogs, getSummary, getStatus, updateStatus, sendCommand
+ * @sideEffects DB read/write, MQTT publish
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

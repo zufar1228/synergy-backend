@@ -1,10 +1,17 @@
 "use strict";
+/**
+ * @file telegramService.ts
+ * @purpose Telegram Bot API client for group alerts, invites, kicks, and webhook management
+ * @usedBy telegramAdminController, alertingService
+ * @deps axios, env
+ * @exports sendGroupAlert, createSingleUseInviteLink, kickMember, setWebhook, getWebhookInfo, deleteWebhook
+ * @sideEffects HTTP calls to Telegram Bot API
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteWebhook = exports.getWebhookInfo = exports.setWebhook = exports.kickMember = exports.createSingleUseInviteLink = exports.sendGroupAlert = void 0;
-// backend/src/services/telegramService.ts
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../config/env");
 const BOT_TOKEN = env_1.env.TELEGRAM_BOT_TOKEN;

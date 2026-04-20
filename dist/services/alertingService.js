@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file alertingService.ts
+ * @purpose Shared notification dispatcher — routes alerts to Telegram + Web Push based on user preferences
+ * @usedBy lingkunganAlertingService, intrusiAlertingService, keamanan features
+ * @deps db/drizzle, user_notification_preferences, webPushService, telegramService, latencyTrackerService
+ * @exports notifySubscribers
+ * @sideEffects DB read (preferences), Telegram API, Web Push API
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

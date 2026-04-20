@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file keamananRoutes.ts
+ * @purpose Express router for keamanan endpoints (status update, repeat detection)
+ * @usedBy server.ts
+ * @deps keamananController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,7 +41,6 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/api/routes/keamananRoutes.ts
 const express_1 = require("express");
 const keamananController = __importStar(require("../controllers/keamananController"));
 const authMiddleware_1 = require("../../../api/middlewares/authMiddleware");

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file userRoutes.ts
+ * @purpose Express router for user management, profile, and push notification endpoints
+ * @usedBy server.ts
+ * @deps userController, profileController, pushController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,31 +41,36 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/api/routes/userRoutes.ts
 const express_1 = require("express");
 const userController = __importStar(require("../controllers/userController"));
+const profileController = __importStar(require("../controllers/profileController"));
+const pushController = __importStar(require("../controllers/pushController"));
 const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
 // Middleware baru yang lebih ketat, hanya untuk super_admin
 const superAdminOnly = (0, authMiddleware_1.roleBasedAuth)(["super_admin"]);
-// Terapkan middleware superAdminOnly ke semua rute manajemen pengguna
+// ============================================================================
+// ADMIN MANAGEMENT — super_admin only
+// ============================================================================
 router.get("/", authMiddleware_1.authMiddleware, superAdminOnly, userController.listUsers);
 router.post("/invite", authMiddleware_1.authMiddleware, superAdminOnly, userController.inviteUser);
 router.delete("/:id", authMiddleware_1.authMiddleware, superAdminOnly, userController.deleteUser);
-// Rute BARU untuk mengubah peran dan status
 router.put("/:id/role", authMiddleware_1.authMiddleware, superAdminOnly, userController.updateUserRole);
 router.put("/:id/status", authMiddleware_1.authMiddleware, superAdminOnly, userController.updateUserStatus);
-// Rute /me untuk pengguna biasa tetap ada dan tidak berubah
-router.get("/me", authMiddleware_1.authMiddleware, userController.getMyProfile);
-router.put("/me", authMiddleware_1.authMiddleware, userController.updateMyProfile);
-// Verify if user is authorized (was invited or manually added)
-router.get("/verify-access", authMiddleware_1.authMiddleware, userController.verifyAccess);
-router.get("/me/preferences", authMiddleware_1.authMiddleware, userController.getMyPreferences);
-router.put("/me/preferences", authMiddleware_1.authMiddleware, userController.updateMyPreferences);
 // Sync all roles to Supabase (super_admin only)
 router.post("/sync-roles", authMiddleware_1.authMiddleware, superAdminOnly, userController.syncAllRoles);
-// Push Notification routes
-router.get("/push/vapid-key", authMiddleware_1.authMiddleware, userController.getVapidPublicKey);
-router.post("/push/subscribe", authMiddleware_1.authMiddleware, userController.subscribeToPush);
-router.post("/push/test", authMiddleware_1.authMiddleware, userController.testPushNotification);
+// ============================================================================
+// PROFILE & PREFERENCES — authenticated users
+// ============================================================================
+router.get("/verify-access", authMiddleware_1.authMiddleware, profileController.verifyAccess);
+router.get("/me", authMiddleware_1.authMiddleware, profileController.getMyProfile);
+router.put("/me", authMiddleware_1.authMiddleware, profileController.updateMyProfile);
+router.get("/me/preferences", authMiddleware_1.authMiddleware, profileController.getMyPreferences);
+router.put("/me/preferences", authMiddleware_1.authMiddleware, profileController.updateMyPreferences);
+// ============================================================================
+// PUSH NOTIFICATIONS — authenticated users
+// ============================================================================
+router.get("/push/vapid-key", authMiddleware_1.authMiddleware, pushController.getVapidPublicKey);
+router.post("/push/subscribe", authMiddleware_1.authMiddleware, pushController.subscribeToPush);
+router.post("/push/test", authMiddleware_1.authMiddleware, pushController.testPushNotification);
 exports.default = router;

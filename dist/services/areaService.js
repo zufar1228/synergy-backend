@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file areaService.ts
+ * @purpose CRUD operations for areas with warehouse validation
+ * @usedBy areaController
+ * @deps db/drizzle, schema (areas, warehouses, devices), ApiError
+ * @exports getAllAreas, createArea, updateArea, deleteArea, getAreasByWarehouse
+ * @sideEffects DB read/write (areas)
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };

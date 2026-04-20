@@ -1,5 +1,12 @@
 "use strict";
-// backend/src/db/models/area.ts
+/**
+ * @file area.ts
+ * @purpose Legacy Sequelize model for areas table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports AreaAttributes, AreaCreationAttributes, Area (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 const sequelize_1 = require("sequelize");
 const config_1 = require("../config");

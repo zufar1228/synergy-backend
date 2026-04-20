@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file keamananLog.ts
+ * @purpose Legacy Sequelize model for keamanan (security camera) logs
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports KeamananLogAttributes, KeamananLogCreationAttributes, KeamananLog (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/keamananLog.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../../../db/config");
 class KeamananLog extends sequelize_1.Model {

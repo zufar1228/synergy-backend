@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file drizzle.ts
+ * @purpose Drizzle ORM client and PostgreSQL connection pool (primary DB layer)
+ * @usedBy All services and features
+ * @deps drizzle-orm, pg, schema, env
+ * @exports db, pool
+ * @sideEffects DB connection pool initialization
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

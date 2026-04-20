@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file telegramAdminController.ts
+ * @purpose HTTP handlers for Telegram bot admin operations (invite, kick, webhook)
+ * @usedBy telegramRoutes.ts
+ * @deps telegramService, db/drizzle, ApiError, time util
+ * @exports createInvite, kickSubscriber, getSubscribers, getWebhookInfo, setupWebhook, sendTestAlert
+ * @sideEffects DB read/write (telegram_subscribers), Telegram API calls
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

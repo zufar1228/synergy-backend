@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file repeatDetectionService.ts
+ * @purpose Detects repeated unresolved keamanan events within time window and sends Telegram alerts
+ * @usedBy keamananController, repeatDetectionJob
+ * @deps db/drizzle, schema (keamanan_logs, devices), telegramService, time util
+ * @exports findAndNotifyRepeatDetections
+ * @sideEffects DB read (keamanan_logs), Telegram API call
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -34,7 +42,6 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findAndNotifyRepeatDetections = void 0;
-// backend/src/services/repeatDetectionService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");

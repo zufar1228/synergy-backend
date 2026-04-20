@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file deviceService.ts
+ * @purpose CRUD + heartbeat operations for IoT devices with EMQX provisioning
+ * @usedBy deviceController, mqtt/client, heartbeatChecker
+ * @deps db/drizzle, schema (devices, areas), emqxService, ApiError
+ * @exports getAllDevices, createDevice, updateDevice, deleteDevice, getDeviceById, getDeviceByAreaAndSystem, updateDeviceHeartbeat
+ * @sideEffects DB read/write (devices), EMQX API calls
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

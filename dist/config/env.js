@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file env.ts
+ * @purpose Centralized environment variable loader and validator
+ * @usedBy All modules requiring env config
+ * @deps dotenv
+ * @exports env
+ * @sideEffects Reads process.env, throws on missing required vars
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.env = void 0;
 const zod_1 = require("zod");

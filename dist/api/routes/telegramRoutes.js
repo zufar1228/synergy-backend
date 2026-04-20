@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file telegramRoutes.ts
+ * @purpose Express router for Telegram webhook (public) and admin (protected) endpoints
+ * @usedBy server.ts
+ * @deps telegramWebhookController, telegramAdminController, authMiddleware
+ * @exports default router
+ * @sideEffects None
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,7 +41,6 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/api/routes/telegramRoutes.ts
 const express_1 = require("express");
 const webhookController = __importStar(require("../controllers/telegramWebhookController"));
 const adminController = __importStar(require("../controllers/telegramAdminController"));

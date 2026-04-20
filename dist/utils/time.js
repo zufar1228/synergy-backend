@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file time.ts
+ * @purpose Timestamp formatting utility for WIB (Asia/Jakarta) timezone
+ * @usedBy alerting services, telegram admin controller
+ * @deps Intl.DateTimeFormat
+ * @exports formatTimestampWIB
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.formatTimestampWIB = void 0;
 const formatTimestampWIB = (date = new Date()) => {

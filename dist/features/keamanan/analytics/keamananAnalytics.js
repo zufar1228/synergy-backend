@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file keamananAnalytics.ts
+ * @purpose Analytics query builder for keamanan logs (paginated, filterable)
+ * @usedBy analyticsService
+ * @deps db/drizzle, schema (keamanan_logs, devices)
+ * @exports keamananAnalyticsConfig
+ * @sideEffects DB read (keamanan_logs)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.keamananAnalyticsConfig = void 0;
 const drizzle_1 = require("../../../db/drizzle");

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file intrusiAnalytics.ts
+ * @purpose Analytics query builder for intrusi logs (paginated, filterable)
+ * @usedBy analyticsService
+ * @deps db/drizzle, schema (intrusi_logs, devices)
+ * @exports intrusiAnalyticsConfig
+ * @sideEffects DB read (intrusi_logs)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.intrusiAnalyticsConfig = void 0;
 const drizzle_1 = require("../../../db/drizzle");

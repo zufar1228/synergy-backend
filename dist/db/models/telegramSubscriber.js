@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file telegramSubscriber.ts
+ * @purpose Legacy Sequelize model for telegram_subscribers table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports TelegramSubscriberAttributes, TelegramSubscriberCreationAttributes, TelegramSubscriber (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/telegramSubscriber.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../config");
 class TelegramSubscriber extends sequelize_1.Model {

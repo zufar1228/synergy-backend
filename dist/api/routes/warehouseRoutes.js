@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file warehouseRoutes.ts
+ * @purpose Express router for warehouse CRUD endpoints with Zod validation
+ * @usedBy server.ts
+ * @deps warehouseController, authMiddleware, validateRequest, zod
+ * @exports default router
+ * @sideEffects None
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,7 +41,6 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/api/routes/warehouseRoutes.ts
 const express_1 = require("express");
 const zod_1 = require("zod");
 const warehouseController = __importStar(require("../controllers/warehouseController"));

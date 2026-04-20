@@ -1,8 +1,12 @@
 "use strict";
-// backend/src/jobs/disarmReminderJob.ts
-//
-// Sends a reminder notification (Telegram + Web Push) if an intrusi device
-// has been in the DISARMED state for more than 1 hour.
+/**
+ * @file disarmReminderJob.ts
+ * @purpose Cron job — sends reminder if intrusi device DISARMED for >1 hour
+ * @usedBy server.ts (startup)
+ * @deps node-cron, db/drizzle, schema (devices, intrusi_logs), alertingService
+ * @exports startDisarmReminderJob
+ * @sideEffects DB read, Telegram + Web Push notifications, runs every 15min
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -41,6 +45,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startDisarmReminderJob = void 0;
+//
+// Sends a reminder notification (Telegram + Web Push) if an intrusi device
+// has been in the DISARMED state for more than 1 hour.
 const node_cron_1 = __importDefault(require("node-cron"));
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");

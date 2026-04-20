@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file config.ts
+ * @purpose Legacy Sequelize connection configuration (kept for model compatibility)
+ * @usedBy Legacy Sequelize models
+ * @deps sequelize, env
+ * @exports sequelize
+ * @sideEffects DB connection pool initialization
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sequelize = void 0;
 const sequelize_1 = require("sequelize");

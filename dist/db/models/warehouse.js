@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file warehouse.ts
+ * @purpose Legacy Sequelize model for warehouses table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports WarehouseAttributes, Warehouse (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 const sequelize_1 = require("sequelize");
 const config_1 = require("../config"); // Kita akan buat file config ini nanti

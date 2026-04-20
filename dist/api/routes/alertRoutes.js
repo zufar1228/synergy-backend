@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file alertRoutes.ts
+ * @purpose Express router for alert endpoints
+ * @usedBy server.ts
+ * @deps alertController
+ * @exports default router
+ * @sideEffects None
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,7 +41,6 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/api/routes/alertRoutes.ts
 const express_1 = require("express");
 const alertController = __importStar(require("../controllers/alertController"));
 const router = (0, express_1.Router)();

@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file userNotificationPreference.ts
+ * @purpose Legacy Sequelize model for user_notification_preferences table
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports UserNotificationPreferenceAttributes, UserNotificationPreferenceCreationAttributes, UserNotificationPreference (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/userNotificationPreference.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../config");
 class UserNotificationPreference extends sequelize_1.Model {

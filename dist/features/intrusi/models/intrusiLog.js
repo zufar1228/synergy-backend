@@ -1,6 +1,13 @@
 "use strict";
+/**
+ * @file intrusiLog.ts
+ * @purpose Legacy Sequelize model + type definitions for intrusi event logs
+ * @usedBy Legacy compatibility (runtime uses Drizzle schema.ts)
+ * @deps sequelize, db/config
+ * @exports IntrusiEventType, DoorState, SystemState, AcknowledgeStatus, IntrusiLogAttributes, IntrusiLogCreationAttributes, IntrusiLog (default)
+ * @sideEffects None
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-// backend/src/db/models/intrusiLog.ts
 const sequelize_1 = require("sequelize");
 const config_1 = require("../../../db/config");
 class IntrusiLog extends sequelize_1.Model {

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file latencyTrackerService.ts
+ * @purpose End-to-end latency measurement for intrusi event pipeline (testing/benchmarking)
+ * @usedBy intrusiAlertingService, alertingService, mqtt/client
+ * @deps db/drizzle (pool — raw SQL)
+ * @exports LatencyStageUpdate, LatencyTraceRow, isLatencyTrace, recordLatencyStage, getLatencyRowsByRunId, cleanupLatencyRowsByRunId
+ * @sideEffects DB read/write (latency_traces table)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cleanupLatencyRowsByRunId = exports.getLatencyRowsByRunId = exports.recordLatencyStage = exports.isLatencyTrace = void 0;
 const drizzle_1 = require("../../../db/drizzle");

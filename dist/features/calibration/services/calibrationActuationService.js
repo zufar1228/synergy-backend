@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file calibrationActuationService.ts
+ * @purpose Sends calibration commands to devices via MQTT
+ * @usedBy calibrationController
+ * @deps mqtt/client, db/drizzle, schema (devices, areas)
+ * @exports CalibrationCommand, sendCalibrationCommand
+ * @sideEffects MQTT publish, DB read (device lookup)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendCalibrationCommand = void 0;
 const client_1 = require("../../../mqtt/client");

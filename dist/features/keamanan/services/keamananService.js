@@ -1,10 +1,17 @@
 "use strict";
+/**
+ * @file keamananService.ts
+ * @purpose Updates keamanan log incident status (acknowledge/resolve/false_alarm)
+ * @usedBy keamananController
+ * @deps db/drizzle, schema (keamanan_logs), ApiError
+ * @exports updateKeamananLogStatus
+ * @sideEffects DB write (keamanan_logs)
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateKeamananLogStatus = void 0;
-// backend/src/services/keamananService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file client.ts
+ * @purpose MQTT client — connects to EMQX broker, routes messages to feature services
+ * @usedBy server.ts (startup)
+ * @deps mqtt, env, intrusiService, lingkunganService, deviceService, intrusiAlertingService, latencyTrackerService
+ * @exports initializeMqttClient, client
+ * @sideEffects MQTT connection, message subscription, triggers DB writes via services
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -37,7 +45,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.client = exports.initializeMqttClient = void 0;
-// backend/src/mqtt/client.ts
 const mqtt_1 = __importDefault(require("mqtt"));
 const env_1 = require("../config/env");
 const intrusiService = __importStar(require("../features/intrusi/services/intrusiService"));

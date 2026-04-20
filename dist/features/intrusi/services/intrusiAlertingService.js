@@ -1,7 +1,14 @@
 "use strict";
+/**
+ * @file intrusiAlertingService.ts
+ * @purpose Domain-specific alert logic for intrusi events (cooldown, formatting, dispatch)
+ * @usedBy mqtt/client (on intrusi message)
+ * @deps db/drizzle, schema (devices), alertingService, latencyTrackerService, time util
+ * @exports resetIntrusiAlertCooldownForTest, processIntrusiAlert, processPowerAlert
+ * @sideEffects DB read, Telegram + Web Push via alertingService
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processPowerAlert = exports.processIntrusiAlert = exports.resetIntrusiAlertCooldownForTest = void 0;
-// features/intrusi/services/intrusiAlertingService.ts
 const drizzle_1 = require("../../../db/drizzle");
 const schema_1 = require("../../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");
@@ -248,10 +255,7 @@ const processPowerAlert = async (deviceId, data, meta = {}) => {
         isAlert = true;
         incidentType = 'Baterai Kritis';
         subject = `🪫 [BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
-        details.push({ key: 'Kapasitas Baterai', value: `${data.vbat_pct}%` });
-        if (data.vbat_v !== undefined) {
-            details.push({ key: 'Tegangan', value: `${data.vbat_v.toFixed(2)}V` });
-        }
+        details.push({ key: 'Kapasitas Baterai', value: 'Kritis' });
         details.push({ key: 'Sumber Daya', value: 'BATERAI (Adaptor Terputus)' });
     }
     else {
@@ -268,10 +272,8 @@ const processPowerAlert = async (deviceId, data, meta = {}) => {
             value: isSwitchToBattery ? 'BATERAI' : 'ADAPTOR (PLN)'
         });
         if (data.vbat_pct !== undefined) {
-            details.push({ key: 'Kapasitas Baterai', value: `${data.vbat_pct}%` });
-        }
-        if (data.vbat_v !== undefined) {
-            details.push({ key: 'Tegangan', value: `${data.vbat_v.toFixed(2)}V` });
+            const batteryLabel = data.vbat_pct <= BATTERY_CRITICAL_PCT ? 'Kritis' : 'Aman';
+            details.push({ key: 'Kapasitas Baterai', value: batteryLabel });
         }
     }
     const emailProps = {

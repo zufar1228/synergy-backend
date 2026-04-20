@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file repeatDetectionJob.ts
+ * @purpose Cron job — checks for repeated security detections within time window
+ * @usedBy server.ts (startup)
+ * @deps node-cron, repeatDetectionService
+ * @exports startRepeatDetectionJob
+ * @sideEffects DB read, Telegram notification, runs every 5min
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -37,7 +45,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startRepeatDetectionJob = void 0;
-// backend/src/jobs/repeatDetectionJob.ts
 const node_cron_1 = __importDefault(require("node-cron"));
 const repeatDetectionService = __importStar(require("../services/repeatDetectionService"));
 const checkRepeatDetections = async () => {

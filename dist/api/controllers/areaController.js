@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file areaController.ts
+ * @purpose CRUD HTTP handlers for area management
+ * @usedBy areaRoutes.ts
+ * @deps areaService, ApiError
+ * @exports listAreas, createArea, updateArea, deleteArea
+ * @sideEffects DB read/write (areas)
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);

@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file authMiddleware.ts
+ * @purpose JWT auth middleware + role-based access control via Supabase JWKS
+ * @usedBy All protected routes via server.ts
+ * @deps jsonwebtoken, axios, crypto, ApiError
+ * @exports authMiddleware, roleBasedAuth
+ * @sideEffects HTTP call to Supabase JWKS endpoint (cached 1h)
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };

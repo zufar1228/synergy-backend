@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file calibrationEventBus.ts
+ * @purpose In-memory SSE event bus — relays MQTT calibration status to browser clients
+ * @usedBy calibrationController (subscribe), mqtt/client (emit)
+ * @deps express Response
+ * @exports subscribe, unsubscribe, emit, getClientCount
+ * @sideEffects SSE streaming to connected clients
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.subscribe = subscribe;
 exports.unsubscribe = unsubscribe;

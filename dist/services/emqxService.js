@@ -1,10 +1,17 @@
 "use strict";
+/**
+ * @file emqxService.ts
+ * @purpose EMQX broker API client for device MQTT credential provisioning/deprovisioning
+ * @usedBy deviceService
+ * @deps axios, env
+ * @exports provisionDeviceInEMQX, deprovisionDeviceInEMQX
+ * @sideEffects HTTP calls to EMQX Management API
+ */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deprovisionDeviceInEMQX = exports.provisionDeviceInEMQX = void 0;
-// backend/src/services/emqxService.ts
 const axios_1 = __importDefault(require("axios"));
 const env_1 = require("../config/env");
 const API_BASE_URL = env_1.env.EMQX_API_URL;

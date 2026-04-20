@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * @file calibrationController.ts
+ * @purpose HTTP + SSE handlers for MPU6050 calibration data collection and device control
+ * @usedBy calibrationRoutes
+ * @deps calibrationService, calibrationActuationService, calibrationEventBus, ApiError
+ * @exports getStatus, getRawData, getSessions, getSummary, getStats, sendCommand, subscribe (SSE), getSessionStats, getTrialPeaks, getPeakSummary
+ * @sideEffects DB read, SSE streaming, MQTT publish via actuation service
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
