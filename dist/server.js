@@ -110,6 +110,9 @@ app.use('/api/telegram', telegramRoutes_1.default); // has per-route auth (webho
 // ✅ TAMBAHAN: Error handling untuk production
 app.use((err, req, res, next) => {
     console.error('Error:', err);
+    if (err && err.statusCode) {
+        return res.status(err.statusCode).json({ message: err.message });
+    }
     res.status(500).json({
         error: 'Internal Server Error',
         message: env_1.env.NODE_ENV === 'development' ? err.message : undefined
