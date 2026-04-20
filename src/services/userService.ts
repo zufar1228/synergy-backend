@@ -3,7 +3,7 @@
  * @purpose User lifecycle management — auth verification, invite, profile, roles, preferences
  * @usedBy userController
  * @deps supabaseAdmin, env, notificationService, db/drizzle, schema (profiles, user_roles, user_notification_preferences)
- * @exports verifyUserAccess, inviteUser, getAllUsers, deleteUser, getUserProfile, updateUserRole, updateUserStatus, updateUserProfile, getUserPreferences, syncAllRolesToSupabase
+ * @exports verifyUserAccess, inviteUser, getAllUsers, deleteUser, getUserProfile, updateUserRole, updateUserStatus, updateUserProfile, getUserPreferences, updateUserPreferences, syncAllRolesToSupabase
  * @sideEffects DB read/write, Supabase Auth API, email sending
  */
 
@@ -342,35 +342,31 @@ export const updateUserPreferences = async (
   preferences: { system_type: string; is_enabled: boolean }[]
 ) => {
   try {
+    // Batch strategy: DELETE existing + INSERT all in one transaction.
+    // Reduces O(2N) round-trips (per-item SELECT + UPDATE/INSERT) to O(2).
+    // Safe because transaction guarantees atomicity — no partial state.
     await db.transaction(async (tx) => {
-      for (const pref of preferences) {
-        const existing = await tx.query.user_notification_preferences.findFirst(
-          {
-            where: and(
-              eq(user_notification_preferences.user_id, userId),
-              eq(user_notification_preferences.system_type, pref.system_type)
-            )
-          }
-        );
+      // 1. Delete all existing preferences for this user (single DELETE)
+      await tx
+        .delete(user_notification_preferences)
+        .where(eq(user_notification_preferences.user_id, userId));
 
-        if (existing) {
-          await tx
-            .update(user_notification_preferences)
-            .set({ is_enabled: pref.is_enabled, updated_at: new Date() })
-            .where(eq(user_notification_preferences.id, existing.id));
-        } else {
-          await tx.insert(user_notification_preferences).values({
+      // 2. Batch insert all preferences (single INSERT with multiple values)
+      if (preferences.length > 0) {
+        await tx.insert(user_notification_preferences).values(
+          preferences.map((pref) => ({
             user_id: userId,
             system_type: pref.system_type,
             is_enabled: pref.is_enabled
-          });
-        }
+          }))
+        );
       }
     });
 
     return getUserPreferences(userId);
   } catch (error) {
-    console.error('!!! DEBUG: Gagal saat update preferensi:', error);
+    console.error('[UserService] Failed to update preferences:', error);
     throw new ApiError(500, 'Gagal menyimpan preferensi.');
   }
 };
+
