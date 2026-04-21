@@ -1,3 +1,11 @@
+/**
+ * File Purpose: Intrusion door-security firmware with windowed vibration validation and siren control.
+ * Used By: ESP32-S3 door-security device in intrusi system deployment.
+ * Main Dependencies: WiFi, MQTT (PubSubClient), Adafruit_MPU6050, Reed switch, battery ADC.
+ * Public/Main Functions: setup, loop, processHit, publishForcedEntryAlarm, publishUnauthorizedOpen.
+ * Important Side Effects: Publishes MQTT intrusi events/status, toggles siren output, reads hardware sensors.
+ */
+
 // ============================================================================
 //  WAREHOUSE DOOR SECURITY SYSTEM — FIRMWARE v4.0
 //  Microcontroller: Seeed XIAO ESP32-S3
@@ -61,7 +69,7 @@ static const char* AREA_ID       = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 // --- Vibration Detection: Windowed Threshold (§5) ---
 static constexpr float    TH_HIT           = 0.15f;    // Empirical Δg threshold — 7-day study
 static constexpr uint32_t WINDOW_SIZE_MS   = 15000;    // 15-second evaluation window
-static constexpr int      WINDOW_THRESHOLD = 3;        // anomaly count to trigger FORCED_ENTRY_ALARM
+static constexpr int      WINDOW_THRESHOLD = 2;        // anomaly count to trigger FORCED_ENTRY_ALARM
 static constexpr int      HIT_WINDOW_MAX   = 20;       // max tracked anomalies (> WINDOW_THRESHOLD)
 static constexpr uint32_t MIN_INTERHIT_MS  = 300;      // debounce between hits
 

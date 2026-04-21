@@ -1,3 +1,11 @@
+/**
+ * File Purpose: Compact intrusion door-security firmware variant using windowed anomaly detection.
+ * Used By: ESP32-S3 intrusi firmware flashing/testing workflow.
+ * Main Dependencies: WiFi, MQTT (PubSubClient), Adafruit_MPU6050, reed switch, battery sensing.
+ * Public/Main Functions: setup, loop, processHit, publishForcedEntryAlarm, publishStatus.
+ * Important Side Effects: Publishes MQTT intrusi/status messages and drives siren output.
+ */
+
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
@@ -27,7 +35,7 @@ static const char* WAREHOUSE_ID  = "eec544fc-bacb-4568-bc46-594ed5b5616f";
 static const char* AREA_ID       = "4eb04ea1-865c-4043-a982-634ed59f6c7e";
 static constexpr float    TH_HIT           = 0.85f;
 static constexpr uint32_t WINDOW_SIZE_MS   = 45000;
-static constexpr int      WINDOW_THRESHOLD = 3;
+static constexpr int      WINDOW_THRESHOLD = 2;
 static constexpr int      HIT_WINDOW_MAX   = 20;
 static constexpr uint32_t MIN_INTERHIT_MS  = 300;
 static constexpr uint32_t IMU_SAMPLE_MS    = 10;
@@ -571,7 +579,7 @@ void setup() {
   Serial.println(" Warehouse Door Security System v4.0");
   Serial.println(" XIAO ESP32-S3 + MPU6050 + Reed Switch");
   Serial.println(" Spec: v20 — Windowed Threshold Algorithm");
-  Serial.println(" Detection: TH_HIT=0.85g, Window=45s, N=3");
+  Serial.println(" Detection: TH_HIT=0.85g, Window=45s, N=2");
   Serial.println(" TH_HIT=0.85g (hardcoded, no calibration)");
   Serial.println("============================================");
   pinMode(PIN_SIREN, OUTPUT);

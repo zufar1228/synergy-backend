@@ -28,6 +28,7 @@ interface IntrusiLatencyMeta {
 // UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
 const deviceIntrusiAlertState = new Map<string, Date>();
 const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const INTRUSION_WINDOW_THRESHOLD_FALLBACK = 2;
 
 const devicePowerState: Map<
   string,
@@ -163,7 +164,7 @@ export const processIntrusiAlert = async (
     if (data.anomaly_count != null) {
       details.push({
         key: 'Jumlah Anomali (Window)',
-        value: `${data.anomaly_count} / ${data.window_threshold ?? 3}`
+        value: `${data.anomaly_count} / ${data.window_threshold ?? INTRUSION_WINDOW_THRESHOLD_FALLBACK}`
       });
     } else if (data.hit_count != null) {
       details.push({ key: 'Hit Count', value: String(data.hit_count) });
