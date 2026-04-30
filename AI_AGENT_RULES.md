@@ -24,7 +24,7 @@ Semua file yang dibuat/diubah wajib punya header doc ringkas di bagian paling at
 ### Aturan tambahan:
 - Jika file sudah punya header doc, wajib update agar tetap akurat setelah perubahan.
 - Dilarang menambah/mengubah logic tanpa menyesuaikan header doc.
-- Format harus ringkas, konsisten, dan mudah dipindai cepat.
+- Format harus ringkas, konsisten, dan mudah dipindai cepat..
 
 ## C. Standar Query/Database (Mandatory, Senior DBA Grade)
 
