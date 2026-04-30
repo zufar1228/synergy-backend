@@ -26,14 +26,14 @@ try {
         env_1.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY &&
         env_1.env.VAPID_PRIVATE_KEY) {
         web_push_1.default.setVapidDetails(env_1.env.VAPID_SUBJECT, env_1.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY, env_1.env.VAPID_PRIVATE_KEY);
-        console.log('[WebPush] ✅ VAPID initialized successfully');
+        console.log('[WebPush] VAPID initialized successfully');
     }
     else {
-        console.warn('[WebPush] ⚠️ VAPID keys not fully configured, push notifications disabled');
+        console.warn('[WebPush] VAPID keys not fully configured, push notifications disabled');
     }
 }
 catch (error) {
-    console.error('[WebPush] ❌ VAPID initialization failed:', error);
+    console.error('[WebPush] VAPID initialization failed:', error);
 }
 const saveSubscription = async (userId, sub) => {
     await drizzle_1.db
@@ -63,7 +63,7 @@ const sendPushNotification = async (userId, payload) => {
     });
     console.log(`[WebPush] Found ${subscriptions.length} subscriptions for user ${userId}`);
     if (subscriptions.length === 0) {
-        console.log(`[WebPush] ⚠️ No subscriptions found for user ${userId}, skipping...`);
+        console.log(`[WebPush] No subscriptions found for user ${userId}, skipping...`);
         return;
     }
     const notificationPayload = JSON.stringify({
@@ -78,10 +78,10 @@ const sendPushNotification = async (userId, payload) => {
                 endpoint: sub.endpoint,
                 keys: { p256dh: sub.p256dh, auth: sub.auth }
             }, notificationPayload, { urgency: 'high', TTL: 60 });
-            console.log(`[WebPush] ✅ Sent to user ${userId.slice(0, 4)}...`);
+            console.log(`[WebPush] Sent to user ${userId.slice(0, 4)}...`);
         }
         catch (error) {
-            console.error(`[WebPush] ❌ Failed: ${error.statusCode}`);
+            console.error(`[WebPush] Failed: ${error.statusCode}`);
             if (error.body)
                 console.error('Error Body:', error.body);
             // Clean up subscriptions that are no longer valid

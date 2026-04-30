@@ -21,7 +21,7 @@ const apiError_1 = __importDefault(require("../../../utils/apiError"));
  * Mengirim perintah ke perangkat intrusi (door security) via MQTT.
  */
 const sendIntrusiCommand = async (deviceId, command) => {
-    console.log(`[Actuation] 🔒 sendIntrusiCommand CALLED: deviceId=${deviceId}, cmd=${command.cmd}`);
+    console.log(`[Actuation] sendIntrusiCommand CALLED: deviceId=${deviceId}, cmd=${command.cmd}`);
     const device = await drizzle_1.db.query.devices.findFirst({
         where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
         with: { area: { columns: { id: true, warehouse_id: true } } }

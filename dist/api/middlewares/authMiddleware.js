@@ -27,28 +27,28 @@ async function getSupabasePublicKey(iss, kid) {
             // iss dari token biasanya: https://<project-ref>.supabase.co/auth/v1
             const baseUrl = iss.replace(/\/$/, '');
             const jwksUrl = `${baseUrl}/.well-known/jwks.json`;
-            console.log(`🔄 Fetching JWKS from ${jwksUrl}...`);
+            console.log(`[INFO] Fetching JWKS from ${jwksUrl}...`);
             const response = await axios_1.default.get(jwksUrl);
             if (response.data && Array.isArray(response.data.keys)) {
                 jwksCache = {
                     keys: response.data.keys,
                     lastFetch: now
                 };
-                console.log('✅ JWKS cached successfully.');
+                console.log('[OK] JWKS cached successfully.');
             }
         }
         if (!jwksCache)
             return null;
         const jwk = jwksCache.keys.find((k) => k.kid === kid);
         if (!jwk) {
-            console.error(`❌ Key with kid ${kid} not found in JWKS.`);
+            console.error(`[ERROR] Key with kid ${kid} not found in JWKS.`);
             return null;
         }
         // Konversi JWK ke KeyObject (Node.js native)
         return crypto_1.default.createPublicKey({ key: jwk, format: 'jwk' });
     }
     catch (err) {
-        console.error('❌ Error fetching/parsing JWKS:', err.message);
+        console.error('[ERROR] Error fetching/parsing JWKS:', err.message);
         return null;
     }
 }
@@ -123,7 +123,7 @@ const authMiddleware = async (req, res, next) => {
             next();
         }
         catch (err) {
-            console.error(`🔴 JWT Verify Error (${alg}): ${err.message}`);
+            console.error(`[ERROR] JWT Verify Error (${alg}): ${err.message}`);
             if (err.name === 'TokenExpiredError') {
                 throw new apiError_1.default(401, 'Sesi berakhir. Silakan login kembali.');
             }

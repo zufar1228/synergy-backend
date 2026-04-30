@@ -192,7 +192,7 @@ const sendTestAlert = async (req, res) => {
     try {
         const timestamp = (0, time_1.formatTimestampWIB)();
         const testMessage = `
-🧪 <b>TEST ALERT</b>
+<b>TEST ALERT</b>
 
 Ini adalah pesan tes dari sistem monitoring.
 Dikirim oleh: ${req.user?.email || 'Unknown'}

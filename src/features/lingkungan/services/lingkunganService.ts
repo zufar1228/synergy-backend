@@ -468,7 +468,7 @@ const handleActualThresholdControl = async (
       .where(eq(devices.id, data.device_id));
 
     alerts.push(
-      "🚨 Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol."
+      "Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol."
     );
 
     await lingkunganAlertingService.processLingkunganAlert(

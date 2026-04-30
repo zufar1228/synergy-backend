@@ -199,11 +199,11 @@ export const setWebhook = async (): Promise<boolean> => {
     );
 
     if (response.data.ok) {
-      console.log(`[TelegramService] ✅ Webhook set to: ${webhookUrl}`);
+      console.log(`[TelegramService] Webhook set to: ${webhookUrl}`);
       return true;
     } else {
       console.error(
-        `[TelegramService] ❌ Webhook setup failed:`,
+        `[TelegramService] Webhook setup failed:`,
         response.data.description
       );
       return false;

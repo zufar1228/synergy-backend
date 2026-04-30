@@ -66,7 +66,7 @@ app.use(
 // Health Check Route
 app.get('/', (req: Request, res: Response) => {
   res.status(200).json({
-    message: '🚀 Backend TypeScript API is running!',
+    message: 'Backend TypeScript API is running!',
     timestamp: new Date().toISOString(),
     environment: env.NODE_ENV,
     port: PORT
@@ -123,7 +123,7 @@ app.use(
 );
 app.use('/api/telegram', telegramRoutes); // has per-route auth (webhook must stay public)
 
-// ✅ TAMBAHAN: Error handling untuk production
+// Error handling untuk production
 app.use((err: any, req: Request, res: Response, next: any) => {
   console.error('Error:', err);
   if (err && err.statusCode) {
@@ -139,7 +139,7 @@ app.use((err: any, req: Request, res: Response, next: any) => {
 let cronTasks: ReturnType<typeof import('node-cron').schedule>[] = [];
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`✅ Server is listening on ${HOST}:${PORT}`);
+  console.log(`[OK] Server is listening on ${HOST}:${PORT}`);
   console.log(`Environment: ${env.NODE_ENV}`);
 
   // Initialize services in background (NON-BLOCKING)
@@ -147,7 +147,7 @@ const server = app.listen(PORT, HOST, () => {
     const initializeServices = async () => {
       try {
         // Database connection check
-        console.log('🔄 Checking database connection...');
+        console.log('[INFO] Checking database connection...');
         await Promise.race([
           initDatabase(),
           new Promise((_, reject) =>
@@ -157,49 +157,49 @@ const server = app.listen(PORT, HOST, () => {
             )
           )
         ]).catch((err) => {
-          console.error('⚠️ Database connection failed:', err?.message);
-          console.log('⚠️ Continuing without database...');
+          console.error('[WARN] Database connection failed:', err?.message);
+          console.log('[WARN] Continuing without database...');
         });
-        console.log('✅ Database connected');
+        console.log('[OK] Database connected');
 
         // MQTT
-        console.log('🔄 Initializing MQTT client...');
+        console.log('[INFO] Initializing MQTT client...');
         try {
           initializeMqttClient();
-          console.log('✅ MQTT client started');
+          console.log('[OK] MQTT client started');
         } catch (err: any) {
-          console.error('⚠️ MQTT failed:', err?.message);
+          console.error('[WARN] MQTT failed:', err?.message);
         }
 
         // Jobs
-        console.log('🔄 Starting jobs...');
+        console.log('[INFO] Starting jobs...');
         try {
           cronTasks.push(startHeartbeatJob());
           cronTasks.push(startRepeatDetectionJob());
           cronTasks.push(startDisarmReminderJob());
-          console.log('✅ Jobs started');
+          console.log('[OK] Jobs started');
         } catch (err: any) {
-          console.error('⚠️ Jobs failed:', err.message);
+          console.error('[WARN] Jobs failed:', err.message);
         }
 
         // Telegram Webhook Setup (only if configured)
         if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_URL) {
-          console.log('🔄 Setting up Telegram webhook...');
+          console.log('[INFO] Setting up Telegram webhook...');
           try {
             await setupTelegramWebhook();
-            console.log('✅ Telegram webhook configured');
+            console.log('[OK] Telegram webhook configured');
           } catch (err: any) {
-            console.error('⚠️ Telegram webhook setup failed:', err.message);
+            console.error('[WARN] Telegram webhook setup failed:', err.message);
           }
         } else {
           console.log(
-            'ℹ️ Telegram: Not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL missing)'
+            'Telegram: Not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL missing)'
           );
         }
 
-        console.log('🎉 All services initialized!');
+        console.log('[OK] All services initialized!');
       } catch (error) {
-        console.error('❌ Service initialization error:', error);
+        console.error('[ERROR] Service initialization error:', error);
       }
     };
 
@@ -209,38 +209,38 @@ const server = app.listen(PORT, HOST, () => {
 
 // ─── Graceful Shutdown ────────────────────────────────────
 const gracefulShutdown = async (signal: string) => {
-  console.log(`\n🛑 ${signal} received. Shutting down gracefully...`);
+  console.log(`\n[SHUTDOWN] ${signal} received. Shutting down gracefully...`);
 
   // 1. Stop accepting new connections
   server.close(() => {
-    console.log('✅ HTTP server closed');
+    console.log('[OK] HTTP server closed');
   });
 
   // 2. Stop cron jobs
   for (const task of cronTasks) {
     task.stop();
   }
-  console.log('✅ Cron jobs stopped');
+  console.log('[OK] Cron jobs stopped');
 
   // 3. Disconnect MQTT
   try {
     if (mqttClient && mqttClient.connected) {
       mqttClient.end(false);
-      console.log('✅ MQTT client disconnected');
+      console.log('[OK] MQTT client disconnected');
     }
   } catch (err) {
-    console.error('⚠️ Error disconnecting MQTT:', err);
+    console.error('[WARN] Error disconnecting MQTT:', err);
   }
 
   // 4. Drain database pool
   try {
     await pool.end();
-    console.log('✅ Database pool drained');
+    console.log('[OK] Database pool drained');
   } catch (err) {
-    console.error('⚠️ Error draining DB pool:', err);
+    console.error('[WARN] Error draining DB pool:', err);
   }
 
-  console.log('👋 Shutdown complete.');
+  console.log('[DONE] Shutdown complete.');
   process.exit(0);
 };
 

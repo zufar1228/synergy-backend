@@ -48,7 +48,7 @@ export const testPushNotification = async (req: Request, res: Response) => {
     console.log(`[Push Test] Triggering test notification for user ${userId}`);
 
     await webPushService.sendPushNotification(userId, {
-      title: '🧪 Test Notification',
+      title: 'Test Notification',
       body: 'Jika Anda melihat ini, push notification bekerja!',
       url: '/dashboard'
     });

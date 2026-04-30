@@ -157,11 +157,11 @@ const setWebhook = async () => {
             drop_pending_updates: true // Optimization: ignore old updates on restart
         });
         if (response.data.ok) {
-            console.log(`[TelegramService] ✅ Webhook set to: ${webhookUrl}`);
+            console.log(`[TelegramService] Webhook set to: ${webhookUrl}`);
             return true;
         }
         else {
-            console.error(`[TelegramService] ❌ Webhook setup failed:`, response.data.description);
+            console.error(`[TelegramService] Webhook setup failed:`, response.data.description);
             return false;
         }
     }

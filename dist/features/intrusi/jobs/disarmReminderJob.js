@@ -68,13 +68,13 @@ const sendDisarmReminder = async (device) => {
     const { warehouse } = area;
     const timestamp = (0, time_1.formatTimestampWIB)();
     const telegramMessage = `
-⚠️ <b>PENGINGAT: SISTEM BELUM DIAKTIFKAN</b> ⚠️
+<b>PENGINGAT: SISTEM BELUM DIAKTIFKAN</b>
 
-📍 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
-🔧 <b>Device:</b> ${device.name}
-🔓 <b>Status:</b> NON-AKTIF selama lebih dari 1 jam
+<b>Lokasi:</b> ${warehouse.name} - ${area.name}
+<b>Device:</b> ${device.name}
+<b>Status:</b> NON-AKTIF selama lebih dari 1 jam
 
-🕐 <b>Waktu Cek:</b> ${timestamp}
+<b>Waktu Cek:</b> ${timestamp}
 
 <i>Harap segera AKTIFKAN sistem keamanan pintu gudang untuk perlindungan optimal.</i>
 `.trim();
@@ -94,7 +94,7 @@ const sendDisarmReminder = async (device) => {
         const userIds = subscriberPrefs.map((p) => p.user_id);
         if (userIds.length > 0) {
             const pushPayload = {
-                title: '⚠️ Sistem Keamanan Belum Aktif',
+                title: 'Sistem Keamanan Belum Aktif',
                 body: `${device.name} di ${warehouse.name} - ${area.name} masih NON-AKTIF selama lebih dari 1 jam. Segera AKTIFKAN!`,
                 url: '/dashboard'
             };

@@ -355,7 +355,7 @@ const handleActualThresholdControl = async (data, _device) => {
             .update(schema_1.devices)
             .set(updateData)
             .where((0, drizzle_orm_1.eq)(schema_1.devices.id, data.device_id));
-        alerts.push("🚨 Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol.");
+        alerts.push("Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol.");
         await lingkunganAlertingService.processLingkunganAlert(data.device_id, alerts, data, 'FAILSAFE');
     }
 };

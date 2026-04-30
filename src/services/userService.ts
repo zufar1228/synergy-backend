@@ -161,15 +161,15 @@ export const deleteUser = async (userId: string) => {
       .then((success) => {
         if (success) {
           console.log(
-            `[AutoKick] ✅ Successfully kicked Telegram user: ${profile.telegram_user_id}`
+            `[AutoKick] Successfully kicked Telegram user: ${profile.telegram_user_id}`
           );
         } else {
           console.log(
-            `[AutoKick] ⚠️ Failed to kick Telegram user: ${profile.telegram_user_id}`
+            `[AutoKick] Failed to kick Telegram user: ${profile.telegram_user_id}`
           );
         }
       })
-      .catch((err) => console.error('[AutoKick] ❌ Error:', err));
+      .catch((err) => console.error('[AutoKick] Error:', err));
   }
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);

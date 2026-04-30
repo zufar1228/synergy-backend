@@ -58,10 +58,9 @@ const resolveAlertState = (subject: string, emailProps: any): boolean => {
   }
 
   return (
-    subject.includes('🚨') ||
-    subject.includes('⚠️') ||
-    subject.includes('🪫') ||
-    subject.includes('⚡')
+    subject.includes('[ALARM') ||
+    subject.includes('[BATERAI KRITIS') ||
+    subject.includes('[DAYA BERALIH')
   );
 };
 
@@ -118,7 +117,7 @@ export const notifySubscribers = async (
         }
       }
 
-      const emoji = isAlert ? '🚨' : '✅';
+      const statusMarker = isAlert ? '[!]' : '[OK]';
       const statusText = isAlert ? 'PERINGATAN BAHAYA' : 'KEMBALI NORMAL';
 
       let detailText = '';
@@ -131,14 +130,14 @@ export const notifySubscribers = async (
       }
 
       const message = `
-${emoji} <b>${statusText}</b> ${emoji}
+${statusMarker} <b>${statusText}</b>
 
-📍 <b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
-🔧 <b>Device:</b> ${emailProps.deviceName}
-${emailProps.incidentType ? `⚠️ <b>Tipe:</b> ${emailProps.incidentType}` : ''}
-${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
+<b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
+<b>Device:</b> ${emailProps.deviceName}
+${emailProps.incidentType ? `<b>Tipe:</b> ${emailProps.incidentType}` : ''}
+${detailText ? `\n<b>Detail:</b>\n${detailText}` : ''}
 
-🕐 <b>Waktu:</b> ${emailProps.timestamp}
+<b>Waktu:</b> ${emailProps.timestamp}
 
 <i>Harap segera diperiksa.</i>
 `.trim();
@@ -189,7 +188,7 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
       `[Alerting] Starting push task for ${userIds.length} users:`,
       userIds
     );
-    const pushTitle = isAlert ? '🚨 BAHAYA TERDETEKSI' : '✅ KEMBALI NORMAL';
+    const pushTitle = isAlert ? 'BAHAYA TERDETEKSI' : 'KEMBALI NORMAL';
     const pushBody = `Lokasi: ${emailProps.warehouseName} - ${
       emailProps.areaName
     }. ${emailProps.incidentType || 'Status Update'}.`;

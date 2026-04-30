@@ -19,6 +19,7 @@ const latencyTrackerService_1 = require("./latencyTrackerService");
 // UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
 const deviceIntrusiAlertState = new Map();
 const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const INTRUSION_WINDOW_THRESHOLD_FALLBACK = 2;
 const devicePowerState = new Map();
 const resetIntrusiAlertCooldownForTest = (deviceId) => {
     if (deviceId) {
@@ -50,7 +51,7 @@ setInterval(() => {
  * Called for FORCED_ENTRY_ALARM and UNAUTHORIZED_OPEN events.
  */
 const processIntrusiAlert = async (deviceId, data, meta = {}) => {
-    console.log(`[Alerting] 🚨 Intrusi alarm: ${data.type} for device ${deviceId}`);
+    console.log(`[Alerting] Intrusi alarm: ${data.type} for device ${deviceId}`);
     await (0, latencyTrackerService_1.recordLatencyStage)({
         traceId: meta.traceId,
         runId: meta.runId,
@@ -116,7 +117,7 @@ const processIntrusiAlert = async (deviceId, data, meta = {}) => {
         if (data.anomaly_count != null) {
             details.push({
                 key: 'Jumlah Anomali (Window)',
-                value: `${data.anomaly_count} / ${data.window_threshold ?? 3}`
+                value: `${data.anomaly_count} / ${data.window_threshold ?? INTRUSION_WINDOW_THRESHOLD_FALLBACK}`
             });
         }
         else if (data.hit_count != null) {
@@ -147,7 +148,7 @@ const processIntrusiAlert = async (deviceId, data, meta = {}) => {
             }
             : {})
     };
-    const subject = `🚨 [ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
+    const subject = `[ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
     try {
         await (0, alertingService_1.notifySubscribers)('intrusi', subject, emailProps);
         console.log('[Alerting] Intrusi alert notifications sent.');
@@ -176,7 +177,7 @@ const processPowerAlert = async (deviceId, data, meta = {}) => {
         data.power_source !== state.lastPowerSource) {
         shouldAlert = true;
         alertType = 'power_change';
-        console.log(`[Alerting] ⚡ Power source changed for ${deviceId}: ${state.lastPowerSource} → ${data.power_source}`);
+        console.log(`[Alerting] Power source changed for ${deviceId}: ${state.lastPowerSource} → ${data.power_source}`);
     }
     if (data.power_source) {
         state.lastPowerSource = data.power_source;
@@ -192,7 +193,7 @@ const processPowerAlert = async (deviceId, data, meta = {}) => {
             shouldAlert = true;
             alertType = 'battery_critical';
             state.lastBatteryCriticalSentAt = now;
-            console.log(`[Alerting] 🪫 Battery critical for ${deviceId}: ${data.vbat_pct}%`);
+            console.log(`[Alerting] Battery critical for ${deviceId}: ${data.vbat_pct}%`);
         }
         else {
             await (0, latencyTrackerService_1.recordLatencyStage)({
@@ -254,7 +255,7 @@ const processPowerAlert = async (deviceId, data, meta = {}) => {
     if (alertType === 'battery_critical') {
         isAlert = true;
         incidentType = 'Baterai Kritis';
-        subject = `🪫 [BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
+        subject = `[BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
         details.push({ key: 'Kapasitas Baterai', value: 'Kritis' });
         details.push({ key: 'Sumber Daya', value: 'BATERAI (Adaptor Terputus)' });
     }
@@ -265,8 +266,8 @@ const processPowerAlert = async (deviceId, data, meta = {}) => {
             ? 'Sumber Daya Beralih ke Baterai'
             : 'Sumber Daya Adaptor Terhubung Kembali';
         subject = isSwitchToBattery
-            ? `⚡ [DAYA BERALIH] ${device.name} beralih ke Baterai — ${warehouse.name}`
-            : `✅ [DAYA PULIH] ${device.name} kembali ke Adaptor — ${warehouse.name}`;
+            ? `[DAYA BERALIH] ${device.name} beralih ke Baterai — ${warehouse.name}`
+            : `[DAYA PULIH] ${device.name} kembali ke Adaptor — ${warehouse.name}`;
         details.push({
             key: 'Sumber Daya',
             value: isSwitchToBattery ? 'BATERAI' : 'ADAPTOR (PLN)'

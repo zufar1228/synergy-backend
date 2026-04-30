@@ -103,7 +103,7 @@ export const processLingkunganAlert = async (
   alertType: 'PREDICTIVE' | 'FAILSAFE' | 'RECOVERY' = 'FAILSAFE'
 ) => {
   console.log(
-    `[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`
+    `[Alerting] Lingkungan predictive alert for device ${deviceId}`
   );
 
   const device = await db.query.devices.findFirst({
@@ -128,19 +128,19 @@ export const processLingkunganAlert = async (
   switch (alertType) {
     case 'PREDICTIVE':
       incidentType = 'Prediksi Kondisi Lingkungan Berbahaya';
-      subjectPrefix = '⚠️ [PERINGATAN PREDIKSI LINGKUNGAN]';
+      subjectPrefix = '[PERINGATAN PREDIKSI LINGKUNGAN]';
       break;
     case 'FAILSAFE':
       incidentType = 'KRITIS: Kondisi Lingkungan Nyata Berbahaya';
-      subjectPrefix = '🚨 [PERINGATAN KRITIS LINGKUNGAN]';
+      subjectPrefix = '[PERINGATAN KRITIS LINGKUNGAN]';
       break;
     case 'RECOVERY':
       incidentType = 'PEMULIHAN SISTEM: Kondisi Lingkungan Stabil';
-      subjectPrefix = '✅ [KEMBALI NORMAL LINGKUNGAN]';
+      subjectPrefix = '[KEMBALI NORMAL LINGKUNGAN]';
       break;
     default:
       incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
-      subjectPrefix = '🌡️ [PERINGATAN LINGKUNGAN]';
+      subjectPrefix = '[PERINGATAN LINGKUNGAN]';
   }
 
   const details: { key: string; value: string }[] = [

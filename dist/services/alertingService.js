@@ -72,10 +72,9 @@ const resolveAlertState = (subject, emailProps) => {
     if (ALERT_HINTS.some((hint) => normalizedSubject.includes(hint) || normalizedIncident.includes(hint))) {
         return true;
     }
-    return (subject.includes('🚨') ||
-        subject.includes('⚠️') ||
-        subject.includes('🪫') ||
-        subject.includes('⚡'));
+    return (subject.includes('[ALARM') ||
+        subject.includes('[BATERAI KRITIS') ||
+        subject.includes('[DAYA BERALIH'));
 };
 /**
  * Mengirim notifikasi (push dan Telegram) ke semua pengguna yang berlangganan
@@ -114,7 +113,7 @@ const notifySubscribers = async (systemType, subject, emailProps) => {
                     return;
                 }
             }
-            const emoji = isAlert ? '🚨' : '✅';
+            const statusMarker = isAlert ? '[!]' : '[OK]';
             const statusText = isAlert ? 'PERINGATAN BAHAYA' : 'KEMBALI NORMAL';
             let detailText = '';
             if (emailProps.details && Array.isArray(emailProps.details)) {
@@ -123,14 +122,14 @@ const notifySubscribers = async (systemType, subject, emailProps) => {
                     .join('\n');
             }
             const message = `
-${emoji} <b>${statusText}</b> ${emoji}
+${statusMarker} <b>${statusText}</b>
 
-📍 <b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
-🔧 <b>Device:</b> ${emailProps.deviceName}
-${emailProps.incidentType ? `⚠️ <b>Tipe:</b> ${emailProps.incidentType}` : ''}
-${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
+<b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
+<b>Device:</b> ${emailProps.deviceName}
+${emailProps.incidentType ? `<b>Tipe:</b> ${emailProps.incidentType}` : ''}
+${detailText ? `\n<b>Detail:</b>\n${detailText}` : ''}
 
-🕐 <b>Waktu:</b> ${emailProps.timestamp}
+<b>Waktu:</b> ${emailProps.timestamp}
 
 <i>Harap segera diperiksa.</i>
 `.trim();
@@ -173,7 +172,7 @@ ${detailText ? `\n📊 <b>Detail:</b>\n${detailText}` : ''}
     // === TASK 2: SIAPKAN PUSH NOTIFICATION ===
     const pushTask = (async () => {
         console.log(`[Alerting] Starting push task for ${userIds.length} users:`, userIds);
-        const pushTitle = isAlert ? '🚨 BAHAYA TERDETEKSI' : '✅ KEMBALI NORMAL';
+        const pushTitle = isAlert ? 'BAHAYA TERDETEKSI' : 'KEMBALI NORMAL';
         const pushBody = `Lokasi: ${emailProps.warehouseName} - ${emailProps.areaName}. ${emailProps.incidentType || 'Status Update'}.`;
         const pushPromises = userIds.map((userId) => webPushService.sendPushNotification(userId, {
             title: pushTitle,

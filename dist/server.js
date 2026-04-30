@@ -60,7 +60,7 @@ app.use((0, express_rate_limit_1.default)({
 // Health Check Route
 app.get('/', (req, res) => {
     res.status(200).json({
-        message: '🚀 Backend TypeScript API is running!',
+        message: 'Backend TypeScript API is running!',
         timestamp: new Date().toISOString(),
         environment: env_1.env.NODE_ENV,
         port: PORT
@@ -107,7 +107,7 @@ app.use('/api/telegram/webhook', (0, express_rate_limit_1.default)({
     legacyHeaders: false
 }));
 app.use('/api/telegram', telegramRoutes_1.default); // has per-route auth (webhook must stay public)
-// ✅ TAMBAHAN: Error handling untuk production
+// Error handling untuk production
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     if (err && err.statusCode) {
@@ -121,60 +121,60 @@ app.use((err, req, res, next) => {
 // Track cron tasks for graceful shutdown
 let cronTasks = [];
 const server = app.listen(PORT, HOST, () => {
-    console.log(`✅ Server is listening on ${HOST}:${PORT}`);
+    console.log(`[OK] Server is listening on ${HOST}:${PORT}`);
     console.log(`Environment: ${env_1.env.NODE_ENV}`);
     // Initialize services in background (NON-BLOCKING)
     setImmediate(async () => {
         const initializeServices = async () => {
             try {
                 // Database connection check
-                console.log('🔄 Checking database connection...');
+                console.log('[INFO] Checking database connection...');
                 await Promise.race([
                     (0, models_1.initDatabase)(),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Database connection timeout')), 15000))
                 ]).catch((err) => {
-                    console.error('⚠️ Database connection failed:', err?.message);
-                    console.log('⚠️ Continuing without database...');
+                    console.error('[WARN] Database connection failed:', err?.message);
+                    console.log('[WARN] Continuing without database...');
                 });
-                console.log('✅ Database connected');
+                console.log('[OK] Database connected');
                 // MQTT
-                console.log('🔄 Initializing MQTT client...');
+                console.log('[INFO] Initializing MQTT client...');
                 try {
                     (0, client_1.initializeMqttClient)();
-                    console.log('✅ MQTT client started');
+                    console.log('[OK] MQTT client started');
                 }
                 catch (err) {
-                    console.error('⚠️ MQTT failed:', err?.message);
+                    console.error('[WARN] MQTT failed:', err?.message);
                 }
                 // Jobs
-                console.log('🔄 Starting jobs...');
+                console.log('[INFO] Starting jobs...');
                 try {
                     cronTasks.push((0, heartbeatChecker_1.startHeartbeatJob)());
                     cronTasks.push((0, repeatDetectionJob_1.startRepeatDetectionJob)());
                     cronTasks.push((0, disarmReminderJob_1.startDisarmReminderJob)());
-                    console.log('✅ Jobs started');
+                    console.log('[OK] Jobs started');
                 }
                 catch (err) {
-                    console.error('⚠️ Jobs failed:', err.message);
+                    console.error('[WARN] Jobs failed:', err.message);
                 }
                 // Telegram Webhook Setup (only if configured)
                 if (env_1.env.TELEGRAM_BOT_TOKEN && env_1.env.TELEGRAM_WEBHOOK_URL) {
-                    console.log('🔄 Setting up Telegram webhook...');
+                    console.log('[INFO] Setting up Telegram webhook...');
                     try {
                         await (0, telegramService_1.setWebhook)();
-                        console.log('✅ Telegram webhook configured');
+                        console.log('[OK] Telegram webhook configured');
                     }
                     catch (err) {
-                        console.error('⚠️ Telegram webhook setup failed:', err.message);
+                        console.error('[WARN] Telegram webhook setup failed:', err.message);
                     }
                 }
                 else {
-                    console.log('ℹ️ Telegram: Not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL missing)');
+                    console.log('Telegram: Not configured (TELEGRAM_BOT_TOKEN or TELEGRAM_WEBHOOK_URL missing)');
                 }
-                console.log('🎉 All services initialized!');
+                console.log('[OK] All services initialized!');
             }
             catch (error) {
-                console.error('❌ Service initialization error:', error);
+                console.error('[ERROR] Service initialization error:', error);
             }
         };
         initializeServices();
@@ -182,35 +182,35 @@ const server = app.listen(PORT, HOST, () => {
 });
 // ─── Graceful Shutdown ────────────────────────────────────
 const gracefulShutdown = async (signal) => {
-    console.log(`\n🛑 ${signal} received. Shutting down gracefully...`);
+    console.log(`\n[SHUTDOWN] ${signal} received. Shutting down gracefully...`);
     // 1. Stop accepting new connections
     server.close(() => {
-        console.log('✅ HTTP server closed');
+        console.log('[OK] HTTP server closed');
     });
     // 2. Stop cron jobs
     for (const task of cronTasks) {
         task.stop();
     }
-    console.log('✅ Cron jobs stopped');
+    console.log('[OK] Cron jobs stopped');
     // 3. Disconnect MQTT
     try {
         if (client_1.client && client_1.client.connected) {
             client_1.client.end(false);
-            console.log('✅ MQTT client disconnected');
+            console.log('[OK] MQTT client disconnected');
         }
     }
     catch (err) {
-        console.error('⚠️ Error disconnecting MQTT:', err);
+        console.error('[WARN] Error disconnecting MQTT:', err);
     }
     // 4. Drain database pool
     try {
         await drizzle_1.pool.end();
-        console.log('✅ Database pool drained');
+        console.log('[OK] Database pool drained');
     }
     catch (err) {
-        console.error('⚠️ Error draining DB pool:', err);
+        console.error('[WARN] Error draining DB pool:', err);
     }
-    console.log('👋 Shutdown complete.');
+    console.log('[DONE] Shutdown complete.');
     process.exit(0);
 };
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

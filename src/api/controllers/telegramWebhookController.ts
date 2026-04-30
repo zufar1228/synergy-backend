@@ -120,7 +120,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
           });
 
         console.log(
-          `[Telegram Webhook] ✅ Member Joined: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`
+          `[Telegram Webhook] Member Joined: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`
         );
       }
     }
@@ -141,7 +141,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
       if (result.length > 0) {
         console.log(
-          `[Telegram Webhook] 👋 Member Left: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`
+          `[Telegram Webhook] Member Left: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`
         );
       } else {
         console.log(
@@ -173,7 +173,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
           kicked_at: null
         });
         console.log(
-          `[Telegram Webhook] ✅ Auto-registered existing member: ${sender.first_name} (@${sender.username || 'no-username'}) [ID: ${sender.id}]`
+          `[Telegram Webhook] Auto-registered existing member: ${sender.first_name} (@${sender.username || 'no-username'}) [ID: ${sender.id}]`
         );
       }
     }

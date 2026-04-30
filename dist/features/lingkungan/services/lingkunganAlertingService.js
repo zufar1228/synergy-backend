@@ -70,7 +70,7 @@ exports.shouldSendLingkunganTelegram = shouldSendLingkunganTelegram;
  * Called when ML predictions exceed safety thresholds.
  */
 const processLingkunganAlert = async (deviceId, alerts, data, alertType = 'FAILSAFE') => {
-    console.log(`[Alerting] 🌡️ Lingkungan predictive alert for device ${deviceId}`);
+    console.log(`[Alerting] Lingkungan predictive alert for device ${deviceId}`);
     const device = await drizzle_1.db.query.devices.findFirst({
         where: (0, drizzle_orm_1.eq)(schema_1.devices.id, deviceId),
         with: { area: { with: { warehouse: true } } }
@@ -87,19 +87,19 @@ const processLingkunganAlert = async (deviceId, alerts, data, alertType = 'FAILS
     switch (alertType) {
         case 'PREDICTIVE':
             incidentType = 'Prediksi Kondisi Lingkungan Berbahaya';
-            subjectPrefix = '⚠️ [PERINGATAN PREDIKSI LINGKUNGAN]';
+            subjectPrefix = '[PERINGATAN PREDIKSI LINGKUNGAN]';
             break;
         case 'FAILSAFE':
             incidentType = 'KRITIS: Kondisi Lingkungan Nyata Berbahaya';
-            subjectPrefix = '🚨 [PERINGATAN KRITIS LINGKUNGAN]';
+            subjectPrefix = '[PERINGATAN KRITIS LINGKUNGAN]';
             break;
         case 'RECOVERY':
             incidentType = 'PEMULIHAN SISTEM: Kondisi Lingkungan Stabil';
-            subjectPrefix = '✅ [KEMBALI NORMAL LINGKUNGAN]';
+            subjectPrefix = '[KEMBALI NORMAL LINGKUNGAN]';
             break;
         default:
             incidentType = 'Kondisi Lingkungan Berbahaya Terdeteksi';
-            subjectPrefix = '🌡️ [PERINGATAN LINGKUNGAN]';
+            subjectPrefix = '[PERINGATAN LINGKUNGAN]';
     }
     const details = [
         {

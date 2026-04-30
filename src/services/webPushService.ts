@@ -32,14 +32,14 @@ try {
       env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
       env.VAPID_PRIVATE_KEY
     );
-    console.log('[WebPush] ✅ VAPID initialized successfully');
+    console.log('[WebPush] VAPID initialized successfully');
   } else {
     console.warn(
-      '[WebPush] ⚠️ VAPID keys not fully configured, push notifications disabled'
+      '[WebPush] VAPID keys not fully configured, push notifications disabled'
     );
   }
 } catch (error) {
-  console.error('[WebPush] ❌ VAPID initialization failed:', error);
+  console.error('[WebPush] VAPID initialization failed:', error);
 }
 
 export const saveSubscription = async (
@@ -82,7 +82,7 @@ export const sendPushNotification = async (
 
   if (subscriptions.length === 0) {
     console.log(
-      `[WebPush] ⚠️ No subscriptions found for user ${userId}, skipping...`
+      `[WebPush] No subscriptions found for user ${userId}, skipping...`
     );
     return;
   }
@@ -104,9 +104,9 @@ export const sendPushNotification = async (
         notificationPayload,
         { urgency: 'high', TTL: 60 }
       );
-      console.log(`[WebPush] ✅ Sent to user ${userId.slice(0, 4)}...`);
+      console.log(`[WebPush] Sent to user ${userId.slice(0, 4)}...`);
     } catch (error: any) {
-      console.error(`[WebPush] ❌ Failed: ${error.statusCode}`);
+      console.error(`[WebPush] Failed: ${error.statusCode}`);
       if (error.body) console.error('Error Body:', error.body);
 
       // Clean up subscriptions that are no longer valid

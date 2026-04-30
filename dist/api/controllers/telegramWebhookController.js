@@ -74,7 +74,7 @@ const handleWebhook = async (req, res) => {
                         kicked_at: null
                     }
                 });
-                console.log(`[Telegram Webhook] ✅ Member Joined: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`);
+                console.log(`[Telegram Webhook] Member Joined: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`);
             }
         }
         // CASE B: Member left the group
@@ -91,7 +91,7 @@ const handleWebhook = async (req, res) => {
                 .where((0, drizzle_orm_1.eq)(schema_1.telegram_subscribers.user_id, member.id))
                 .returning();
             if (result.length > 0) {
-                console.log(`[Telegram Webhook] 👋 Member Left: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`);
+                console.log(`[Telegram Webhook] Member Left: ${member.first_name} (@${member.username || 'no-username'}) [ID: ${member.id}]`);
             }
             else {
                 console.log(`[Telegram Webhook] Member left but wasn't tracked: ${member.id}`);
@@ -116,7 +116,7 @@ const handleWebhook = async (req, res) => {
                     left_at: null,
                     kicked_at: null
                 });
-                console.log(`[Telegram Webhook] ✅ Auto-registered existing member: ${sender.first_name} (@${sender.username || 'no-username'}) [ID: ${sender.id}]`);
+                console.log(`[Telegram Webhook] Auto-registered existing member: ${sender.first_name} (@${sender.username || 'no-username'}) [ID: ${sender.id}]`);
             }
         }
     }

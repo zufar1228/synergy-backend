@@ -31,7 +31,7 @@ export const sendIntrusiCommand = async (
   command: IntrusiCommand
 ) => {
   console.log(
-    `[Actuation] 🔒 sendIntrusiCommand CALLED: deviceId=${deviceId}, cmd=${command.cmd}`
+    `[Actuation] sendIntrusiCommand CALLED: deviceId=${deviceId}, cmd=${command.cmd}`
   );
 
   const device = await db.query.devices.findFirst({

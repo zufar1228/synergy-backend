@@ -82,7 +82,7 @@ export const processIntrusiAlert = async (
   meta: IntrusiLatencyMeta = {}
 ) => {
   console.log(
-    `[Alerting] 🚨 Intrusi alarm: ${data.type} for device ${deviceId}`
+    `[Alerting] Intrusi alarm: ${data.type} for device ${deviceId}`
   );
 
   await recordLatencyStage({
@@ -195,7 +195,7 @@ export const processIntrusiAlert = async (
         }
       : {})
   };
-  const subject = `🚨 [ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
+  const subject = `[ALARM INTRUSI] ${incidentType} di ${warehouse.name} - ${area.name}`;
 
   try {
     await notifySubscribers('intrusi', subject, emailProps);
@@ -237,7 +237,7 @@ export const processPowerAlert = async (
     shouldAlert = true;
     alertType = 'power_change';
     console.log(
-      `[Alerting] ⚡ Power source changed for ${deviceId}: ${state.lastPowerSource} → ${data.power_source}`
+      `[Alerting] Power source changed for ${deviceId}: ${state.lastPowerSource} → ${data.power_source}`
     );
   }
 
@@ -261,7 +261,7 @@ export const processPowerAlert = async (
       alertType = 'battery_critical';
       state.lastBatteryCriticalSentAt = now;
       console.log(
-        `[Alerting] 🪫 Battery critical for ${deviceId}: ${data.vbat_pct}%`
+        `[Alerting] Battery critical for ${deviceId}: ${data.vbat_pct}%`
       );
     } else {
       await recordLatencyStage({
@@ -335,7 +335,7 @@ export const processPowerAlert = async (
   if (alertType === 'battery_critical') {
     isAlert = true;
     incidentType = 'Baterai Kritis';
-    subject = `🪫 [BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
+    subject = `[BATERAI KRITIS] ${device.name} di ${warehouse.name} - ${area.name}`;
     details.push({ key: 'Kapasitas Baterai', value: 'Kritis' });
     details.push({ key: 'Sumber Daya', value: 'BATERAI (Adaptor Terputus)' });
   } else {
@@ -345,8 +345,8 @@ export const processPowerAlert = async (
       ? 'Sumber Daya Beralih ke Baterai'
       : 'Sumber Daya Adaptor Terhubung Kembali';
     subject = isSwitchToBattery
-      ? `⚡ [DAYA BERALIH] ${device.name} beralih ke Baterai — ${warehouse.name}`
-      : `✅ [DAYA PULIH] ${device.name} kembali ke Adaptor — ${warehouse.name}`;
+      ? `[DAYA BERALIH] ${device.name} beralih ke Baterai — ${warehouse.name}`
+      : `[DAYA PULIH] ${device.name} kembali ke Adaptor — ${warehouse.name}`;
     details.push({
       key: 'Sumber Daya',
       value: isSwitchToBattery ? 'BATERAI' : 'ADAPTOR (PLN)'

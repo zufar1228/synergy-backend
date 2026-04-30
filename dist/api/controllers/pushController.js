@@ -80,7 +80,7 @@ const testPushNotification = async (req, res) => {
         const userId = req.user.id;
         console.log(`[Push Test] Triggering test notification for user ${userId}`);
         await webPushService.sendPushNotification(userId, {
-            title: '🧪 Test Notification',
+            title: 'Test Notification',
             body: 'Jika Anda melihat ini, push notification bekerja!',
             url: '/dashboard'
         });

@@ -147,17 +147,17 @@ const findAndNotifyRepeatDetections = async () => {
             const telegramTask = (async () => {
                 try {
                     const message = `
-🚨 <b>PERINGATAN KEAMANAN</b> 🚨
+<b>PERINGATAN KEAMANAN</b>
 
-📍 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
-🔧 <b>Device:</b> ${device.name}
-👤 <b>Identitas:</b> ${getIdentityKey(firstDetection.attributes).replace(/_/g, ', ')}
+<b>Lokasi:</b> ${warehouse.name} - ${area.name}
+<b>Device:</b> ${device.name}
+<b>Identitas:</b> ${getIdentityKey(firstDetection.attributes).replace(/_/g, ', ')}
 
-📊 <b>Detail Deteksi:</b>
+<b>Detail Deteksi:</b>
   • Deteksi pertama: ${(0, time_1.formatTimestampWIB)(firstDetection.created_at)}
   • Deteksi terakhir: ${(0, time_1.formatTimestampWIB)(lastDetection.created_at)}
 
-🖼️ <b>Gambar:</b> ${lastDetection.image_url}
+<b>Gambar:</b> ${lastDetection.image_url}
 
 <i>Orang yang sama terdeteksi berulang dalam 15 detik!</i>
 `.trim();
