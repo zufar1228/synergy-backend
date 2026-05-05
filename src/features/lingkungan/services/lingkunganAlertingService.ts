@@ -13,78 +13,13 @@ import { eq } from 'drizzle-orm';
 import { formatTimestampWIB } from '../../../utils/time';
 import { notifySubscribers } from '../../../services/alertingService';
 
-import { env } from '../../../config/env';
-
-// Gatekeeper Telegram khusus lingkungan (lapis kedua anti-spam)
-type LingkunganTelegramState = {
-  alertActive: boolean;
-  lastCriticalSentAt: number;
-  lastRecoverySentAt: number;
-};
-
-const lingkunganTelegramState = new Map<string, LingkunganTelegramState>();
-const TELEGRAM_CRITICAL_REMINDER_MS = env.TELEGRAM_CRITICAL_REMINDER_MS;
-const TELEGRAM_RECOVERY_COOLDOWN_MS = env.TELEGRAM_RECOVERY_COOLDOWN_MS;
-
-// Prune stale entries every 30 minutes to avoid orphaned device entries
-setInterval(
-  () => {
-    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
-    for (const [key, state] of lingkunganTelegramState) {
-      if (
-        state.lastCriticalSentAt < cutoff &&
-        state.lastRecoverySentAt < cutoff &&
-        !state.alertActive
-      ) {
-        lingkunganTelegramState.delete(key);
-      }
-    }
-  },
-  30 * 60 * 1000
-);
+// No anti-spam — all lingkungan alerts are forwarded to Telegram immediately.
 
 export const shouldSendLingkunganTelegram = (
-  deviceId: string | undefined,
-  isAlert: boolean
+  _deviceId: string | undefined,
+  _isAlert: boolean
 ): boolean => {
-  if (!deviceId) return true;
-
-  const now = Date.now();
-  const state = lingkunganTelegramState.get(deviceId) ?? {
-    alertActive: false,
-    lastCriticalSentAt: 0,
-    lastRecoverySentAt: 0
-  };
-
-  if (isAlert) {
-    if (!state.alertActive) {
-      state.alertActive = true;
-      state.lastCriticalSentAt = now;
-      lingkunganTelegramState.set(deviceId, state);
-      return true;
-    }
-
-    if (now - state.lastCriticalSentAt >= TELEGRAM_CRITICAL_REMINDER_MS) {
-      state.lastCriticalSentAt = now;
-      lingkunganTelegramState.set(deviceId, state);
-      return true;
-    }
-
-    return false;
-  }
-
-  if (!state.alertActive) {
-    return false;
-  }
-
-  if (now - state.lastRecoverySentAt < TELEGRAM_RECOVERY_COOLDOWN_MS) {
-    return false;
-  }
-
-  state.alertActive = false;
-  state.lastRecoverySentAt = now;
-  state.lastCriticalSentAt = 0;
-  lingkunganTelegramState.set(deviceId, state);
+  // Anti-spam dihapus — semua notifikasi selalu diteruskan.
   return true;
 };
 

@@ -24,10 +24,7 @@ interface IntrusiLatencyMeta {
   bypassCooldown?: boolean;
 }
 
-// Cooldown to suppress duplicate Telegram alerts when the firmware sends both
-// UNAUTHORIZED_OPEN and FORCED_ENTRY_ALARM for the same physical incident.
-const deviceIntrusiAlertState = new Map<string, Date>();
-const INTRUSION_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+// No cooldown — every intrusi alarm is forwarded to Telegram immediately.
 const INTRUSION_WINDOW_THRESHOLD_FALLBACK = 2;
 
 const devicePowerState: Map<
@@ -40,12 +37,10 @@ const devicePowerState: Map<
 
 export const resetIntrusiAlertCooldownForTest = (deviceId?: string) => {
   if (deviceId) {
-    deviceIntrusiAlertState.delete(deviceId);
     devicePowerState.delete(deviceId);
     return;
   }
 
-  deviceIntrusiAlertState.clear();
   devicePowerState.clear();
 };
 
@@ -53,9 +48,6 @@ export const resetIntrusiAlertCooldownForTest = (deviceId?: string) => {
 setInterval(
   () => {
     const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
-    for (const [key, date] of deviceIntrusiAlertState) {
-      if (date.getTime() < cutoff) deviceIntrusiAlertState.delete(key);
-    }
     for (const [key, state] of devicePowerState) {
       const lastActivity = state.lastBatteryCriticalSentAt?.getTime() ?? 0;
       if (lastActivity < cutoff && state.lastPowerSource) continue; // keep if has power state
@@ -97,29 +89,7 @@ export const processIntrusiAlert = async (
     t3AlertDecisionMs: Date.now()
   });
 
-  // Suppress duplicate alerts for the same device within the cooldown window.
-  const now = new Date();
-  const lastSent = deviceIntrusiAlertState.get(deviceId);
-  if (
-    !meta.bypassCooldown &&
-    lastSent &&
-    now.getTime() - lastSent.getTime() < INTRUSION_ALERT_COOLDOWN_MS
-  ) {
-    console.log(
-      `[Alerting] Intrusi alert suppressed (cooldown) for device ${deviceId} — last sent ${Math.round((now.getTime() - lastSent.getTime()) / 1000)}s ago`
-    );
-    await recordLatencyStage({
-      traceId: meta.traceId,
-      runId: meta.runId,
-      scenario: meta.scenario,
-      deviceId,
-      eventType: data.type,
-      cooldownSuppressed: true,
-      error: 'intrusi_cooldown_suppressed'
-    });
-    return;
-  }
-  deviceIntrusiAlertState.set(deviceId, now);
+  // No cooldown — all intrusi alerts are forwarded immediately.
 
   const device = await db.query.devices.findFirst({
     where: eq(devices.id, deviceId),
