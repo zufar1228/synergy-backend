@@ -25,7 +25,7 @@ Parameter produksi saat ini:
 |---|---|---|
 | `TH_HIT` | 0.85g | Threshold per-hit (perlu dikalibrasi ulang) |
 | `WINDOW_SIZE_MS` | 45.000ms | Jendela evaluasi 45 detik |
-| `WINDOW_THRESHOLD` | 3 | Minimum hit dalam window untuk alarm |
+| `WINDOW_THRESHOLD` | 2 | Minimum hit dalam window untuk alarm |
 | `MIN_INTERHIT_MS` | 300ms | Debounce antar hit |
 
 **Data kalibrasi digunakan untuk membuktikan dan menentukan** nilai `TH_HIT` yang tepat — cukup tinggi agar derau lingkungan tidak memicu alarm palsu, tapi cukup rendah agar upaya intrusi nyata terdeteksi.
@@ -96,15 +96,15 @@ Terdapat 4 sesi percobaan yang masing-masing dirancang untuk mengukur profil get
 | ----- | ------- | --------------------------------------------------------------------------------------------- | --------------------------------------- |
 | **A** | Ambient | Mengukur derau lingkungan saat kondisi normal — derau ini **harus berada di bawah threshold** | `calibration_summary` (agregat 5 detik) |
 | **B** | Impact  | Mengukur benturan tunggal (1 pukulan, 1 senggolan) — harus **melewati threshold hanya 1x**    | `calibration_raw` (per sampel 10ms)     |
-| **C** | Chisel  | Mengukur pemahatan berulang (simulasi intrusi nyata) — harus **melewati threshold ≥3x**       | `calibration_raw`                       |
-| **D** | Ram     | Mengukur pendobrakan berulang (simulasi intrusi kasar) — harus **melewati threshold ≥3x**     | `calibration_raw`                       |
+| **C** | Chisel  | Mengukur pemahatan berulang (simulasi intrusi nyata) — harus **melewati threshold ≥2x**       | `calibration_raw`                       |
+| **D** | Ram     | Mengukur pendobrakan berulang (simulasi intrusi kasar) — harus **melewati threshold ≥2x**     | `calibration_raw`                       |
 
 **Logika penentuan threshold:**
 
 ```
 TH_HIT > max(Δg_Session_A)        → tidak ada alarm dari derau lingkungan
 TH_HIT ≈ mean(peak_Δg_Session_B)  → benturan tunggal melewati threshold hanya 1x (tidak alarm)
-TH_HIT << min(peak_Δg_Session_C)  → pemahatan melewati threshold ≥3x (alarm)
+TH_HIT << min(peak_Δg_Session_C)  → pemahatan melewati threshold ≥2x (alarm)
 ```
 
 ---

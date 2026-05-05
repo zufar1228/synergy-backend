@@ -331,7 +331,7 @@ Template tabel laporan:
   "seq": 1,
   "test_bypass_cooldown": true,
   "peak_delta_g": 1.42,
-  "anomaly_count": 3
+  "anomaly_count": 2
 }
 ```
 

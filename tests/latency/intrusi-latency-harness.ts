@@ -491,8 +491,8 @@ const runOneScenario = async (
       state: 'ARMED',
       door: 'CLOSED',
       peak_delta_g: Number((1.2 + Math.random() * 0.5).toFixed(3)),
-      anomaly_count: 3,
-      window_threshold: 3,
+      anomaly_count: 2,
+      window_threshold: 2,
       window_s: 45
     });
     return;
