@@ -95,13 +95,16 @@ static const int SIREN_MAX_PWM = 20;                  // atur kekuatan pwm
 // --- Battery Monitoring: Robust (§9) ---
 static constexpr uint32_t VBAT_READ_INTERVAL_MS        = 10000;  // read every 10s
 static constexpr uint32_t POST_SIREN_SETTLE_MS         = 5000;   // gating after siren off
-static constexpr uint32_t POST_SOURCE_CHANGE_SETTLE_MS = 2000;   // gating after power change
+static constexpr uint32_t POST_SOURCE_CHANGE_SETTLE_MS = 8000;   // gating after power change (8s: TP4056 charger IC needs time to stabilize after source switch)
 static constexpr float    V_BAT_IMPLAUSIBLE            = 4.35f;  // anomaly: discard above this
 static constexpr float    V_LOW_ENTER                  = 3.60f;  // enter LOW level
 static constexpr float    V_LOW_EXIT                   = 3.65f;  // exit LOW → NORMAL
 static constexpr float    V_CRIT_ENTER                 = 3.40f;  // enter CRITICAL level
 static constexpr float    V_CRIT_EXIT                  = 3.45f;  // exit CRITICAL → LOW
 static constexpr uint8_t  VBAT_MEDIAN_N                = 15;     // median filter window
+
+// --- Power Source Change Rate-Limit ---
+static constexpr uint32_t MIN_POWER_PUBLISH_INTERVAL_MS = 2000;  // minimum interval between consecutive POWER_SOURCE_CHANGED publishes
 
 // --- Heartbeat ---
 static constexpr uint32_t STATUS_INTERVAL_MS = 15000;  // heartbeat every 15s
@@ -144,6 +147,15 @@ static uint32_t lastVbatReadMs     = 0;
 static uint32_t sourceChangeMs     = 0;   // timestamp when power source changed (for gating)
 static BattLevel   battLevel       = BATT_NORMAL;
 static BattLevel   prevBattLevel   = BATT_NORMAL;
+
+// --- Power Debounce State Machine (Fix: bouncing on adapter removal) ---
+// Debounce timer: wait ADAPTER_DEBOUNCE_MS of stable signal before committing change.
+// Rate-limiter: enforce MIN_POWER_PUBLISH_INTERVAL_MS between back-to-back publishes.
+static uint32_t lastPowerPublishMs   = 0;    // timestamp of last POWER_SOURCE_CHANGED publish
+static uint32_t adapterChangeDebounceMs = 0; // millis() when the pending change was first seen
+static bool     adapterInstantPending   = false; // true = a change is pending debounce confirmation
+static bool     adapterInstantValue     = false; // raw pin value of the pending change
+static constexpr uint32_t ADAPTER_DEBOUNCE_MS = 300; // debounce window — symmetrises plug/unplug detection
 
 // --- Network Policy ---
 static NetPolicy netPolicy = NET_IDLE_SAVE;
@@ -1023,8 +1035,12 @@ static float readBatteryMedian() {
 
 static void readBatteryVoltage() {
   // Gating check
+  // NOTE: vbat_pct will legitimately differ when the charger (TP4056) is active vs. on battery.
+  // The charger injects current into the sense path, pulling the ADC pin slightly lower than
+  // true open-circuit voltage.  POST_SOURCE_CHANGE_SETTLE_MS gives the charger time to
+  // stabilise so subsequent reads reflect the real battery SoC.  This is expected behaviour.
   if (vbatGated()) {
-    Serial.println("[VBAT] Gated — skipping read");
+    Serial.println("[VBAT] Gated — skipping read (charger/siren settle period active)");
     return;
   }
 
@@ -1098,27 +1114,87 @@ static bool readAdapterPresentStable() {
   return highCount >= TH;
 }
 
+// powerUpdate() — debounce + rate-limited power source detection
+//
+// Problem solved:
+//   1. GPIO bounce (HIGH/LOW/HIGH on unplug) caused multiple POWER_SOURCE_CHANGED
+//      notifications within milliseconds.  Fix: 300 ms debounce state machine.
+//   2. Detection was asymmetric (plug=fast, unplug=slow due to parasitic capacitance).
+//      Fix: the same debounce window makes both paths ~300 ms.
+//   3. EMA filter carried stale voltage from previous source; reset it on source change
+//      so the first post-settle reads aren't biased by old data.
+//   4. Added 2-second rate-limit guard as a secondary backstop against burst publishes.
 static void powerUpdate() {
-  bool instant = (digitalRead(PIN_ADAPTER_PRESENT) == HIGH);
+  uint32_t now   = millis();
+  bool     instant = (digitalRead(PIN_ADAPTER_PRESENT) == HIGH);
 
-  if (instant == adapterPresentPrev) {
-    adapterPresent = instant;
+  // ── Debounce state machine ───────────────────────────────────────────────
+  // Phase 1: raw pin differs from last-committed state → start/refresh timer
+  if (instant != adapterPresentPrev) {
+    if (!adapterInstantPending) {
+      // New change detected — arm the debounce timer
+      adapterInstantPending = true;
+      adapterInstantValue   = instant;
+      adapterChangeDebounceMs = now;
+      logMsg("[POWER] Pin change detected (raw=" + String(instant ? "HIGH" : "LOW")
+           + ") — debounce armed for " + String(ADAPTER_DEBOUNCE_MS) + "ms");
+    } else if (instant != adapterInstantValue) {
+      // Pin is bouncing back — refresh timer with latest raw value
+      adapterInstantValue   = instant;
+      adapterChangeDebounceMs = now;
+      logMsg("[POWER] Pin bounced — debounce timer reset");
+    }
+    // else: same pending value, timer already running — do nothing
   } else {
-    adapterPresent = readAdapterPresentStable();
+    // Pin agrees with committed state — cancel any pending debounce
+    if (adapterInstantPending) {
+      adapterInstantPending = false;
+      logMsg("[POWER] Debounce cancelled — pin returned to committed state");
+    }
   }
 
-  if (adapterPresent != adapterPresentPrev) {
-    adapterPresentPrev = adapterPresent;
-    sourceChangeMs = millis();  // gating: mark power source change time
+  // Phase 2: debounce window elapsed → confirm and commit
+  if (adapterInstantPending && (now - adapterChangeDebounceMs) >= ADAPTER_DEBOUNCE_MS) {
+    adapterInstantPending = false;
 
-    // Read battery after settling (will be gated for POST_SOURCE_CHANGE_SETTLE_MS)
-    logMsg("[POWER] Source changed → " + String(adapterPresent ? "MAINS" : "BATTERY"));
-    publishPowerSourceChanged(adapterPresent);
-    publishStatus();
+    // Double-check with multi-sample stable read
+    bool confirmed = readAdapterPresentStable();
+    logMsg("[POWER] Debounce elapsed — stable read: " + String(confirmed ? "HIGH" : "LOW"));
+
+    if (confirmed != adapterPresentPrev) {
+      adapterPresent     = confirmed;
+      adapterPresentPrev = confirmed;
+      sourceChangeMs     = now;   // start ADC gating window
+
+      // Reset EMA filter so carry-over from old source does not bias new reads
+      // (charger IC changes the electrical conditions on the sense path)
+      vbatFiltered = 0.0f;
+      logMsg("[POWER] EMA reset after source change — new readings will re-warm filter");
+
+      logMsg("[POWER] Source changed → " + String(adapterPresent ? "MAINS" : "BATTERY"));
+
+      // ── Rate-limit publish ──────────────────────────────────────────────
+      // Guards against any residual burst even after debounce (secondary backstop)
+      if ((now - lastPowerPublishMs) >= MIN_POWER_PUBLISH_INTERVAL_MS) {
+        lastPowerPublishMs = now;
+        publishPowerSourceChanged(adapterPresent);
+        publishStatus();
+      } else {
+        logMsg("[POWER] Rate-limit: publish suppressed (last publish "
+             + String(now - lastPowerPublishMs) + "ms ago < "
+             + String(MIN_POWER_PUBLISH_INTERVAL_MS) + "ms)");
+      }
+    } else {
+      logMsg("[POWER] Debounce resolved — no net state change (glitch suppressed)");
+    }
   }
 
-  // Periodic battery voltage read
-  uint32_t now = millis();
+  // ── Keep adapterPresent in sync when no change is pending ───────────────
+  if (!adapterInstantPending) {
+    adapterPresent = adapterPresentPrev;
+  }
+
+  // ── Periodic battery voltage read ───────────────────────────────────────
   if (now - lastVbatReadMs >= VBAT_READ_INTERVAL_MS) {
     lastVbatReadMs = now;
     readBatteryVoltage();
