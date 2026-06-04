@@ -183,8 +183,7 @@ export const lingkungan_logs = pgTable(
       .default('unacknowledged'),
     acknowledged_by: uuid('acknowledged_by'),
     acknowledged_at: timestamp('acknowledged_at'),
-    notes: text('notes'),
-    notification_sent_at: timestamp('notification_sent_at')
+    notes: text('notes')
   },
   (table) => [
     index('idx_lingkungan_logs_device_ts').on(table.device_id, table.timestamp)
@@ -239,8 +238,7 @@ export const intrusi_logs = pgTable(
       .default('unacknowledged'),
     acknowledged_by: uuid('acknowledged_by'),
     acknowledged_at: timestamp('acknowledged_at'),
-    notes: text('notes'),
-    notification_sent_at: timestamp('notification_sent_at')
+    notes: text('notes')
   },
   (table) => [
     index('idx_intrusi_logs_device_ts').on(table.device_id, table.timestamp),
@@ -261,28 +259,23 @@ export const keamanan_logs = pgTable(
       .references(() => devices.id),
     created_at: timestamp('created_at').defaultNow(),
     image_url: text('image_url').notNull(),
-    detected: boolean('detected').notNull().default(false),
-    box: jsonb('box'),
     confidence: real('confidence'),
-    attributes: jsonb('attributes'),
     status: text('status')
       .$type<'unacknowledged' | 'acknowledged' | 'resolved' | 'false_alarm'>()
       .notNull()
       .default('unacknowledged'),
     acknowledged_by: uuid('acknowledged_by'),
     acknowledged_at: timestamp('acknowledged_at'),
-    notes: text('notes'),
-    notification_sent_at: timestamp('notification_sent_at')
+    notes: text('notes')
   },
   (table) => [
     index('idx_keamanan_logs_device_created').on(
       table.device_id,
       table.created_at
     ),
-    index('idx_keamanan_logs_detected_status').on(
-      table.detected,
+    index('idx_keamanan_logs_status_created').on(
       table.status,
-      table.notification_sent_at
+      table.created_at
     )
   ]
 );
