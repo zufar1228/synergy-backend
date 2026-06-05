@@ -9,55 +9,26 @@
 
 import { db } from '../../../db/drizzle';
 import { keamanan_logs, devices } from '../../../db/schema';
-import { eq, and, isNull, gt, ne, inArray } from 'drizzle-orm';
+import { eq, and, gt, inArray } from 'drizzle-orm';
 import * as telegramService from '../../../services/telegramService';
 import { formatTimestampWIB } from '../../../utils/time';
 
 const REPEAT_WINDOW_MINUTES = 15;
 
-/**
- * Mengubah JSON atribut mentah dari Python menjadi string kunci yang konsisten.
- */
-function getIdentityKey(attributes: any[] | null): string {
-  if (!attributes || attributes.length === 0) return 'unknown';
-
-  const flatAttributes: any[] = [];
-
-  attributes.forEach((person: any) => {
-    if (person.attributes && Array.isArray(person.attributes)) {
-      flatAttributes.push(...person.attributes);
-    } else if (person.attribute) {
-      flatAttributes.push(person);
-    }
-  });
-
-  if (flatAttributes.length === 0) return 'unknown';
-
-  return flatAttributes
-    .map((attr: any) => {
-      if (!attr.attribute) return '';
-      return attr.attribute
-        .replace('person wearing a ', 'baju-')
-        .replace('person not wearing a ', 'tanpa-')
-        .replace(' shirt', '')
-        .replace(' hat', '-topi')
-        .replace(' glasses', '-kacamata');
-    })
-    .filter((attr) => attr.length > 0)
-    .sort()
-    .join('_');
-}
+// In-memory set to prevent spamming notifications for the same device
+// since the notification_sent_at column was removed from the database
+const recentlyNotifiedDevices = new Set<string>();
 
 /**
  * Layanan utama untuk mencari dan memberi notifikasi deteksi berulang
  */
 export const findAndNotifyRepeatDetections = async () => {
   // 1. Cari semua log deteksi baru yang belum diproses notifikasinya
+  const windowStart = new Date(Date.now() - REPEAT_WINDOW_MINUTES * 60 * 1000);
   const newDetections = await db.query.keamanan_logs.findMany({
     where: and(
-      eq(keamanan_logs.detected, true),
-      isNull(keamanan_logs.notification_sent_at),
-      eq(keamanan_logs.status, 'unacknowledged')
+      eq(keamanan_logs.status, 'unacknowledged'),
+      gt(keamanan_logs.created_at, windowStart)
     ),
     with: {
       device: {
@@ -76,13 +47,11 @@ export const findAndNotifyRepeatDetections = async () => {
     return;
   }
 
-  // Gunakan Map untuk mengelompokkan log berdasarkan "kunci identitas"
+  // Gunakan Map untuk mengelompokkan log berdasarkan device_id
   const detectionMap = new Map<string, typeof newDetections>();
 
   for (const detection of newDetections) {
-    const identityKey = `${detection.device_id}_${getIdentityKey(
-      detection.attributes as any[]
-    )}`;
+    const identityKey = `${detection.device_id}`;
     if (!detectionMap.has(identityKey)) {
       detectionMap.set(identityKey, []);
     }
@@ -91,28 +60,8 @@ export const findAndNotifyRepeatDetections = async () => {
 
   // 2. Proses setiap grup identitas
   for (const [identityKey, detections] of detectionMap.entries()) {
-    // 3. Cek apakah ada log LAMA (sudah dinotifikasi) dengan kunci yang sama dalam 15 DETIK terakhir
-    const detectionIds = detections.map((d) => d.id);
-    const recentNotified = await db
-      .select({ id: keamanan_logs.id })
-      .from(keamanan_logs)
-      .where(
-        and(
-          ne(keamanan_logs.id, detections[0].id), // Simplified: exclude first
-          eq(keamanan_logs.device_id, detections[0].device_id),
-          // Note: JSON equality check — we match on device_id + identity key logic instead
-          gt(keamanan_logs.notification_sent_at, new Date(0)), // not null
-          gt(keamanan_logs.created_at, new Date(Date.now() - 15 * 1000))
-        )
-      )
-      .limit(1);
-
-    if (recentNotified.length > 0) {
-      // Notifikasi untuk orang ini sudah dikirim baru-baru ini. Tandai log baru & abaikan.
-      await db
-        .update(keamanan_logs)
-        .set({ notification_sent_at: new Date() })
-        .where(inArray(keamanan_logs.id, detectionIds));
+    // 3. Cek apakah device ini baru saja dinotifikasi (via in-memory set)
+    if (recentlyNotifiedDevices.has(identityKey)) {
       console.log(
         `[RepeatDetection] Mengabaikan ${identityKey}, notifikasi baru saja terkirim.`
       );
@@ -143,7 +92,7 @@ export const findAndNotifyRepeatDetections = async () => {
 
 <b>Lokasi:</b> ${warehouse.name} - ${area.name}
 <b>Device:</b> ${device.name}
-<b>Identitas:</b> ${getIdentityKey(firstDetection.attributes as any[]).replace(/_/g, ', ')}
+<b>Identitas:</b> Deteksi berulang
 
 <b>Detail Deteksi:</b>
   • Deteksi pertama: ${formatTimestampWIB(firstDetection.created_at!)}
@@ -166,11 +115,11 @@ export const findAndNotifyRepeatDetections = async () => {
 
       await telegramTask;
 
-      // 8. Tandai semua log ini sebagai sudah dinotifikasi
-      await db
-        .update(keamanan_logs)
-        .set({ notification_sent_at: new Date() })
-        .where(inArray(keamanan_logs.id, detectionIds));
+      // 8. Tandai device ini sebagai sudah dinotifikasi dalam set in-memory
+      recentlyNotifiedDevices.add(identityKey);
+      setTimeout(() => {
+        recentlyNotifiedDevices.delete(identityKey);
+      }, REPEAT_WINDOW_MINUTES * 60 * 1000);
     }
   }
 };
