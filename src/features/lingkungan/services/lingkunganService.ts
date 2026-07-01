@@ -53,6 +53,9 @@ const predictionInFlight = new Set<string>();
 const actualAlertCountMap = new Map<string, number>();
 const ACTUAL_ALERT_MAX = 3;
 
+// Per-device recovery notification tracker (kirim recovery hanya SEKALI per episode)
+const recoveryNotifiedSet = new Set<string>();
+
 /**
  * Ingest raw sensor data from MQTT and trigger ML prediction pipeline.
  */
@@ -304,12 +307,14 @@ const handleFirmwareSafetyCheck = async (
     dehumTurnedOff = true;
   }
 
-  // Notifikasi Telegram recovery: hanya saat SEMUA parameter aman
+  // Notifikasi Telegram recovery: hanya saat SEMUA parameter aman, dan SEKALI saja per episode
   const allSafe = tempSafe && humSafe && co2Safe;
-  if (allSafe && (fanTurnedOff || dehumTurnedOff ||
-      (freshDevice.fan_state === 'OFF' && freshDevice.dehumidifier_state === 'OFF'))) {
-    // Reset notification counter
+  if (allSafe && !recoveryNotifiedSet.has(data.device_id) &&
+      (fanTurnedOff || dehumTurnedOff ||
+       (freshDevice.fan_state === 'OFF' && freshDevice.dehumidifier_state === 'OFF'))) {
+    // Reset notification counter & tandai sudah kirim recovery
     actualAlertCountMap.delete(data.device_id);
+    recoveryNotifiedSet.add(data.device_id);
 
     await lingkunganAlertingService.processLingkunganAlert(
       data.device_id,
@@ -472,6 +477,9 @@ const handleActualThresholdControl = async (
   // Increment notification counter for this device
   const currentCount = (actualAlertCountMap.get(data.device_id) ?? 0) + 1;
   actualAlertCountMap.set(data.device_id, currentCount);
+
+  // Reset recovery flag — episode kritis baru dimulai, recovery bisa dikirim lagi nanti
+  recoveryNotifiedSet.delete(data.device_id);
 
   console.log(
     `[LingkunganService] Actual threshold alert ${currentCount}/${ACTUAL_ALERT_MAX} for device ${data.device_id}`
