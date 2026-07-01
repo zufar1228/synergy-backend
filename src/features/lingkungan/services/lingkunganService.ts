@@ -49,6 +49,10 @@ const MANUAL_OVERRIDE_DURATION_MS = 5 * 60 * 1000;
 // Per-device prediction mutex to prevent parallel predictions
 const predictionInFlight = new Set<string>();
 
+// Per-device actual alert notification counter (max 3 before auto-actuate)
+const actualAlertCountMap = new Map<string, number>();
+const ACTUAL_ALERT_MAX = 3;
+
 /**
  * Ingest raw sensor data from MQTT and trigger ML prediction pipeline.
  */
@@ -235,7 +239,10 @@ export const handlePredictionResult = async (
 };
 
 /**
- * Level 2: Firmware safety check — turn OFF actuators if below safe thresholds.
+ * Level 2: Firmware safety check — turn OFF actuators independently per parameter.
+ * Fan OFF when temperature alone is safe.
+ * Dehumidifier OFF when humidity AND CO2 are both safe.
+ * Telegram notification only when ALL parameters are safe.
  */
 const handleFirmwareSafetyCheck = async (
   data: {
@@ -246,55 +253,70 @@ const handleFirmwareSafetyCheck = async (
   },
   _device: any
 ) => {
-  if (
-    data.temperature < SAFE_TEMP &&
-    data.humidity < SAFE_HUMIDITY &&
-    data.co2 < SAFE_CO2
-  ) {
-    const freshDevice = await db.query.devices.findFirst({
-      where: eq(devices.id, data.device_id),
-      with: { area: { columns: { id: true, warehouse_id: true } } }
-    });
-    if (!freshDevice) return;
+  const tempSafe = data.temperature < SAFE_TEMP;
+  const humSafe = data.humidity < SAFE_HUMIDITY;
+  const co2Safe = data.co2 < SAFE_CO2;
 
-    if (freshDevice.control_mode === 'MANUAL') {
-      const overrideUntil = freshDevice.manual_override_until;
-      if (!overrideUntil || new Date(overrideUntil) > new Date()) {
-        console.log(
-          '[LingkunganService] Manual override active. Skipping safety deactivation.'
-        );
-        return;
-      }
-      await db
-        .update(devices)
-        .set({ control_mode: 'AUTO', manual_override_until: null })
-        .where(eq(devices.id, data.device_id));
-    }
+  const freshDevice = await db.query.devices.findFirst({
+    where: eq(devices.id, data.device_id),
+    with: { area: { columns: { id: true, warehouse_id: true } } }
+  });
+  if (!freshDevice) return;
 
-    if (
-      freshDevice.fan_state === 'ON' ||
-      freshDevice.dehumidifier_state === 'ON'
-    ) {
+  // Skip if manual override is active and not expired
+  if (freshDevice.control_mode === 'MANUAL') {
+    const overrideUntil = freshDevice.manual_override_until;
+    if (!overrideUntil || new Date(overrideUntil) > new Date()) {
       console.log(
-        '[LingkunganService] Safety thresholds clear. Turning off actuators.'
+        '[LingkunganService] Manual override active. Skipping safety deactivation.'
       );
-      await sendActuatorCommand(
-        data.device_id,
-        { fan: 'OFF', dehumidifier: 'OFF' },
-        freshDevice
-      );
-      await db
-        .update(devices)
-        .set({ fan_state: 'OFF', dehumidifier_state: 'OFF' })
-        .where(eq(devices.id, data.device_id));
-
-      await lingkunganAlertingService.processLingkunganAlert(
-        data.device_id,
-        ['Kondisi lingkungan kembali stabil. Aktuator dinonaktifkan.'],
-        data,
-        'RECOVERY'
-      );
+      return;
     }
+    // Override expired — switch back to AUTO
+    await db
+      .update(devices)
+      .set({ control_mode: 'AUTO', manual_override_until: null })
+      .where(eq(devices.id, data.device_id));
+  }
+
+  let fanTurnedOff = false;
+  let dehumTurnedOff = false;
+
+  // Kipas: matikan saat SUHU saja sudah aman
+  if (tempSafe && freshDevice.fan_state === 'ON') {
+    console.log('[LingkunganService] Temperature safe. Turning off fan.');
+    await sendActuatorCommand(data.device_id, { fan: 'OFF' }, freshDevice);
+    await db
+      .update(devices)
+      .set({ fan_state: 'OFF' })
+      .where(eq(devices.id, data.device_id));
+    fanTurnedOff = true;
+  }
+
+  // Dehumidifier: matikan saat KELEMBAPAN DAN CO2 sudah aman
+  if (humSafe && co2Safe && freshDevice.dehumidifier_state === 'ON') {
+    console.log('[LingkunganService] Humidity & CO2 safe. Turning off dehumidifier.');
+    await sendActuatorCommand(data.device_id, { dehumidifier: 'OFF' }, freshDevice);
+    await db
+      .update(devices)
+      .set({ dehumidifier_state: 'OFF' })
+      .where(eq(devices.id, data.device_id));
+    dehumTurnedOff = true;
+  }
+
+  // Notifikasi Telegram recovery: hanya saat SEMUA parameter aman
+  const allSafe = tempSafe && humSafe && co2Safe;
+  if (allSafe && (fanTurnedOff || dehumTurnedOff ||
+      (freshDevice.fan_state === 'OFF' && freshDevice.dehumidifier_state === 'OFF'))) {
+    // Reset notification counter
+    actualAlertCountMap.delete(data.device_id);
+
+    await lingkunganAlertingService.processLingkunganAlert(
+      data.device_id,
+      ['Kondisi lingkungan kembali stabil. Semua aktuator telah dinonaktifkan.'],
+      data,
+      'RECOVERY'
+    );
   }
 };
 
@@ -401,7 +423,10 @@ const handlePredictiveControl = async (
 };
 
 /**
- * Level 3: Failsafe warning — SEND ALERTS and TRIGGER ACTUATORS based on ACTUAL readings.
+ * Level 3: Failsafe — NOTIFY user up to 3 times based on ACTUAL readings.
+ * If user does not activate actuators manually after 3rd notification,
+ * system auto-activates the relevant actuators.
+ * Notifications stop immediately when user activates actuator via dashboard.
  */
 const handleActualThresholdControl = async (
   data: {
@@ -417,6 +442,7 @@ const handleActualThresholdControl = async (
   });
   if (!freshDevice) return;
 
+  // Skip if manual override is active
   if (freshDevice.control_mode === 'MANUAL') {
     const overrideUntil = freshDevice.manual_override_until;
     if (!overrideUntil || new Date(overrideUntil) > new Date()) {
@@ -427,48 +453,53 @@ const handleActualThresholdControl = async (
     }
   }
 
-  let triggerFan = false;
-  let triggerDehumidifier = false;
+  // Determine which actuators are needed but NOT yet active
+  const needFan = data.temperature >= FAILSAFE_TEMP_THRESHOLD && freshDevice.fan_state !== 'ON';
+  const needDehum = (data.humidity >= FAILSAFE_HUMIDITY_THRESHOLD || data.co2 >= FAILSAFE_CO2_THRESHOLD)
+    && freshDevice.dehumidifier_state !== 'ON';
+
+  // If no actuator needs attention → reset counter and return
+  if (!needFan && !needDehum) {
+    if (actualAlertCountMap.has(data.device_id)) {
+      console.log(
+        `[LingkunganService] Actuator(s) already active for ${data.device_id}. Notifications stopped.`
+      );
+      actualAlertCountMap.delete(data.device_id);
+    }
+    return;
+  }
+
+  // Increment notification counter for this device
+  const currentCount = (actualAlertCountMap.get(data.device_id) ?? 0) + 1;
+  actualAlertCountMap.set(data.device_id, currentCount);
+
+  console.log(
+    `[LingkunganService] Actual threshold alert ${currentCount}/${ACTUAL_ALERT_MAX} for device ${data.device_id}`
+  );
+
+  // Build alert messages
   const alerts: string[] = [];
 
-  if (data.temperature >= FAILSAFE_TEMP_THRESHOLD) {
-    triggerFan = true;
+  if (needFan) {
     alerts.push(
-      `Suhu saat ini ${data.temperature.toFixed(1)}°C (>= ${FAILSAFE_TEMP_THRESHOLD}°C)`
+      `Suhu saat ini ${data.temperature.toFixed(1)}°C (>= ${FAILSAFE_TEMP_THRESHOLD}°C). Kipas belum aktif.`
+    );
+  }
+  if (needDehum && data.humidity >= FAILSAFE_HUMIDITY_THRESHOLD) {
+    alerts.push(
+      `Kelembapan saat ini ${data.humidity.toFixed(1)}% (>= ${FAILSAFE_HUMIDITY_THRESHOLD}%). Dehumidifier belum aktif.`
+    );
+  }
+  if (needDehum && data.co2 >= FAILSAFE_CO2_THRESHOLD) {
+    alerts.push(
+      `CO2 saat ini ${data.co2.toFixed(0)}ppm (>= ${FAILSAFE_CO2_THRESHOLD}ppm). Dehumidifier belum aktif.`
     );
   }
 
-  if (data.humidity >= FAILSAFE_HUMIDITY_THRESHOLD) {
-    triggerDehumidifier = true;
+  // Send notification (up to 3 times)
+  if (currentCount <= ACTUAL_ALERT_MAX) {
     alerts.push(
-      `Kelembapan saat ini ${data.humidity.toFixed(1)}% (>= ${FAILSAFE_HUMIDITY_THRESHOLD}%)`
-    );
-  }
-
-  if (data.co2 >= FAILSAFE_CO2_THRESHOLD) {
-    triggerDehumidifier = true;
-    alerts.push(
-      `CO2 saat ini ${data.co2.toFixed(0)}ppm (>= ${FAILSAFE_CO2_THRESHOLD}ppm)`
-    );
-  }
-
-  if (triggerFan || triggerDehumidifier) {
-    const command: any = {};
-    if (triggerFan) command.fan = 'ON';
-    if (triggerDehumidifier) command.dehumidifier = 'ON';
-
-    await sendActuatorCommand(data.device_id, command, freshDevice);
-
-    const updateData: Record<string, any> = {};
-    if (triggerFan) updateData.fan_state = 'ON';
-    if (triggerDehumidifier) updateData.dehumidifier_state = 'ON';
-    await db
-      .update(devices)
-      .set(updateData)
-      .where(eq(devices.id, data.device_id));
-
-    alerts.push(
-      "Silakan klik 'Aktifkan Mode Manual' di dashboard untuk mengambil alih kontrol."
+      `⚠️ Notifikasi ke-${currentCount}/${ACTUAL_ALERT_MAX}. Silakan aktifkan aktuator melalui Mode Manual di dashboard.`
     );
 
     await lingkunganAlertingService.processLingkunganAlert(
@@ -477,6 +508,34 @@ const handleActualThresholdControl = async (
       data,
       'FAILSAFE'
     );
+  }
+
+  // 3rd notification reached → auto-activate actuators
+  if (currentCount >= ACTUAL_ALERT_MAX) {
+    console.log(
+      `[LingkunganService] ${ACTUAL_ALERT_MAX} notifications sent. Auto-activating actuators for ${data.device_id}.`
+    );
+
+    const command: any = {};
+    const updateData: Record<string, any> = {};
+
+    if (needFan) {
+      command.fan = 'ON';
+      updateData.fan_state = 'ON';
+    }
+    if (needDehum) {
+      command.dehumidifier = 'ON';
+      updateData.dehumidifier_state = 'ON';
+    }
+
+    await sendActuatorCommand(data.device_id, command, freshDevice);
+    await db
+      .update(devices)
+      .set(updateData)
+      .where(eq(devices.id, data.device_id));
+
+    // Reset counter after auto-activation
+    actualAlertCountMap.delete(data.device_id);
   }
 };
 
