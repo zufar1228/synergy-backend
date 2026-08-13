@@ -87,11 +87,12 @@ export const findAndNotifyRepeatDetections = async () => {
       // 5. Kirim notifikasi
       const telegramTask = (async () => {
         try {
+          const locationLabel = `${warehouse.name} ${area.name}`;
           const message = `
 <b>PERINGATAN KEAMANAN</b>
 
-<b>Lokasi:</b> ${warehouse.name} - ${area.name}
-<b>Device:</b> ${device.name}
+<b>Lokasi:</b> ${locationLabel}
+<b>Kamera:</b> ${device.name}
 <b>Identitas:</b> Deteksi berulang
 
 <b>Detail Deteksi:</b>

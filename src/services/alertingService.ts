@@ -132,8 +132,8 @@ export const notifySubscribers = async (
       const message = `
 ${statusMarker} <b>${statusText}</b>
 
-<b>Lokasi:</b> ${emailProps.warehouseName} - ${emailProps.areaName}
-<b>Device:</b> ${emailProps.deviceName}
+<b>Lokasi:</b> ${emailProps.warehouseName} ${emailProps.areaName}
+<b>Perangkat:</b> ${emailProps.deviceName}
 ${emailProps.incidentType ? `<b>Tipe:</b> ${emailProps.incidentType}` : ''}
 ${detailText ? `\n<b>Detail:</b>\n${detailText}` : ''}
 
